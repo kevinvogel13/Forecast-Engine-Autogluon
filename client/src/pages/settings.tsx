@@ -97,13 +97,13 @@ export default function Settings() {
         </div>
 
         <Tabs defaultValue="features" className="w-full">
-          <TabsList className="grid w-full grid-cols-6 mb-8">
-            <TabsTrigger value="features">Feature Engineering</TabsTrigger>
-            <TabsTrigger value="models">Model Specs</TabsTrigger>
-            <TabsTrigger value="backtesting">Backtesting</TabsTrigger>
-            <TabsTrigger value="training">Strategy</TabsTrigger>
-            <TabsTrigger value="hyperparameters">Hyperparameters</TabsTrigger>
-            <TabsTrigger value="general">System</TabsTrigger>
+          <TabsList className="w-full flex flex-wrap h-auto mb-8 justify-start gap-1 p-1 bg-muted rounded-md">
+            <TabsTrigger value="features" className="flex-1 min-w-[150px]">Feature Engineering</TabsTrigger>
+            <TabsTrigger value="models" className="flex-1 min-w-[120px]">Model Specs</TabsTrigger>
+            <TabsTrigger value="backtesting" className="flex-1 min-w-[120px]">Backtesting</TabsTrigger>
+            <TabsTrigger value="training" className="flex-1 min-w-[100px]">Strategy</TabsTrigger>
+            <TabsTrigger value="hyperparameters" className="flex-1 min-w-[140px]">Hyperparameters</TabsTrigger>
+            <TabsTrigger value="general" className="flex-1 min-w-[100px]">System</TabsTrigger>
           </TabsList>
 
           {/* --- FEATURE ENGINEERING TAB --- */}
