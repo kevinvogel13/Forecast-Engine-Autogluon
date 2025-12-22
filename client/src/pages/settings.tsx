@@ -14,6 +14,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Save, Bell, Database, Shield, User, Sliders, Cpu, Activity, Calendar as CalendarIcon, Check, ChevronsUpDown, Upload } from 'lucide-react';
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,14 @@ export default function Settings() {
   // State for Model Specs
   const [selectedQuantiles, setSelectedQuantiles] = useState<string[]>(["0.1", "0.5", "0.9"]);
   const [quantileOpen, setQuantileOpen] = useState(false);
+
+  // State for Feature Engineering
+  const [featureToggles, setFeatureToggles] = useState({
+    lagged: true,
+    holidays: true,
+    dateParts: true,
+    rolling: true
+  });
 
   // State for Backtesting
   const [trainDate, setTrainDate] = useState<{ from: Date | undefined; to: Date | undefined }>({
@@ -70,6 +79,10 @@ export default function Settings() {
       ...prev,
       [model]: { ...prev[model], [param]: value }
     }));
+  };
+  
+  const toggleFeature = (key: keyof typeof featureToggles) => {
+    setFeatureToggles(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   const getGeneratedConfig = () => {
@@ -148,7 +161,7 @@ export default function Settings() {
                       </div>
 
                       <div className="space-y-4">
-                         <Label>Item ID (Group)</Label>
+                         <Label>Demand Forecasting Unit (DFU)</Label>
                          <Select defaultValue="sku">
                             <SelectTrigger>
                                <SelectValue placeholder="Select ID..." />
@@ -202,33 +215,131 @@ export default function Settings() {
                    <div className="space-y-4">
                       <h3 className="text-sm font-medium">Feature Engineering</h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                         <div className="border rounded-lg p-4 space-y-3">
+                         <div className="border rounded-lg p-4 space-y-4">
                             <div className="flex items-center justify-between">
-                               <Label>Lagged Features</Label>
-                               <Switch defaultChecked />
+                               <Label className="font-semibold">Lagged Features</Label>
+                               <Switch 
+                                checked={featureToggles.lagged} 
+                                onCheckedChange={() => toggleFeature('lagged')}
+                               />
                             </div>
-                            <p className="text-[10px] text-muted-foreground">Automatically generate lagged values of the target (e.g. sales t-1, t-7).</p>
+                            <p className="text-[10px] text-muted-foreground -mt-2">Automatically generate lagged values of the target.</p>
+                            
+                            {featureToggles.lagged && (
+                              <div className="pt-2">
+                                <RadioGroup defaultValue="standard">
+                                  <div className="flex items-center space-x-2 mb-2">
+                                    <RadioGroupItem value="standard" id="lag-standard" />
+                                    <Label htmlFor="lag-standard" className="text-sm font-normal">Standard (Lags 1-7)</Label>
+                                  </div>
+                                  <div className="flex items-center space-x-2 mb-2">
+                                    <RadioGroupItem value="extended" id="lag-extended" />
+                                    <Label htmlFor="lag-extended" className="text-sm font-normal">Extended (Lags 1-14)</Label>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="seasonal" id="lag-seasonal" />
+                                    <Label htmlFor="lag-seasonal" className="text-sm font-normal">Seasonal (Lags 1, 7, 14, 28)</Label>
+                                  </div>
+                                </RadioGroup>
+                              </div>
+                            )}
                          </div>
-                         <div className="border rounded-lg p-4 space-y-3">
+
+                         <div className="border rounded-lg p-4 space-y-4">
                             <div className="flex items-center justify-between">
-                               <Label>Holiday Features</Label>
-                               <Switch defaultChecked />
+                               <Label className="font-semibold">Date Parts</Label>
+                               <Switch 
+                                checked={featureToggles.dateParts} 
+                                onCheckedChange={() => toggleFeature('dateParts')}
+                               />
                             </div>
-                            <p className="text-[10px] text-muted-foreground">Add boolean flags for national holidays based on country code.</p>
+                            <p className="text-[10px] text-muted-foreground -mt-2">Extract calendar components from timestamp.</p>
+                            
+                            {featureToggles.dateParts && (
+                              <div className="grid grid-cols-2 gap-3 pt-2">
+                                {[
+                                  {id: "year", label: "Year"},
+                                  {id: "month", label: "Month"},
+                                  {id: "week", label: "Week of Year"},
+                                  {id: "day", label: "Day of Week"},
+                                  {id: "quarter", label: "Quarter"}
+                                ].map(part => (
+                                  <div key={part.id} className="flex items-center space-x-2">
+                                    <Checkbox id={`date-${part.id}`} defaultChecked />
+                                    <Label htmlFor={`date-${part.id}`} className="text-sm font-normal">{part.label}</Label>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                          </div>
-                         <div className="border rounded-lg p-4 space-y-3">
+
+                         <div className="border rounded-lg p-4 space-y-4">
                             <div className="flex items-center justify-between">
-                               <Label>Date Parts</Label>
-                               <Switch defaultChecked />
+                               <Label className="font-semibold">Rolling Statistics</Label>
+                               <Switch 
+                                checked={featureToggles.rolling} 
+                                onCheckedChange={() => toggleFeature('rolling')}
+                               />
                             </div>
-                            <p className="text-[10px] text-muted-foreground">Extract components like Day of Week, Month, Quarter, etc.</p>
+                            <p className="text-[10px] text-muted-foreground -mt-2">Compute rolling statistics over time windows.</p>
+                            
+                            {featureToggles.rolling && (
+                              <div className="space-y-4 pt-2">
+                                <div className="space-y-2">
+                                  <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Statistics</Label>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {["Mean", "Std Dev", "Min", "Max"].map(stat => (
+                                      <div key={stat} className="flex items-center space-x-2">
+                                        <Checkbox id={`stat-${stat}`} defaultChecked={stat === "Mean" || stat === "Std Dev"} />
+                                        <Label htmlFor={`stat-${stat}`} className="text-sm font-normal">{stat}</Label>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                                
+                                <Separator className="my-2" />
+                                
+                                <div className="space-y-2">
+                                  <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Window Sizes</Label>
+                                  <div className="grid grid-cols-2 gap-2">
+                                     {["4 Periods", "12 Periods", "24 Periods"].map(window => (
+                                      <div key={window} className="flex items-center space-x-2">
+                                        <Checkbox id={`win-${window}`} defaultChecked={window === "4 Periods"} />
+                                        <Label htmlFor={`win-${window}`} className="text-sm font-normal">{window}</Label>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                          </div>
-                         <div className="border rounded-lg p-4 space-y-3">
+
+                         <div className="border rounded-lg p-4 space-y-4 h-fit">
                             <div className="flex items-center justify-between">
-                               <Label>Rolling Statistics</Label>
-                               <Switch defaultChecked />
+                               <Label className="font-semibold">Holiday Features</Label>
+                               <Switch 
+                                checked={featureToggles.holidays} 
+                                onCheckedChange={() => toggleFeature('holidays')}
+                               />
                             </div>
-                            <p className="text-[10px] text-muted-foreground">Compute rolling mean, std dev, and other stats over time windows.</p>
+                            <p className="text-[10px] text-muted-foreground -mt-2">Add boolean flags for national holidays.</p>
+                            
+                            {featureToggles.holidays && (
+                              <div className="pt-2">
+                                <Label className="text-xs mb-1.5 block">Country Code</Label>
+                                <Select defaultValue="us">
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="us">United States (US)</SelectItem>
+                                    <SelectItem value="uk">United Kingdom (UK)</SelectItem>
+                                    <SelectItem value="de">Germany (DE)</SelectItem>
+                                    <SelectItem value="fr">France (FR)</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
                          </div>
                       </div>
                    </div>
