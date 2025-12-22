@@ -10,12 +10,12 @@ export default function Validate() {
   return (
     <Shell>
       <div className="flex flex-col space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Data Validation & EDA</h2>
             <p className="text-muted-foreground">Exploratory analysis and quality checks for your forecasting dataset.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" className="gap-2">
               <Download className="w-4 h-4" /> Export Report
             </Button>
