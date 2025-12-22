@@ -2,8 +2,11 @@ import Shell from '@/components/layout/Shell';
 import EDADashboard from '@/components/dashboard/EDADashboard';
 import { Button } from '@/components/ui/button';
 import { FileCheck, ArrowRight, Download } from 'lucide-react';
+import { useLocation } from "wouter";
 
 export default function Validate() {
+  const [, setLocation] = useLocation();
+
   return (
     <Shell>
       <div className="flex flex-col space-y-6">
@@ -16,7 +19,10 @@ export default function Validate() {
             <Button variant="outline" className="gap-2">
               <Download className="w-4 h-4" /> Export Report
             </Button>
-            <Button className="gap-2 bg-green-600 hover:bg-green-700">
+            <Button 
+              className="gap-2 bg-green-600 hover:bg-green-700"
+              onClick={() => setLocation('/forecast-result')}
+            >
               Approve Dataset <ArrowRight className="w-4 h-4" />
             </Button>
           </div>

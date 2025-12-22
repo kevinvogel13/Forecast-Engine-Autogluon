@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Pipeline from "@/pages/pipeline";
 import Validate from "@/pages/validate";
+import Settings from "@/pages/settings";
+import ForecastResult from "@/pages/forecast-result";
 
 function Router() {
   return (
@@ -13,6 +15,8 @@ function Router() {
       <Route path="/" component={Pipeline} />
       <Route path="/pipeline" component={() => <Redirect to="/" />} />
       <Route path="/validate" component={Validate} />
+      <Route path="/settings" component={Settings} />
+      <Route path="/forecast-result" component={ForecastResult} />
       <Route component={NotFound} />
     </Switch>
   );
