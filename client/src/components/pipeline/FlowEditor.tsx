@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef } from 'react';
+import { useCallback, useState, useRef, useMemo } from 'react';
 import { 
   ReactFlow, 
   MiniMap, 
@@ -13,7 +13,8 @@ import {
   BackgroundVariant,
   ReactFlowProvider,
   useReactFlow,
-  Panel
+  Panel,
+  NodeTypes
 } from '@xyflow/react';
  
 import '@xyflow/react/dist/style.css';
@@ -27,13 +28,69 @@ import { Separator } from '@/components/ui/separator';
 import FileDropzone from '@/components/file-upload/FileDropzone';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import PipelineNode from './PipelineNode';
+
+// Define custom node types
+const nodeTypes: NodeTypes = {
+  custom: PipelineNode,
+};
 
 const initialNodes = [
-  { id: '1', position: { x: 100, y: 100 }, data: { label: 'Sales_Data_2023.csv' }, type: 'input', className: 'border-2 border-blue-200 bg-white min-w-[180px]' },
-  { id: '2', position: { x: 100, y: 250 }, data: { label: 'Sales_Data_2024.csv' }, type: 'input', className: 'border-2 border-blue-200 bg-white min-w-[180px]' },
-  { id: '3', position: { x: 450, y: 175 }, data: { label: 'Merge: Date & SKU' }, className: 'border-2 border-orange-200 bg-orange-50 min-w-[150px]' },
-  { id: '4', position: { x: 700, y: 175 }, data: { label: 'Filter: Valid Regions' }, className: 'border-2 border-purple-200 bg-purple-50 min-w-[150px]' },
-  { id: '5', position: { x: 950, y: 175 }, data: { label: 'Forecast Model' }, type: 'output', className: 'border-2 border-green-200 bg-green-50 min-w-[150px] font-bold' },
+  { 
+    id: '1', 
+    position: { x: 100, y: 100 }, 
+    data: { 
+      label: 'Sales_Data_2023.csv', 
+      type: 'input',
+      status: 'success',
+      stats: { rows: 45200, cols: 12, volume: '2.1M' }
+    }, 
+    type: 'custom'
+  },
+  { 
+    id: '2', 
+    position: { x: 100, y: 350 }, 
+    data: { 
+      label: 'Sales_Data_2024.csv', 
+      type: 'input',
+      status: 'success',
+      stats: { rows: 12400, cols: 12, volume: '0.8M' }
+    }, 
+    type: 'custom' 
+  },
+  { 
+    id: '3', 
+    position: { x: 450, y: 225 }, 
+    data: { 
+      label: 'Merge: Date & SKU', 
+      type: 'merge',
+      status: 'processing',
+      stats: { rows: 57600, cols: 12, volume: '2.9M' }
+    }, 
+    type: 'custom'
+  },
+  { 
+    id: '4', 
+    position: { x: 800, y: 225 }, 
+    data: { 
+      label: 'Filter: Valid Regions', 
+      type: 'filter',
+      status: 'pending',
+      stats: { rows: 55100, cols: 12, volume: '2.85M' }
+    }, 
+    type: 'custom' 
+  },
+  { 
+    id: '5', 
+    position: { x: 1150, y: 225 }, 
+    data: { 
+      label: 'Forecast Model', 
+      type: 'output',
+      status: 'pending',
+      stats: { rows: 55100, cols: 14 } // +2 cols for forecast
+    }, 
+    type: 'custom' 
+  },
 ];
 
 const initialEdges = [
@@ -76,9 +133,8 @@ function FlowWithProvider() {
 
       const type = event.dataTransfer.getData('application/reactflow/type');
       const label = event.dataTransfer.getData('application/reactflow/label');
-      const className = event.dataTransfer.getData('application/reactflow/className');
+      // Removed className because we handle styling in the custom node now
 
-      // check if the dropped element is valid
       if (typeof type === 'undefined' || !type) {
         return;
       }
@@ -90,10 +146,14 @@ function FlowWithProvider() {
 
       const newNode = {
         id: getId(),
-        type,
+        type: 'custom', // Use our custom node renderer
         position,
-        data: { label: label },
-        className: className,
+        data: { 
+           label: label, 
+           type: type, // Pass the functional type to the node data
+           stats: { rows: 0, cols: 0 },
+           status: 'pending'
+        },
       };
 
       setNodes((nds) => nds.concat(newNode));
@@ -128,16 +188,44 @@ function FlowWithProvider() {
 
   const handleFileUpload = (fileName: string) => {
     if (!selectedNode) return;
-    // Update node label to filename if it's currently generic
-    if (selectedNode.data.label === 'Data Source' || selectedNode.data.label === 'CSV Source') {
-      updateNodeLabel(fileName);
-    }
+    
+    // Simulate updating stats after upload
+    const mockStats = {
+       rows: Math.floor(Math.random() * 50000) + 10000,
+       cols: Math.floor(Math.random() * 20) + 5,
+       volume: (Math.random() * 5).toFixed(1) + 'M'
+    };
+
+    setNodes((nds) =>
+       nds.map((node) => {
+          if (node.id === selectedNode.id) {
+             return {
+                ...node,
+                data: { 
+                   ...node.data, 
+                   label: fileName,
+                   status: 'success',
+                   stats: mockStats
+                }
+             };
+          }
+          return node;
+       })
+    );
+    
+    // Also update selected node state to reflect changes in the panel immediately
+    setSelectedNode((prev: any) => ({ 
+       ...prev, 
+       data: { 
+          ...prev.data, 
+          label: fileName,
+          stats: mockStats
+       } 
+    }));
   };
 
   const loadPipeline = (pipelineId: string) => {
-    // Mock loading logic - in real app would fetch from API
     setLoadDialogOpen(false);
-    // Just shake the screen or toast to simulate loading for now since we don't have real backend persistence for these mocked pipelines
   };
 
   return (
@@ -198,6 +286,7 @@ function FlowWithProvider() {
           onDragOver={onDragOver}
           onNodeClick={onNodeClick}
           onPaneClick={() => setSelectedNode(null)}
+          nodeTypes={nodeTypes}
           fitView
           attributionPosition="bottom-left"
         >
@@ -224,10 +313,30 @@ function FlowWithProvider() {
                     />
                   </div>
                   
-                  {(selectedNode.type === 'input') && (
+                  {(selectedNode.data.type === 'input') && (
                      <div className="space-y-2">
                         <Label>Data Source</Label>
                         <FileDropzone compact onUploadComplete={handleFileUpload} />
+                     </div>
+                  )}
+
+                  {selectedNode.data.stats && (
+                     <div className="space-y-2 pt-2">
+                        <Label>Metadata</Label>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                           <div className="p-2 bg-muted/50 rounded border">
+                              <span className="text-muted-foreground block mb-0.5">Rows</span>
+                              <span className="font-mono font-medium">{selectedNode.data.stats.rows.toLocaleString()}</span>
+                           </div>
+                           <div className="p-2 bg-muted/50 rounded border">
+                              <span className="text-muted-foreground block mb-0.5">Columns</span>
+                              <span className="font-mono font-medium">{selectedNode.data.stats.cols}</span>
+                           </div>
+                           <div className="p-2 bg-muted/50 rounded border col-span-2">
+                              <span className="text-muted-foreground block mb-0.5">Total Volume</span>
+                              <span className="font-mono font-medium text-primary">{selectedNode.data.stats.volume || 'N/A'}</span>
+                           </div>
+                        </div>
                      </div>
                   )}
 
