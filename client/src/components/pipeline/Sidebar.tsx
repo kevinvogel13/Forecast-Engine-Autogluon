@@ -1,4 +1,11 @@
-import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, Layers, ListTree, TableProperties, Code, HardDrive } from 'lucide-react';
+import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, Layers, ListTree, TableProperties, Code, HardDrive, History } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Separator } from "@/components/ui/separator";
 
 export default function Sidebar() {
   const onDragStart = (event: React.DragEvent, nodeType: string, label: string) => {
@@ -7,115 +14,117 @@ export default function Sidebar() {
     event.dataTransfer.effectAllowed = 'move';
   };
 
+  const DraggableIcon = ({ type, label, icon: Icon, colorClass, borderClass }: { type: string, label: string, icon: any, colorClass: string, borderClass: string }) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div 
+          className={`bg-card border-2 border-border p-3 rounded-lg cursor-grab shadow-sm hover:shadow-md transition-all flex items-center justify-center w-10 h-10 ${borderClass}`}
+          onDragStart={(event) => onDragStart(event, type, label)}
+          draggable
+        >
+          <Icon className={`w-5 h-5 ${colorClass}`} />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        <p>{label}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+
   return (
-    <div className="w-64 bg-card border-l border-border p-4 flex flex-col gap-4 overflow-y-auto">
-      <div className="text-sm font-semibold text-muted-foreground mb-2">Components</div>
-      
-      <div className="space-y-3">
-        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Sources</div>
-        <div 
-          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-blue-200 hover:bg-blue-50/50"
-          onDragStart={(event) => onDragStart(event, 'input', 'File Source')}
-          draggable
-        >
-          <FileSpreadsheet className="w-4 h-4 text-blue-500" />
-          <span className="text-sm font-medium">File Source</span>
+    <TooltipProvider delayDuration={0}>
+      <div className="w-16 bg-card border-l border-border py-4 flex flex-col items-center gap-4 overflow-y-auto overflow-x-hidden h-full">
+        
+        <div className="flex flex-col gap-3 w-full items-center">
+          <DraggableIcon 
+            type="input" 
+            label="File Source" 
+            icon={FileSpreadsheet} 
+            colorClass="text-blue-500" 
+            borderClass="hover:border-blue-200 hover:bg-blue-50/50" 
+          />
+          <DraggableIcon 
+            type="sql" 
+            label="SQL Query" 
+            icon={Database} 
+            colorClass="text-cyan-600" 
+            borderClass="hover:border-cyan-200 hover:bg-cyan-50/50" 
+          />
         </div>
-        <div 
-          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-cyan-200 hover:bg-cyan-50/50"
-          onDragStart={(event) => onDragStart(event, 'sql', 'SQL Query')}
-          draggable
-        >
-          <Database className="w-4 h-4 text-cyan-600" />
-          <span className="text-sm font-medium">SQL Query</span>
-        </div>
-      </div>
 
-      <div className="space-y-3">
-        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Operations</div>
-        <div 
-          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-orange-200 hover:bg-orange-50/50"
-          onDragStart={(event) => onDragStart(event, 'merge', 'Merge')}
-          draggable
-        >
-          <GitMerge className="w-4 h-4 text-orange-500" />
-          <span className="text-sm font-medium">Merge / Join</span>
-        </div>
-        <div 
-          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-orange-200 hover:bg-orange-50/50"
-          onDragStart={(event) => onDragStart(event, 'union', 'Union')}
-          draggable
-        >
-          <Layers className="w-4 h-4 text-orange-500" />
-          <span className="text-sm font-medium">Union</span>
-        </div>
-        <div 
-          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-purple-200 hover:bg-purple-50/50"
-          onDragStart={(event) => onDragStart(event, 'filter', 'Filter')}
-          draggable
-        >
-          <Filter className="w-4 h-4 text-purple-500" />
-          <span className="text-sm font-medium">Filter</span>
-        </div>
-        <div 
-          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-indigo-200 hover:bg-indigo-50/50"
-          onDragStart={(event) => onDragStart(event, 'groupby', 'Group By')}
-          draggable
-        >
-          <ListTree className="w-4 h-4 text-indigo-500" />
-          <span className="text-sm font-medium">Group By</span>
-        </div>
-        <div 
-          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-indigo-200 hover:bg-indigo-50/50"
-          onDragStart={(event) => onDragStart(event, 'pivot', 'Pivot')}
-          draggable
-        >
-          <TableProperties className="w-4 h-4 text-indigo-500" />
-          <span className="text-sm font-medium">Pivot</span>
-        </div>
-        <div 
-          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-indigo-200 hover:bg-indigo-50/50"
-          onDragStart={(event) => onDragStart(event, 'transform', 'Transform')}
-          draggable
-        >
-          <Calculator className="w-4 h-4 text-indigo-500" />
-          <span className="text-sm font-medium">Transform</span>
-        </div>
-        <div 
-          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-yellow-200 hover:bg-yellow-50/50"
-          onDragStart={(event) => onDragStart(event, 'python', 'Python Script')}
-          draggable
-        >
-          <Code className="w-4 h-4 text-yellow-600" />
-          <span className="text-sm font-medium">Python Script</span>
-        </div>
-      </div>
+        <Separator className="w-8" />
 
-      <div className="space-y-3">
-        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Outputs</div>
-        <div 
-          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-green-200 hover:bg-green-50/50"
-          onDragStart={(event) => onDragStart(event, 'output', 'Baseline Forecast')}
-          draggable
-        >
-          <HardDrive className="w-4 h-4 text-green-600" />
-          <span className="text-sm font-medium">Baseline Forecast</span>
+        <div className="flex flex-col gap-3 w-full items-center">
+          <DraggableIcon 
+            type="merge" 
+            label="Merge / Join" 
+            icon={GitMerge} 
+            colorClass="text-orange-500" 
+            borderClass="hover:border-orange-200 hover:bg-orange-50/50" 
+          />
+          <DraggableIcon 
+            type="union" 
+            label="Union" 
+            icon={Layers} 
+            colorClass="text-orange-500" 
+            borderClass="hover:border-orange-200 hover:bg-orange-50/50" 
+          />
+          <DraggableIcon 
+            type="filter" 
+            label="Filter" 
+            icon={Filter} 
+            colorClass="text-purple-500" 
+            borderClass="hover:border-purple-200 hover:bg-purple-50/50" 
+          />
+          <DraggableIcon 
+            type="groupby" 
+            label="Group By" 
+            icon={ListTree} 
+            colorClass="text-indigo-500" 
+            borderClass="hover:border-indigo-200 hover:bg-indigo-50/50" 
+          />
+          <DraggableIcon 
+            type="pivot" 
+            label="Pivot" 
+            icon={TableProperties} 
+            colorClass="text-indigo-500" 
+            borderClass="hover:border-indigo-200 hover:bg-indigo-50/50" 
+          />
+          <DraggableIcon 
+            type="transform" 
+            label="Transform" 
+            icon={Calculator} 
+            colorClass="text-indigo-500" 
+            borderClass="hover:border-indigo-200 hover:bg-indigo-50/50" 
+          />
+          <DraggableIcon 
+            type="python" 
+            label="Python Script" 
+            icon={Code} 
+            colorClass="text-yellow-600" 
+            borderClass="hover:border-yellow-200 hover:bg-yellow-50/50" 
+          />
         </div>
-        <div 
-          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-slate-200 hover:bg-slate-50/50"
-          onDragStart={(event) => onDragStart(event, 'history', 'Historic Data')}
-          draggable
-        >
-          <Database className="w-4 h-4 text-slate-600" />
-          <span className="text-sm font-medium">Historic Data</span>
+
+        <Separator className="w-8" />
+
+        <div className="flex flex-col gap-3 w-full items-center">
+          <DraggableIcon 
+            type="output" 
+            label="Baseline Forecast" 
+            icon={HardDrive} 
+            colorClass="text-green-600" 
+            borderClass="hover:border-green-200 hover:bg-green-50/50" 
+          />
+          <DraggableIcon 
+            type="history" 
+            label="Historic Data" 
+            icon={History} 
+            colorClass="text-slate-600" 
+            borderClass="hover:border-slate-200 hover:bg-slate-50/50" 
+          />
         </div>
       </div>
-      
-      <div className="mt-auto pt-4 border-t border-border">
-         <p className="text-xs text-muted-foreground">
-           Drag components onto the canvas to add them to your pipeline.
-         </p>
-      </div>
-    </div>
+    </TooltipProvider>
   );
 }
