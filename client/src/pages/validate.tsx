@@ -19,11 +19,19 @@ export default function Validate() {
             <Button variant="outline" className="gap-2">
               <Download className="w-4 h-4" /> Export Report
             </Button>
+            <div className="flex items-center border rounded-md overflow-hidden bg-muted/20">
+               <button className="px-3 py-2 text-sm font-medium bg-background text-foreground shadow-sm hover:bg-muted/50 transition-all border-r">
+                  Historic Actuals
+               </button>
+               <button className="px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-all">
+                  Historic Forecast
+               </button>
+            </div>
             <Button 
               className="gap-2 bg-green-600 hover:bg-green-700"
-              onClick={() => setLocation('/forecast-result')}
+              onClick={() => setLocation('/settings')}
             >
-              Approve Dataset <ArrowRight className="w-4 h-4" />
+              Configure Models <ArrowRight className="w-4 h-4" />
             </Button>
           </div>
         </div>

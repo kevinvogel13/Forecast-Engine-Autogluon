@@ -95,11 +95,19 @@ export default function Sidebar() {
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Outputs</div>
         <div 
           className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-green-200 hover:bg-green-50/50"
-          onDragStart={(event) => onDragStart(event, 'output', 'Forecast Model')}
+          onDragStart={(event) => onDragStart(event, 'output', 'Baseline Forecast')}
           draggable
         >
           <HardDrive className="w-4 h-4 text-green-600" />
-          <span className="text-sm font-medium">Model Output</span>
+          <span className="text-sm font-medium">Baseline Forecast</span>
+        </div>
+        <div 
+          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-slate-200 hover:bg-slate-50/50"
+          onDragStart={(event) => onDragStart(event, 'history', 'Historic Data')}
+          draggable
+        >
+          <Database className="w-4 h-4 text-slate-600" />
+          <span className="text-sm font-medium">Historic Data</span>
         </div>
       </div>
       

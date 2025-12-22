@@ -96,14 +96,145 @@ export default function Settings() {
            </Button>
         </div>
 
-        <Tabs defaultValue="models" className="w-full">
-          <TabsList className="grid w-full grid-cols-5 mb-8">
+        <Tabs defaultValue="features" className="w-full">
+          <TabsList className="grid w-full grid-cols-6 mb-8">
+            <TabsTrigger value="features">Feature Engineering</TabsTrigger>
             <TabsTrigger value="models">Model Specs</TabsTrigger>
             <TabsTrigger value="backtesting">Backtesting</TabsTrigger>
             <TabsTrigger value="training">Strategy</TabsTrigger>
             <TabsTrigger value="hyperparameters">Hyperparameters</TabsTrigger>
             <TabsTrigger value="general">System</TabsTrigger>
           </TabsList>
+
+          {/* --- FEATURE ENGINEERING TAB --- */}
+          <TabsContent value="features" className="space-y-6">
+             <Card>
+                <CardHeader>
+                   <div className="flex items-center gap-2">
+                      <Database className="w-5 h-5 text-primary" />
+                      <CardTitle>Dataset Schema & Features</CardTitle>
+                   </div>
+                   <CardDescription>Define column roles and feature engineering steps.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-8">
+                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-4">
+                         <Label>Target Variable</Label>
+                         <Select defaultValue="sales">
+                            <SelectTrigger>
+                               <SelectValue placeholder="Select target..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                               <SelectItem value="sales">sales_quantity</SelectItem>
+                               <SelectItem value="revenue">revenue_amt</SelectItem>
+                               <SelectItem value="units">units_sold</SelectItem>
+                            </SelectContent>
+                         </Select>
+                         <p className="text-[10px] text-muted-foreground">The column you want to forecast.</p>
+                      </div>
+                      
+                      <div className="space-y-4">
+                         <Label>Time Column</Label>
+                         <Select defaultValue="date">
+                            <SelectTrigger>
+                               <SelectValue placeholder="Select date..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                               <SelectItem value="date">transaction_date</SelectItem>
+                               <SelectItem value="ts">timestamp</SelectItem>
+                            </SelectContent>
+                         </Select>
+                         <p className="text-[10px] text-muted-foreground">Timestamp column for the time series.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                         <Label>Item ID (Group)</Label>
+                         <Select defaultValue="sku">
+                            <SelectTrigger>
+                               <SelectValue placeholder="Select ID..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                               <SelectItem value="sku">product_sku</SelectItem>
+                               <SelectItem value="store">store_id</SelectItem>
+                               <SelectItem value="combo">sku_store_combo</SelectItem>
+                            </SelectContent>
+                         </Select>
+                         <p className="text-[10px] text-muted-foreground">Unique identifier for each time series.</p>
+                      </div>
+                   </div>
+
+                   <Separator />
+
+                   <div className="space-y-4">
+                      <h3 className="text-sm font-medium">Feature Types</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                         <div className="space-y-2">
+                            <Label>Static Categorical Features</Label>
+                            <div className="min-h-[100px] p-3 border rounded-md bg-muted/10 text-xs">
+                               <div className="flex flex-wrap gap-2">
+                                  {['product_category', 'brand', 'color', 'store_region'].map(col => (
+                                     <div key={col} className="bg-background border px-2 py-1 rounded flex items-center gap-1">
+                                        {col} <span className="text-muted-foreground cursor-pointer hover:text-destructive">×</span>
+                                     </div>
+                                  ))}
+                                  <div className="border border-dashed px-2 py-1 rounded text-muted-foreground cursor-pointer hover:bg-muted">+ Add</div>
+                               </div>
+                            </div>
+                         </div>
+                         <div className="space-y-2">
+                            <Label>Dynamic Real-time Features</Label>
+                            <div className="min-h-[100px] p-3 border rounded-md bg-muted/10 text-xs">
+                               <div className="flex flex-wrap gap-2">
+                                  {['price', 'promotion_active', 'temperature'].map(col => (
+                                     <div key={col} className="bg-background border px-2 py-1 rounded flex items-center gap-1">
+                                        {col} <span className="text-muted-foreground cursor-pointer hover:text-destructive">×</span>
+                                     </div>
+                                  ))}
+                                  <div className="border border-dashed px-2 py-1 rounded text-muted-foreground cursor-pointer hover:bg-muted">+ Add</div>
+                               </div>
+                            </div>
+                         </div>
+                      </div>
+                   </div>
+
+                   <Separator />
+
+                   <div className="space-y-4">
+                      <h3 className="text-sm font-medium">Feature Engineering</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                         <div className="border rounded-lg p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                               <Label>Lagged Features</Label>
+                               <Switch defaultChecked />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">Automatically generate lagged values of the target (e.g. sales t-1, t-7).</p>
+                         </div>
+                         <div className="border rounded-lg p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                               <Label>Holiday Features</Label>
+                               <Switch defaultChecked />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">Add boolean flags for national holidays based on country code.</p>
+                         </div>
+                         <div className="border rounded-lg p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                               <Label>Date Parts</Label>
+                               <Switch defaultChecked />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">Extract components like Day of Week, Month, Quarter, etc.</p>
+                         </div>
+                         <div className="border rounded-lg p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                               <Label>Rolling Statistics</Label>
+                               <Switch defaultChecked />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">Compute rolling mean, std dev, and other stats over time windows.</p>
+                         </div>
+                      </div>
+                   </div>
+                </CardContent>
+             </Card>
+          </TabsContent>
 
           {/* --- MODEL SPECS TAB --- */}
           <TabsContent value="models" className="space-y-6">
@@ -346,16 +477,6 @@ export default function Settings() {
                   <Separator />
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                     <div className="space-y-4">
-                        <Label>Comparison Baseline</Label>
-                        <div className="p-4 border rounded-lg space-y-4">
-                           <div className="grid gap-2">
-                              <Label>Incumbent Forecast File (Optional)</Label>
-                              <Input type="file" className="cursor-pointer" />
-                              <p className="text-[10px] text-muted-foreground">Upload existing forecast CSV to compare performance against.</p>
-                           </div>
-                        </div>
-                     </div>
                      <div className="space-y-4">
                         <Label>Lag Configuration</Label>
                         <div className="p-4 border rounded-lg space-y-4">
