@@ -30,6 +30,25 @@ const QUANTILES = [
   { value: "0.99", label: "P99 (Extreme)" },
 ];
 
+const ROLLING_STATS = [
+  { value: "mean", label: "Mean" },
+  { value: "std", label: "Std Dev" },
+  { value: "min", label: "Min" },
+  { value: "max", label: "Max" },
+  { value: "median", label: "Median" },
+  { value: "sum", label: "Sum" },
+];
+
+const ROLLING_WINDOWS = Array.from({ length: 52 }, (_, i) => ({
+  value: (i + 2).toString(),
+  label: `${i + 2} Periods`
+}));
+
+const LAG_WINDOWS = Array.from({ length: 52 }, (_, i) => ({
+  value: (i + 2).toString(),
+  label: `Lag ${i + 2}`
+}));
+
 export default function Settings() {
   // State for Model Specs
   const [selectedQuantiles, setSelectedQuantiles] = useState<string[]>(["0.1", "0.5", "0.9"]);
@@ -42,6 +61,14 @@ export default function Settings() {
     dateParts: true,
     rolling: true
   });
+  
+  const [selectedRollingStats, setSelectedRollingStats] = useState<string[]>(["mean", "std"]);
+  const [rollingStatsOpen, setRollingStatsOpen] = useState(false);
+  const [selectedRollingWindows, setSelectedRollingWindows] = useState<string[]>(["4", "12"]);
+  const [rollingWindowsOpen, setRollingWindowsOpen] = useState(false);
+  
+  const [selectedLags, setSelectedLags] = useState<string[]>(["1", "7", "28"]);
+  const [lagsOpen, setLagsOpen] = useState(false);
 
   // State for Backtesting
   const [trainDate, setTrainDate] = useState<{ from: Date | undefined; to: Date | undefined }>({
@@ -227,20 +254,71 @@ export default function Settings() {
                             
                             {featureToggles.lagged && (
                               <div className="pt-2">
-                                <RadioGroup defaultValue="standard">
-                                  <div className="flex items-center space-x-2 mb-2">
-                                    <RadioGroupItem value="standard" id="lag-standard" />
-                                    <Label htmlFor="lag-standard" className="text-sm font-normal">Standard (Lags 1-7)</Label>
-                                  </div>
-                                  <div className="flex items-center space-x-2 mb-2">
-                                    <RadioGroupItem value="extended" id="lag-extended" />
-                                    <Label htmlFor="lag-extended" className="text-sm font-normal">Extended (Lags 1-14)</Label>
-                                  </div>
-                                  <div className="flex items-center space-x-2">
-                                    <RadioGroupItem value="seasonal" id="lag-seasonal" />
-                                    <Label htmlFor="lag-seasonal" className="text-sm font-normal">Seasonal (Lags 1, 7, 14, 28)</Label>
-                                  </div>
-                                </RadioGroup>
+                                <Label className="text-xs mb-1.5 block">Select Specific Lags (t-n)</Label>
+                                <Popover open={lagsOpen} onOpenChange={setLagsOpen}>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      role="combobox"
+                                      aria-expanded={lagsOpen}
+                                      className="w-full justify-between h-9"
+                                    >
+                                      {selectedLags.length > 0
+                                        ? `${selectedLags.length} lags selected`
+                                        : "Select lags..."}
+                                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[300px] p-0">
+                                    <Command>
+                                      <CommandInput placeholder="Search lags..." />
+                                      <CommandList className="max-h-[200px]">
+                                        <CommandEmpty>No lag found.</CommandEmpty>
+                                        <CommandGroup>
+                                          <CommandItem
+                                            value="1"
+                                            onSelect={() => {
+                                                setSelectedLags(prev => 
+                                                  prev.includes("1") 
+                                                  ? prev.filter(v => v !== "1")
+                                                  : [...prev, "1"]
+                                                );
+                                            }}
+                                          >
+                                            <Check
+                                              className={cn(
+                                                "mr-2 h-4 w-4",
+                                                selectedLags.includes("1") ? "opacity-100" : "opacity-0"
+                                              )}
+                                            />
+                                            Lag 1 (Standard)
+                                          </CommandItem>
+                                          {LAG_WINDOWS.map((lag) => (
+                                            <CommandItem
+                                              key={lag.value}
+                                              value={lag.value}
+                                              onSelect={(currentValue) => {
+                                                setSelectedLags(prev => 
+                                                   prev.includes(currentValue) 
+                                                   ? prev.filter(v => v !== currentValue)
+                                                   : [...prev, currentValue]
+                                                );
+                                              }}
+                                            >
+                                              <Check
+                                                className={cn(
+                                                  "mr-2 h-4 w-4",
+                                                  selectedLags.includes(lag.value) ? "opacity-100" : "opacity-0"
+                                                )}
+                                              />
+                                              {lag.label}
+                                            </CommandItem>
+                                          ))}
+                                        </CommandGroup>
+                                      </CommandList>
+                                    </Command>
+                                  </PopoverContent>
+                                </Popover>
                               </div>
                             )}
                          </div>
@@ -287,28 +365,102 @@ export default function Settings() {
                               <div className="space-y-4 pt-2">
                                 <div className="space-y-2">
                                   <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Statistics</Label>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    {["Mean", "Std Dev", "Min", "Max"].map(stat => (
-                                      <div key={stat} className="flex items-center space-x-2">
-                                        <Checkbox id={`stat-${stat}`} defaultChecked={stat === "Mean" || stat === "Std Dev"} />
-                                        <Label htmlFor={`stat-${stat}`} className="text-sm font-normal">{stat}</Label>
-                                      </div>
-                                    ))}
-                                  </div>
+                                  <Popover open={rollingStatsOpen} onOpenChange={setRollingStatsOpen}>
+                                    <PopoverTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        role="combobox"
+                                        aria-expanded={rollingStatsOpen}
+                                        className="w-full justify-between h-9"
+                                      >
+                                        {selectedRollingStats.length > 0
+                                          ? `${selectedRollingStats.length} stats selected`
+                                          : "Select statistics..."}
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                      </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[300px] p-0">
+                                      <Command>
+                                        <CommandList>
+                                          <CommandGroup>
+                                            {ROLLING_STATS.map((stat) => (
+                                              <CommandItem
+                                                key={stat.value}
+                                                value={stat.value}
+                                                onSelect={(currentValue) => {
+                                                  setSelectedRollingStats(prev => 
+                                                     prev.includes(currentValue) 
+                                                     ? prev.filter(v => v !== currentValue)
+                                                     : [...prev, currentValue]
+                                                  );
+                                                }}
+                                              >
+                                                <Check
+                                                  className={cn(
+                                                    "mr-2 h-4 w-4",
+                                                    selectedRollingStats.includes(stat.value) ? "opacity-100" : "opacity-0"
+                                                  )}
+                                                />
+                                                {stat.label}
+                                              </CommandItem>
+                                            ))}
+                                          </CommandGroup>
+                                        </CommandList>
+                                      </Command>
+                                    </PopoverContent>
+                                  </Popover>
                                 </div>
                                 
                                 <Separator className="my-2" />
                                 
                                 <div className="space-y-2">
-                                  <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Window Sizes</Label>
-                                  <div className="grid grid-cols-2 gap-2">
-                                     {["4 Periods", "12 Periods", "24 Periods"].map(window => (
-                                      <div key={window} className="flex items-center space-x-2">
-                                        <Checkbox id={`win-${window}`} defaultChecked={window === "4 Periods"} />
-                                        <Label htmlFor={`win-${window}`} className="text-sm font-normal">{window}</Label>
-                                      </div>
-                                    ))}
-                                  </div>
+                                  <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Window Sizes (Periods)</Label>
+                                  <Popover open={rollingWindowsOpen} onOpenChange={setRollingWindowsOpen}>
+                                    <PopoverTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        role="combobox"
+                                        aria-expanded={rollingWindowsOpen}
+                                        className="w-full justify-between h-9"
+                                      >
+                                        {selectedRollingWindows.length > 0
+                                          ? `${selectedRollingWindows.length} windows selected`
+                                          : "Select windows..."}
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                      </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[300px] p-0">
+                                      <Command>
+                                        <CommandInput placeholder="Search window sizes..." />
+                                        <CommandList className="max-h-[200px]">
+                                           <CommandEmpty>No window size found.</CommandEmpty>
+                                          <CommandGroup>
+                                            {ROLLING_WINDOWS.map((win) => (
+                                              <CommandItem
+                                                key={win.value}
+                                                value={win.value}
+                                                onSelect={(currentValue) => {
+                                                  setSelectedRollingWindows(prev => 
+                                                     prev.includes(currentValue) 
+                                                     ? prev.filter(v => v !== currentValue)
+                                                     : [...prev, currentValue]
+                                                  );
+                                                }}
+                                              >
+                                                <Check
+                                                  className={cn(
+                                                    "mr-2 h-4 w-4",
+                                                    selectedRollingWindows.includes(win.value) ? "opacity-100" : "opacity-0"
+                                                  )}
+                                                />
+                                                {win.label}
+                                              </CommandItem>
+                                            ))}
+                                          </CommandGroup>
+                                        </CommandList>
+                                      </Command>
+                                    </PopoverContent>
+                                  </Popover>
                                 </div>
                               </div>
                             )}
