@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import Shell from '@/components/layout/Shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,23 +11,98 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Save, Bell, Database, Shield, User, Sliders, Cpu, Activity } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Save, Bell, Database, Shield, User, Sliders, Cpu, Activity, Calendar as CalendarIcon, Check, ChevronsUpDown, Upload } from 'lucide-react';
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
+
+// Mock available quantiles
+const QUANTILES = [
+  { value: "0.1", label: "P10 (Low)" },
+  { value: "0.25", label: "P25" },
+  { value: "0.5", label: "P50 (Median)" },
+  { value: "0.75", label: "P75" },
+  { value: "0.9", label: "P90 (High)" },
+  { value: "0.95", label: "P95" },
+  { value: "0.99", label: "P99 (Extreme)" },
+];
 
 export default function Settings() {
+  // State for Model Specs
+  const [selectedQuantiles, setSelectedQuantiles] = useState<string[]>(["0.1", "0.5", "0.9"]);
+  const [quantileOpen, setQuantileOpen] = useState(false);
+
+  // State for Backtesting
+  const [trainDate, setTrainDate] = useState<{ from: Date | undefined; to: Date | undefined }>({
+    from: new Date(2023, 0, 1),
+    to: new Date(2023, 11, 31),
+  });
+  const [backtestDate, setBacktestDate] = useState<{ from: Date | undefined; to: Date | undefined }>({
+    from: new Date(2024, 0, 1),
+    to: new Date(2024, 2, 31),
+  });
+
+  // State for Hyperparameters
+  const [selectedModels, setSelectedModels] = useState({
+    deepar: true,
+    tft: true,
+    chronos: false,
+    arima: true,
+    ets: true,
+    theta: true,
+    rectab: true
+  });
+
+  const [modelParams, setModelParams] = useState({
+    deepar: { epochs: 50, learning_rate: 0.001, context_length: 64, num_layers: 2, hidden_size: 40, dropout: 0.1 },
+    tft: { epochs: 100, learning_rate: 0.01, hidden_size: 32, attention_head_size: 4, dropout: 0.1 },
+    arima: { p: 5, d: 2, q: 5, seasonal: true, approximation: false },
+  });
+
+  const toggleModel = (key: keyof typeof selectedModels) => {
+    setSelectedModels(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const updateModelParam = (model: keyof typeof modelParams, param: string, value: any) => {
+    setModelParams(prev => ({
+      ...prev,
+      [model]: { ...prev[model], [param]: value }
+    }));
+  };
+
+  const getGeneratedConfig = () => {
+    const config: any = {};
+    Object.entries(selectedModels).forEach(([key, isSelected]) => {
+      if (isSelected) {
+        // @ts-ignore
+        config[key] = modelParams[key] || {};
+      }
+    });
+    return JSON.stringify(config, null, 2);
+  };
+
   return (
     <Shell>
       <div className="space-y-6 max-w-5xl mx-auto pb-12">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Configuration</h2>
-          <p className="text-muted-foreground">Advanced control over AutoGluon forecasting parameters and system behavior.</p>
+        <div className="flex justify-between items-start">
+           <div>
+             <h2 className="text-2xl font-bold tracking-tight">Configuration</h2>
+             <p className="text-muted-foreground">Advanced control over AutoGluon forecasting parameters and system behavior.</p>
+           </div>
+           <Button variant="outline" className="gap-2">
+              <Upload className="w-4 h-4" /> Load Config
+           </Button>
         </div>
 
         <Tabs defaultValue="models" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-8">
+          <TabsList className="grid w-full grid-cols-5 mb-8">
             <TabsTrigger value="models">Model Specs</TabsTrigger>
-            <TabsTrigger value="training">Training Strategy</TabsTrigger>
+            <TabsTrigger value="backtesting">Backtesting</TabsTrigger>
+            <TabsTrigger value="training">Strategy</TabsTrigger>
             <TabsTrigger value="hyperparameters">Hyperparameters</TabsTrigger>
-            <TabsTrigger value="general">System & Profile</TabsTrigger>
+            <TabsTrigger value="general">System</TabsTrigger>
           </TabsList>
 
           {/* --- MODEL SPECS TAB --- */}
@@ -78,63 +154,221 @@ export default function Settings() {
                           </Select>
                           <p className="text-[10px] text-muted-foreground">Primary metric for optimizing models.</p>
                        </div>
-                       <div className="space-y-2">
-                          <Label>Quantile Levels</Label>
-                          <Input defaultValue="0.1, 0.5, 0.9" placeholder="e.g. 0.1, 0.5, 0.9" />
-                          <p className="text-[10px] text-muted-foreground">Probabilistic forecast intervals (comma separated).</p>
+                       <div className="space-y-2 flex flex-col">
+                          <Label className="mb-2">Quantile Levels</Label>
+                          <Popover open={quantileOpen} onOpenChange={setQuantileOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={quantileOpen}
+                                className="justify-between"
+                              >
+                                {selectedQuantiles.length > 0
+                                  ? `${selectedQuantiles.length} selected`
+                                  : "Select quantiles..."}
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[200px] p-0">
+                              <Command>
+                                <CommandList>
+                                   <CommandGroup>
+                                     {QUANTILES.map((quantile) => (
+                                       <CommandItem
+                                         key={quantile.value}
+                                         value={quantile.value}
+                                         onSelect={(currentValue) => {
+                                           setSelectedQuantiles(prev => 
+                                              prev.includes(currentValue) 
+                                              ? prev.filter(v => v !== currentValue)
+                                              : [...prev, currentValue]
+                                           );
+                                         }}
+                                       >
+                                         <Check
+                                           className={cn(
+                                             "mr-2 h-4 w-4",
+                                             selectedQuantiles.includes(quantile.value) ? "opacity-100" : "opacity-0"
+                                           )}
+                                         />
+                                         {quantile.label}
+                                       </CommandItem>
+                                     ))}
+                                   </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                          <p className="text-[10px] text-muted-foreground">Probabilistic forecast intervals.</p>
                        </div>
                     </div>
                  </CardContent>
                </Card>
-
-               <Card>
-                 <CardHeader>
-                   <div className="flex items-center gap-2">
-                     <Activity className="w-5 h-5 text-primary" />
-                     <CardTitle>Quality Presets</CardTitle>
-                   </div>
-                   <CardDescription>High-level configuration for model complexity.</CardDescription>
-                 </CardHeader>
-                 <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                       <Label>Preset Configuration</Label>
-                       <Select defaultValue="medium_quality">
-                          <SelectTrigger>
-                             <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                             <SelectItem value="fast_training">Fast Training (Statistical + Trees)</SelectItem>
-                             <SelectItem value="medium_quality">Medium Quality (Balanced)</SelectItem>
-                             <SelectItem value="high_quality">High Quality (Deep Learning)</SelectItem>
-                             <SelectItem value="best_quality">Best Quality (Intensive HPO)</SelectItem>
-                          </SelectContent>
-                       </Select>
-                    </div>
-                    <div className="space-y-2">
-                       <Label>Time Limit (Seconds)</Label>
-                       <Input type="number" defaultValue="600" />
-                       <p className="text-[10px] text-muted-foreground">Max wall-clock time for training.</p>
-                    </div>
-                 </CardContent>
-               </Card>
-
-               <Card>
-                 <CardHeader>
-                   <div className="flex items-center gap-2">
-                     <Cpu className="w-5 h-5 text-primary" />
-                     <CardTitle>Covariates</CardTitle>
-                   </div>
-                   <CardDescription>External features known in advance.</CardDescription>
-                 </CardHeader>
-                 <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                       <Label>Known Covariates</Label>
-                       <Textarea placeholder="e.g. ['holiday', 'promotion_flag']" className="font-mono text-xs" rows={4} />
-                       <p className="text-[10px] text-muted-foreground">JSON list of column names in your dataset.</p>
-                    </div>
-                 </CardContent>
-               </Card>
             </div>
+          </TabsContent>
+
+          {/* --- BACKTESTING TAB --- */}
+          <TabsContent value="backtesting" className="space-y-6">
+            <Card>
+               <CardHeader>
+                  <div className="flex items-center gap-2">
+                     <CalendarIcon className="w-5 h-5 text-primary" />
+                     <CardTitle>Training & Validation Windows</CardTitle>
+                  </div>
+                  <CardDescription>
+                     Sequester backtesting data from training to prevent leakage and ensure robust evaluation.
+                  </CardDescription>
+               </CardHeader>
+               <CardContent className="space-y-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                     {/* Training Window */}
+                     <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                           <Label className="text-base font-semibold">Training Period</Label>
+                           <span className="text-xs bg-muted px-2 py-1 rounded text-muted-foreground">Historical Data</span>
+                        </div>
+                        <div className="p-4 border rounded-lg bg-muted/10 space-y-4">
+                           <div className="grid gap-2">
+                              <Label>Start Date</Label>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant={"outline"}
+                                    className={cn(
+                                      "w-full justify-start text-left font-normal",
+                                      !trainDate.from && "text-muted-foreground"
+                                    )}
+                                  >
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {trainDate.from ? format(trainDate.from, "PPP") : <span>Pick a date</span>}
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                  <Calendar
+                                    mode="single"
+                                    selected={trainDate.from}
+                                    onSelect={(date) => setTrainDate(prev => ({ ...prev, from: date }))}
+                                    initialFocus
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                           </div>
+                           <div className="grid gap-2">
+                              <Label>End Date</Label>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant={"outline"}
+                                    className={cn(
+                                      "w-full justify-start text-left font-normal",
+                                      !trainDate.to && "text-muted-foreground"
+                                    )}
+                                  >
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {trainDate.to ? format(trainDate.to, "PPP") : <span>Pick a date</span>}
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                  <Calendar
+                                    mode="single"
+                                    selected={trainDate.to}
+                                    onSelect={(date) => setTrainDate(prev => ({ ...prev, to: date }))}
+                                    initialFocus
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                           </div>
+                        </div>
+                     </div>
+
+                     {/* Backtesting Window */}
+                     <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                           <Label className="text-base font-semibold">Backtesting Period</Label>
+                           <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded">Holdout Set</span>
+                        </div>
+                        <div className="p-4 border rounded-lg bg-amber-50/50 space-y-4 border-amber-200/50">
+                           <div className="grid gap-2">
+                              <Label>Start Date</Label>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant={"outline"}
+                                    className={cn(
+                                      "w-full justify-start text-left font-normal",
+                                      !backtestDate.from && "text-muted-foreground"
+                                    )}
+                                  >
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {backtestDate.from ? format(backtestDate.from, "PPP") : <span>Pick a date</span>}
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                  <Calendar
+                                    mode="single"
+                                    selected={backtestDate.from}
+                                    onSelect={(date) => setBacktestDate(prev => ({ ...prev, from: date }))}
+                                    initialFocus
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                           </div>
+                           <div className="grid gap-2">
+                              <Label>End Date</Label>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant={"outline"}
+                                    className={cn(
+                                      "w-full justify-start text-left font-normal",
+                                      !backtestDate.to && "text-muted-foreground"
+                                    )}
+                                  >
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {backtestDate.to ? format(backtestDate.to, "PPP") : <span>Pick a date</span>}
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                  <Calendar
+                                    mode="single"
+                                    selected={backtestDate.to}
+                                    onSelect={(date) => setBacktestDate(prev => ({ ...prev, to: date }))}
+                                    initialFocus
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                     <div className="space-y-4">
+                        <Label>Comparison Baseline</Label>
+                        <div className="p-4 border rounded-lg space-y-4">
+                           <div className="grid gap-2">
+                              <Label>Incumbent Forecast File (Optional)</Label>
+                              <Input type="file" className="cursor-pointer" />
+                              <p className="text-[10px] text-muted-foreground">Upload existing forecast CSV to compare performance against.</p>
+                           </div>
+                        </div>
+                     </div>
+                     <div className="space-y-4">
+                        <Label>Lag Configuration</Label>
+                        <div className="p-4 border rounded-lg space-y-4">
+                           <div className="grid gap-2">
+                              <Label>Backtesting Lag of Importance</Label>
+                              <Input type="number" defaultValue="0" />
+                              <p className="text-[10px] text-muted-foreground">Offset in time steps to align forecast origin for comparison.</p>
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+               </CardContent>
+            </Card>
           </TabsContent>
 
           {/* --- TRAINING STRATEGY TAB --- */}
@@ -143,9 +377,9 @@ export default function Settings() {
               <CardHeader>
                 <div className="flex items-center gap-2">
                   <Sliders className="w-5 h-5 text-primary" />
-                  <CardTitle>Validation Strategy</CardTitle>
+                  <CardTitle>Training Control</CardTitle>
                 </div>
-                <CardDescription>Configure backtesting windows and refitting logic.</CardDescription>
+                <CardDescription>Configure validation folds and ensemble behavior.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -153,7 +387,7 @@ export default function Settings() {
                       <div className="space-y-2">
                          <Label>Number of Validation Windows</Label>
                          <Input type="number" defaultValue="1" />
-                         <p className="text-[10px] text-muted-foreground">Number of backtesting folds. Higher = better estimate, slower training.</p>
+                         <p className="text-[10px] text-muted-foreground">Number of internal validation folds during training.</p>
                       </div>
                       <div className="space-y-2">
                          <Label>Refit Every N Windows</Label>
@@ -174,13 +408,6 @@ export default function Settings() {
                             <p className="text-xs text-muted-foreground">Build weighted ensemble of best performing models.</p>
                          </div>
                          <Switch defaultChecked />
-                      </div>
-                      <div className="flex items-center justify-between border p-3 rounded-lg">
-                         <div className="space-y-0.5">
-                            <Label>Skip Model Selection</Label>
-                            <p className="text-xs text-muted-foreground">Skip scoring (only for single pre-trained models).</p>
-                         </div>
-                         <Switch />
                       </div>
                    </div>
                 </div>
@@ -241,86 +468,152 @@ export default function Settings() {
                          <div className="space-y-2">
                             <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Deep Learning</h4>
                             <div className="flex items-center space-x-2">
-                               <Checkbox id="deepar" defaultChecked />
-                               <Label htmlFor="deepar" className="font-normal">DeepAR</Label>
+                               <Checkbox id="deepar" checked={selectedModels.deepar} onCheckedChange={() => toggleModel('deepar')} />
+                               <Label htmlFor="deepar" className="font-normal cursor-pointer">DeepAR</Label>
                             </div>
                             <div className="flex items-center space-x-2">
-                               <Checkbox id="tft" defaultChecked />
-                               <Label htmlFor="tft" className="font-normal">TemporalFusionTransformer</Label>
+                               <Checkbox id="tft" checked={selectedModels.tft} onCheckedChange={() => toggleModel('tft')} />
+                               <Label htmlFor="tft" className="font-normal cursor-pointer">TemporalFusionTransformer</Label>
                             </div>
                             <div className="flex items-center space-x-2">
-                               <Checkbox id="chronos" />
-                               <Label htmlFor="chronos" className="font-normal">Chronos (Foundation Model)</Label>
+                               <Checkbox id="chronos" checked={selectedModels.chronos} onCheckedChange={() => toggleModel('chronos')} />
+                               <Label htmlFor="chronos" className="font-normal cursor-pointer">Chronos (Foundation)</Label>
                             </div>
                          </div>
                          <Separator />
                          <div className="space-y-2">
                             <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Statistical</h4>
                             <div className="flex items-center space-x-2">
-                               <Checkbox id="arima" defaultChecked />
-                               <Label htmlFor="arima" className="font-normal">AutoARIMA</Label>
+                               <Checkbox id="arima" checked={selectedModels.arima} onCheckedChange={() => toggleModel('arima')} />
+                               <Label htmlFor="arima" className="font-normal cursor-pointer">AutoARIMA</Label>
                             </div>
                             <div className="flex items-center space-x-2">
-                               <Checkbox id="ets" defaultChecked />
-                               <Label htmlFor="ets" className="font-normal">AutoETS</Label>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                               <Checkbox id="theta" defaultChecked />
-                               <Label htmlFor="theta" className="font-normal">Theta</Label>
+                               <Checkbox id="ets" checked={selectedModels.ets} onCheckedChange={() => toggleModel('ets')} />
+                               <Label htmlFor="ets" className="font-normal cursor-pointer">AutoETS</Label>
                             </div>
                          </div>
                          <Separator />
                          <div className="space-y-2">
                             <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Machine Learning</h4>
                             <div className="flex items-center space-x-2">
-                               <Checkbox id="rectab" defaultChecked />
-                               <Label htmlFor="rectab" className="font-normal">RecursiveTabular (LightGBM)</Label>
+                               <Checkbox id="rectab" checked={selectedModels.rectab} onCheckedChange={() => toggleModel('rectab')} />
+                               <Label htmlFor="rectab" className="font-normal cursor-pointer">RecursiveTabular (LightGBM)</Label>
                             </div>
                          </div>
                       </div>
                    </CardContent>
                 </Card>
 
-                <Card className="lg:col-span-2">
-                   <CardHeader>
-                      <CardTitle>Advanced Configuration Object</CardTitle>
-                      <CardDescription>
-                         Direct JSON override for the <code>hyperparameters</code> dictionary passed to <code>fit()</code>.
-                         Values defined here take precedence over UI selections.
-                      </CardDescription>
-                   </CardHeader>
-                   <CardContent>
-                      <Accordion type="single" collapsible className="w-full">
-                         <AccordionItem value="item-1">
-                            <AccordionTrigger>Example Configuration</AccordionTrigger>
-                            <AccordionContent>
-                               <pre className="text-[10px] bg-muted p-4 rounded-md overflow-x-auto">
-{`{
-  "DeepAR": {
-    "epochs": 50,
-    "num_batches_per_epoch": 50,
-    "learning_rate": 1e-3,
-    "context_length": 64
-  },
-  "AutoARIMA": {
-    "max_p": 5,
-    "max_q": 5,
-    "seasonal": true
-  }
-}`}
-                               </pre>
-                            </AccordionContent>
-                         </AccordionItem>
-                      </Accordion>
-                      <div className="mt-4">
-                         <Label className="mb-2 block">Custom Hyperparameters JSON</Label>
-                         <Textarea 
-                            className="font-mono text-xs min-h-[400px]" 
-                            placeholder={`{\n  "DeepAR": {\n    "hidden_size": 40,\n    "dropout_rate": 0.1\n  }\n}`}
-                         />
-                      </div>
-                   </CardContent>
-                </Card>
+                <div className="lg:col-span-2 space-y-6">
+                   <Card>
+                      <CardHeader>
+                         <CardTitle>Model Hyperparameters</CardTitle>
+                         <CardDescription>Configure specific parameters for selected algorithms.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-6">
+                         {selectedModels.deepar && (
+                            <Accordion type="single" collapsible className="w-full border rounded-lg px-4" defaultValue="deepar-config">
+                               <AccordionItem value="deepar-config" className="border-b-0">
+                                  <AccordionTrigger className="hover:no-underline">
+                                     <div className="flex items-center gap-2">
+                                        <div className="w-2 h-2 rounded-full bg-blue-500" />
+                                        DeepAR Configuration
+                                     </div>
+                                  </AccordionTrigger>
+                                  <AccordionContent className="pt-4 pb-4">
+                                     <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                           <Label className="text-xs">Epochs</Label>
+                                           <Input type="number" value={modelParams.deepar.epochs} onChange={(e) => updateModelParam('deepar', 'epochs', parseInt(e.target.value))} />
+                                           <p className="text-[10px] text-muted-foreground">Number of training iterations.</p>
+                                        </div>
+                                        <div className="space-y-2">
+                                           <Label className="text-xs">Context Length</Label>
+                                           <Input type="number" value={modelParams.deepar.context_length} onChange={(e) => updateModelParam('deepar', 'context_length', parseInt(e.target.value))} />
+                                           <p className="text-[10px] text-muted-foreground">Number of time steps to look back.</p>
+                                        </div>
+                                        <div className="space-y-2">
+                                           <Label className="text-xs">Hidden Size</Label>
+                                           <Input type="number" value={modelParams.deepar.hidden_size} onChange={(e) => updateModelParam('deepar', 'hidden_size', parseInt(e.target.value))} />
+                                        </div>
+                                        <div className="space-y-2">
+                                           <Label className="text-xs">Learning Rate</Label>
+                                           <Input type="number" step="0.0001" value={modelParams.deepar.learning_rate} onChange={(e) => updateModelParam('deepar', 'learning_rate', parseFloat(e.target.value))} />
+                                        </div>
+                                     </div>
+                                  </AccordionContent>
+                               </AccordionItem>
+                            </Accordion>
+                         )}
+
+                         {selectedModels.tft && (
+                            <Accordion type="single" collapsible className="w-full border rounded-lg px-4">
+                               <AccordionItem value="tft-config" className="border-b-0">
+                                  <AccordionTrigger className="hover:no-underline">
+                                     <div className="flex items-center gap-2">
+                                        <div className="w-2 h-2 rounded-full bg-purple-500" />
+                                        Temporal Fusion Transformer (TFT)
+                                     </div>
+                                  </AccordionTrigger>
+                                  <AccordionContent className="pt-4 pb-4">
+                                     <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                           <Label className="text-xs">Epochs</Label>
+                                           <Input type="number" value={modelParams.tft.epochs} onChange={(e) => updateModelParam('tft', 'epochs', parseInt(e.target.value))} />
+                                        </div>
+                                        <div className="space-y-2">
+                                           <Label className="text-xs">Attention Heads</Label>
+                                           <Input type="number" value={modelParams.tft.attention_head_size} onChange={(e) => updateModelParam('tft', 'attention_head_size', parseInt(e.target.value))} />
+                                        </div>
+                                     </div>
+                                  </AccordionContent>
+                               </AccordionItem>
+                            </Accordion>
+                         )}
+
+                         {selectedModels.arima && (
+                            <Accordion type="single" collapsible className="w-full border rounded-lg px-4">
+                               <AccordionItem value="arima-config" className="border-b-0">
+                                  <AccordionTrigger className="hover:no-underline">
+                                     <div className="flex items-center gap-2">
+                                        <div className="w-2 h-2 rounded-full bg-green-500" />
+                                        AutoARIMA
+                                     </div>
+                                  </AccordionTrigger>
+                                  <AccordionContent className="pt-4 pb-4">
+                                     <div className="grid grid-cols-3 gap-4">
+                                        <div className="space-y-2">
+                                           <Label className="text-xs">Max P</Label>
+                                           <Input type="number" value={modelParams.arima.p} onChange={(e) => updateModelParam('arima', 'p', parseInt(e.target.value))} />
+                                        </div>
+                                        <div className="space-y-2">
+                                           <Label className="text-xs">Max D</Label>
+                                           <Input type="number" value={modelParams.arima.d} onChange={(e) => updateModelParam('arima', 'd', parseInt(e.target.value))} />
+                                        </div>
+                                        <div className="space-y-2">
+                                           <Label className="text-xs">Max Q</Label>
+                                           <Input type="number" value={modelParams.arima.q} onChange={(e) => updateModelParam('arima', 'q', parseInt(e.target.value))} />
+                                        </div>
+                                     </div>
+                                  </AccordionContent>
+                               </AccordionItem>
+                            </Accordion>
+                         )}
+                      </CardContent>
+                   </Card>
+
+                   <Card>
+                      <CardHeader>
+                         <CardTitle>Generated JSON Config</CardTitle>
+                         <CardDescription>Final configuration object to be passed to the training job.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                         <pre className="text-[10px] bg-muted p-4 rounded-md overflow-x-auto font-mono">
+                            {getGeneratedConfig()}
+                         </pre>
+                      </CardContent>
+                   </Card>
+                </div>
              </div>
           </TabsContent>
 
