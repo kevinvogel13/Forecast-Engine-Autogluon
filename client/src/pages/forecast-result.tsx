@@ -1,7 +1,7 @@
 import Shell from '@/components/layout/Shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { CheckCircle2, TrendingUp, Download, ArrowRight, BarChart3, Presentation } from 'lucide-react';
+import { CheckCircle2, Download, Presentation } from 'lucide-react';
 
 export default function ForecastResult() {
   return (
@@ -17,22 +17,8 @@ export default function ForecastResult() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left max-w-3xl mx-auto">
-           <Card className="hover:border-primary/50 transition-colors cursor-pointer group">
-              <CardHeader>
-                 <CardTitle className="flex items-center gap-2 group-hover:text-primary transition-colors">
-                    <TrendingUp className="w-5 h-5" /> View Live Forecast
-                 </CardTitle>
-                 <CardDescription>
-                    Monitor the generation of your forecast in real-time as periods are calculated.
-                 </CardDescription>
-              </CardHeader>
-              <CardContent>
-                 <Button variant="secondary" className="w-full">Go to Live View <ArrowRight className="w-4 h-4 ml-2" /></Button>
-              </CardContent>
-           </Card>
-
-           <Card className="hover:border-primary/50 transition-colors cursor-pointer group">
+        <div className="flex justify-center text-left max-w-3xl mx-auto">
+           <Card className="hover:border-primary/50 transition-colors cursor-pointer group w-full max-w-md">
               <CardHeader>
                  <CardTitle className="flex items-center gap-2 group-hover:text-primary transition-colors">
                     <Presentation className="w-5 h-5" /> Executive Summary
