@@ -37,6 +37,9 @@ const ROLLING_STATS = [
   { value: "max", label: "Max" },
   { value: "median", label: "Median" },
   { value: "sum", label: "Sum" },
+  { value: "skew", label: "Skew" },
+  { value: "kurtosis", label: "Kurtosis" },
+  { value: "var", label: "Variance" }
 ];
 
 const ROLLING_WINDOWS = Array.from({ length: 52 }, (_, i) => ({
@@ -48,6 +51,19 @@ const LAG_WINDOWS = Array.from({ length: 52 }, (_, i) => ({
   value: (i + 2).toString(),
   label: `Lag ${i + 2}`
 }));
+
+const DATE_PARTS = [
+  { value: "year", label: "Year" },
+  { value: "quarter", label: "Quarter" },
+  { value: "month", label: "Month" },
+  { value: "week", label: "Week" },
+  { value: "day", label: "Day" },
+  { value: "dayofweek", label: "Day of Week" },
+  { value: "dayofyear", label: "Day of Year" },
+  { value: "is_weekend", label: "Is Weekend" },
+  { value: "is_month_start", label: "Is Month Start" },
+  { value: "is_month_end", label: "Is Month End" }
+];
 
 export default function Settings() {
   // State for Model Specs
@@ -69,6 +85,9 @@ export default function Settings() {
   
   const [selectedLags, setSelectedLags] = useState<string[]>(["1", "7", "28"]);
   const [lagsOpen, setLagsOpen] = useState(false);
+
+  const [selectedDateParts, setSelectedDateParts] = useState<string[]>(["year", "month", "dayofweek"]);
+  const [datePartsOpen, setDatePartsOpen] = useState(false);
 
   // State for Backtesting
   const [trainDate, setTrainDate] = useState<{ from: Date | undefined; to: Date | undefined }>({
@@ -334,19 +353,53 @@ export default function Settings() {
                             <p className="text-[10px] text-muted-foreground -mt-2">Extract calendar components from timestamp.</p>
                             
                             {featureToggles.dateParts && (
-                              <div className="grid grid-cols-2 gap-3 pt-2">
-                                {[
-                                  {id: "year", label: "Year"},
-                                  {id: "month", label: "Month"},
-                                  {id: "week", label: "Week of Year"},
-                                  {id: "day", label: "Day of Week"},
-                                  {id: "quarter", label: "Quarter"}
-                                ].map(part => (
-                                  <div key={part.id} className="flex items-center space-x-2">
-                                    <Checkbox id={`date-${part.id}`} defaultChecked />
-                                    <Label htmlFor={`date-${part.id}`} className="text-sm font-normal">{part.label}</Label>
-                                  </div>
-                                ))}
+                              <div className="pt-2">
+                                <Label className="text-xs mb-1.5 block">Select Date Components</Label>
+                                <Popover open={datePartsOpen} onOpenChange={setDatePartsOpen}>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      role="combobox"
+                                      aria-expanded={datePartsOpen}
+                                      className="w-full justify-between h-9"
+                                    >
+                                      {selectedDateParts.length > 0
+                                        ? `${selectedDateParts.length} parts selected`
+                                        : "Select parts..."}
+                                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[300px] p-0">
+                                    <Command>
+                                      <CommandInput placeholder="Search date parts..." />
+                                      <CommandList>
+                                        <CommandGroup>
+                                          {DATE_PARTS.map((part) => (
+                                            <CommandItem
+                                              key={part.value}
+                                              value={part.value}
+                                              onSelect={(currentValue) => {
+                                                setSelectedDateParts(prev => 
+                                                   prev.includes(currentValue) 
+                                                   ? prev.filter(v => v !== currentValue)
+                                                   : [...prev, currentValue]
+                                                );
+                                              }}
+                                            >
+                                              <Check
+                                                className={cn(
+                                                  "mr-2 h-4 w-4",
+                                                  selectedDateParts.includes(part.value) ? "opacity-100" : "opacity-0"
+                                                )}
+                                              />
+                                              {part.label}
+                                            </CommandItem>
+                                          ))}
+                                        </CommandGroup>
+                                      </CommandList>
+                                    </Command>
+                                  </PopoverContent>
+                                </Popover>
                               </div>
                             )}
                          </div>
