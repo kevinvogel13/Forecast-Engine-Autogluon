@@ -1,7 +1,7 @@
 import { Handle, Position } from '@xyflow/react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, AlertCircle } from 'lucide-react';
+import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, AlertCircle, Layers, ListTree, TableProperties } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface PipelineNodeProps {
@@ -22,8 +22,11 @@ const getIcon = (type: string) => {
   switch (type) {
     case 'input': return FileSpreadsheet;
     case 'merge': return GitMerge;
+    case 'union': return Layers;
     case 'filter': return Filter;
     case 'transform': return Calculator;
+    case 'groupby': return ListTree;
+    case 'pivot': return TableProperties;
     case 'output': return Database;
     default: return FileSpreadsheet;
   }

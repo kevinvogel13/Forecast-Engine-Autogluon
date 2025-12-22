@@ -1,4 +1,4 @@
-import { FileSpreadsheet, GitMerge, Filter, Calculator, Database } from 'lucide-react';
+import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, Layers, ListTree, TableProperties } from 'lucide-react';
 
 export default function Sidebar() {
   const onDragStart = (event: React.DragEvent, nodeType: string, label: string) => {
@@ -34,12 +34,36 @@ export default function Sidebar() {
           <span className="text-sm font-medium">Merge / Join</span>
         </div>
         <div 
+          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-orange-200 hover:bg-orange-50/50"
+          onDragStart={(event) => onDragStart(event, 'union', 'Union')}
+          draggable
+        >
+          <Layers className="w-4 h-4 text-orange-500" />
+          <span className="text-sm font-medium">Union</span>
+        </div>
+        <div 
           className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-purple-200 hover:bg-purple-50/50"
           onDragStart={(event) => onDragStart(event, 'filter', 'Filter')}
           draggable
         >
           <Filter className="w-4 h-4 text-purple-500" />
           <span className="text-sm font-medium">Filter</span>
+        </div>
+        <div 
+          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-indigo-200 hover:bg-indigo-50/50"
+          onDragStart={(event) => onDragStart(event, 'groupby', 'Group By')}
+          draggable
+        >
+          <ListTree className="w-4 h-4 text-indigo-500" />
+          <span className="text-sm font-medium">Group By</span>
+        </div>
+        <div 
+          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-indigo-200 hover:bg-indigo-50/50"
+          onDragStart={(event) => onDragStart(event, 'pivot', 'Pivot')}
+          draggable
+        >
+          <TableProperties className="w-4 h-4 text-indigo-500" />
+          <span className="text-sm font-medium">Pivot</span>
         </div>
         <div 
           className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-indigo-200 hover:bg-indigo-50/50"
