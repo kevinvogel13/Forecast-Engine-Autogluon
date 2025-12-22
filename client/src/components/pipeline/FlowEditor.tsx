@@ -246,8 +246,9 @@ function FlowWithProvider() {
   };
 
   return (
-    <div className="flex h-full w-full border border-border rounded-xl bg-slate-50 overflow-hidden shadow-inner relative">
-      <div className="flex-1 relative h-full" ref={reactFlowWrapper}>
+    <div className="flex flex-col h-full w-full border border-border rounded-xl bg-slate-50 overflow-hidden shadow-inner relative">
+      <Sidebar />
+      <div className="flex-1 relative w-full h-full" ref={reactFlowWrapper}>
         <div className="absolute top-4 right-4 z-10 flex gap-2">
            <Dialog open={loadDialogOpen} onOpenChange={setLoadDialogOpen}>
             <DialogTrigger asChild>
@@ -518,7 +519,6 @@ function FlowWithProvider() {
           )}
         </ReactFlow>
       </div>
-      <Sidebar />
     </div>
   );
 
