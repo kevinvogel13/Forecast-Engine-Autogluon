@@ -6,23 +6,31 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 
-export default function FileDropzone() {
+interface FileDropzoneProps {
+  onUploadComplete?: (fileName: string) => void;
+  compact?: boolean;
+}
+
+export default function FileDropzone({ onUploadComplete, compact = false }: FileDropzoneProps) {
   const [files, setFiles] = useState<File[]>([]);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    setFiles(prev => [...prev, ...acceptedFiles]);
+    setFiles(prev => compact ? acceptedFiles : [...prev, ...acceptedFiles]); // In compact mode, only allow one file at a time or replace
     
     // Simulate upload progress
     acceptedFiles.forEach(file => {
       let progress = 0;
       const interval = setInterval(() => {
-        progress += 10;
+        progress += 20;
         setUploadProgress(prev => ({ ...prev, [file.name]: progress }));
-        if (progress >= 100) clearInterval(interval);
+        if (progress >= 100) {
+          clearInterval(interval);
+          if (onUploadComplete) onUploadComplete(file.name);
+        }
       }, 100);
     });
-  }, []);
+  }, [compact, onUploadComplete]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop,
@@ -30,7 +38,8 @@ export default function FileDropzone() {
       'text/csv': ['.csv'],
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
       'application/json': ['.json']
-    }
+    },
+    multiple: !compact
   });
 
   const removeFile = (name: string) => {
@@ -42,8 +51,55 @@ export default function FileDropzone() {
     });
   };
 
+  if (compact) {
+     return (
+        <div className="space-y-4">
+           <div
+            {...getRootProps()}
+            className={cn(
+              "relative border-2 border-dashed rounded-lg p-6 transition-all duration-200 ease-in-out cursor-pointer flex flex-col items-center justify-center gap-2 group",
+              isDragActive 
+                ? "border-primary bg-primary/5 ring-2 ring-primary/10" 
+                : "border-border hover:border-primary/50 hover:bg-accent/50"
+            )}
+          >
+            <input {...getInputProps()} />
+            <UploadCloud className={cn(
+               "w-8 h-8 text-muted-foreground transition-colors",
+               isDragActive ? "text-primary" : "group-hover:text-primary"
+            )} />
+            <p className="text-xs text-muted-foreground text-center">
+              {isDragActive ? "Drop here" : "Click to upload data"}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+             {files.map((file) => (
+                <div key={file.name} className="flex items-center gap-2 text-sm bg-accent/50 p-2 rounded border border-border">
+                   <FileSpreadsheet className="w-4 h-4 text-blue-500 shrink-0" />
+                   <div className="flex-1 min-w-0">
+                      <p className="truncate font-medium">{file.name}</p>
+                      {uploadProgress[file.name] < 100 ? (
+                         <Progress value={uploadProgress[file.name]} className="h-1 mt-1" />
+                      ) : (
+                         <p className="text-[10px] text-green-600 flex items-center gap-1 mt-0.5">
+                            <CheckCircle2 className="w-3 h-3" /> Ready
+                         </p>
+                      )}
+                   </div>
+                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); removeFile(file.name); }}>
+                      <X className="w-3 h-3" />
+                   </Button>
+                </div>
+             ))}
+          </div>
+        </div>
+     )
+  }
+
   return (
     <div className="w-full max-w-2xl mx-auto space-y-8">
+      {/* Original Full View Render */}
       <div className="space-y-2 text-center">
         <h2 className="text-3xl font-semibold tracking-tight text-foreground">Upload Data Sources</h2>
         <p className="text-muted-foreground">Import your historical sales data, inventory logs, or market indicators.</p>

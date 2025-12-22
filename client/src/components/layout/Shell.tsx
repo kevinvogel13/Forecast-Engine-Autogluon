@@ -1,13 +1,12 @@
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, FileSpreadsheet, GitMerge, Settings, Upload } from "lucide-react";
+import { LayoutDashboard, FileSpreadsheet, GitMerge, Settings } from "lucide-react";
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
 
   const navItems = [
-    { icon: Upload, label: "Import Data", href: "/" },
-    { icon: GitMerge, label: "Pipeline", href: "/pipeline" },
+    { icon: GitMerge, label: "Pipeline", href: "/" },
     { icon: LayoutDashboard, label: "Validation", href: "/validate" },
     { icon: Settings, label: "Settings", href: "/settings" },
   ];
