@@ -50,6 +50,19 @@ const ROLLING_STATS = [
   { value: "var", label: "Variance" }
 ];
 
+const DATE_PARTS = [
+  { value: "year", label: "Year" },
+  { value: "quarter", label: "Quarter" },
+  { value: "month", label: "Month" },
+  { value: "week", label: "Week" },
+  { value: "day", label: "Day" },
+  { value: "dayofweek", label: "Day of Week" },
+  { value: "dayofyear", label: "Day of Year" },
+  { value: "is_weekend", label: "Is Weekend" },
+  { value: "is_month_start", label: "Is Month Start" },
+  { value: "is_month_end", label: "Is Month End" }
+];
+
 const ALL_MODELS = {
   // Statistical
   naive: { label: "Naive", category: "Statistical" },
