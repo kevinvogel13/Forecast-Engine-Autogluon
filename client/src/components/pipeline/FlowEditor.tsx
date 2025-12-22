@@ -35,6 +35,10 @@ const nodeTypes: NodeTypes = {
   custom: PipelineNode,
 };
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import Editor from '@monaco-editor/react';
+
 const initialNodes = [
   { 
     id: '1', 
@@ -228,6 +232,19 @@ function FlowWithProvider() {
     setLoadDialogOpen(false);
   };
 
+  const updateNodeData = (key: string, value: any) => {
+    if (!selectedNode) return;
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === selectedNode.id) {
+          node.data = { ...node.data, [key]: value };
+        }
+        return node;
+      })
+    );
+    setSelectedNode((prev: any) => ({ ...prev, data: { ...prev.data, [key]: value } }));
+  };
+
   return (
     <div className="flex h-full w-full border border-border rounded-xl bg-slate-50 overflow-hidden shadow-inner relative">
       <div className="flex-1 relative h-full" ref={reactFlowWrapper}>
@@ -296,7 +313,7 @@ function FlowWithProvider() {
           
           {selectedNode && (
             <Panel position="top-right" className="m-0 mt-16 mr-4">
-              <Card className="w-80 shadow-xl border-border/50 backdrop-blur-sm bg-white/95 max-h-[80vh] overflow-y-auto">
+              <Card className="w-96 shadow-xl border-border/50 backdrop-blur-sm bg-white/95 max-h-[80vh] overflow-y-auto">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Node Configuration</CardTitle>
                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setSelectedNode(null)}>
@@ -318,6 +335,130 @@ function FlowWithProvider() {
                         <Label>Data Source</Label>
                         <FileDropzone compact onUploadComplete={handleFileUpload} />
                      </div>
+                  )}
+
+                  {selectedNode.data.type === 'merge' && (
+                    <div className="space-y-4 border rounded-md p-3 bg-muted/20">
+                      <div className="space-y-2">
+                        <Label>Join Type</Label>
+                        <Select 
+                           value={selectedNode.data.joinType || 'inner'} 
+                           onValueChange={(val) => updateNodeData('joinType', val)}
+                        >
+                          <SelectTrigger className="h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="inner">Inner Join</SelectItem>
+                            <SelectItem value="left">Left Join</SelectItem>
+                            <SelectItem value="right">Right Join</SelectItem>
+                            <SelectItem value="outer">Full Outer</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Left Key</Label>
+                        <Input 
+                           placeholder="e.g. date, sku_id" 
+                           className="h-8 font-mono text-xs" 
+                           value={selectedNode.data.leftKey || ''}
+                           onChange={(e) => updateNodeData('leftKey', e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Right Key</Label>
+                        <Input 
+                           placeholder="e.g. date, item_id" 
+                           className="h-8 font-mono text-xs" 
+                           value={selectedNode.data.rightKey || ''}
+                           onChange={(e) => updateNodeData('rightKey', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'filter' && (
+                    <div className="space-y-4 border rounded-md p-3 bg-muted/20">
+                      <div className="space-y-2">
+                        <Label>Column</Label>
+                        <Input 
+                           placeholder="Column name" 
+                           className="h-8 font-mono text-xs"
+                           value={selectedNode.data.filterColumn || ''}
+                           onChange={(e) => updateNodeData('filterColumn', e.target.value)}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                         <div className="space-y-2">
+                           <Label>Operator</Label>
+                           <Select 
+                              value={selectedNode.data.filterOp || 'eq'} 
+                              onValueChange={(val) => updateNodeData('filterOp', val)}
+                           >
+                             <SelectTrigger className="h-8">
+                               <SelectValue />
+                             </SelectTrigger>
+                             <SelectContent>
+                               <SelectItem value="eq">Equals (=)</SelectItem>
+                               <SelectItem value="gt">Greater ({'>'})</SelectItem>
+                               <SelectItem value="lt">Less ({'<'})</SelectItem>
+                               <SelectItem value="contains">Contains</SelectItem>
+                             </SelectContent>
+                           </Select>
+                         </div>
+                         <div className="space-y-2">
+                           <Label>Value</Label>
+                           <Input 
+                              placeholder="Value" 
+                              className="h-8 text-xs"
+                              value={selectedNode.data.filterValue || ''}
+                              onChange={(e) => updateNodeData('filterValue', e.target.value)}
+                           />
+                         </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'python' && (
+                    <div className="space-y-2 border rounded-md p-3 bg-muted/20">
+                       <Label className="flex justify-between">
+                          <span>Python Code</span>
+                          <span className="text-[10px] text-muted-foreground font-mono">pandas available as pd</span>
+                       </Label>
+                       <div className="h-48 border rounded-md overflow-hidden">
+                          <Editor
+                             height="100%"
+                             defaultLanguage="python"
+                             defaultValue={selectedNode.data.code || "# Write your transformation here\n# df = input_df.copy()\n# df['new_col'] = df['val'] * 2\n# return df"}
+                             theme="light"
+                             options={{ minimap: { enabled: false }, fontSize: 11, lineNumbers: 'off' }}
+                             onChange={(val) => updateNodeData('code', val)}
+                          />
+                       </div>
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'groupby' && (
+                    <div className="space-y-4 border rounded-md p-3 bg-muted/20">
+                      <div className="space-y-2">
+                         <Label>Group Columns</Label>
+                         <Input 
+                            placeholder="col1, col2" 
+                            className="h-8 font-mono text-xs"
+                            value={selectedNode.data.groupCols || ''}
+                            onChange={(e) => updateNodeData('groupCols', e.target.value)}
+                         />
+                      </div>
+                      <div className="space-y-2">
+                         <Label>Aggregations (JSON)</Label>
+                         <Textarea 
+                            placeholder='{"sales": "sum", "qty": "mean"}' 
+                            className="font-mono text-xs h-20"
+                            value={selectedNode.data.aggs || ''}
+                            onChange={(e) => updateNodeData('aggs', e.target.value)}
+                         />
+                      </div>
+                    </div>
                   )}
 
                   {selectedNode.data.stats && (
@@ -361,6 +502,7 @@ function FlowWithProvider() {
       <Sidebar />
     </div>
   );
+
 }
 
 export default function FlowEditor() {

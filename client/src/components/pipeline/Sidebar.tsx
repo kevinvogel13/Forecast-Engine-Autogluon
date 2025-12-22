@@ -1,4 +1,4 @@
-import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, Layers, ListTree, TableProperties } from 'lucide-react';
+import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, Layers, ListTree, TableProperties, Code } from 'lucide-react';
 
 export default function Sidebar() {
   const onDragStart = (event: React.DragEvent, nodeType: string, label: string) => {
@@ -72,6 +72,14 @@ export default function Sidebar() {
         >
           <Calculator className="w-4 h-4 text-indigo-500" />
           <span className="text-sm font-medium">Transform</span>
+        </div>
+        <div 
+          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-yellow-200 hover:bg-yellow-50/50"
+          onDragStart={(event) => onDragStart(event, 'python', 'Python Script')}
+          draggable
+        >
+          <Code className="w-4 h-4 text-yellow-600" />
+          <span className="text-sm font-medium">Python Script</span>
         </div>
       </div>
 
