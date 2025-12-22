@@ -1,4 +1,4 @@
-import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, Layers, ListTree, TableProperties, Code } from 'lucide-react';
+import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, Layers, ListTree, TableProperties, Code, HardDrive } from 'lucide-react';
 
 export default function Sidebar() {
   const onDragStart = (event: React.DragEvent, nodeType: string, label: string) => {
@@ -15,11 +15,19 @@ export default function Sidebar() {
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Sources</div>
         <div 
           className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-blue-200 hover:bg-blue-50/50"
-          onDragStart={(event) => onDragStart(event, 'input', 'Data Source')}
+          onDragStart={(event) => onDragStart(event, 'input', 'File Source')}
           draggable
         >
           <FileSpreadsheet className="w-4 h-4 text-blue-500" />
-          <span className="text-sm font-medium">Data Source</span>
+          <span className="text-sm font-medium">File Source</span>
+        </div>
+        <div 
+          className="bg-card border-2 border-border p-3 rounded cursor-grab shadow-sm hover:shadow-md transition-all flex items-center gap-2 hover:border-cyan-200 hover:bg-cyan-50/50"
+          onDragStart={(event) => onDragStart(event, 'sql', 'SQL Query')}
+          draggable
+        >
+          <Database className="w-4 h-4 text-cyan-600" />
+          <span className="text-sm font-medium">SQL Query</span>
         </div>
       </div>
 
@@ -90,7 +98,7 @@ export default function Sidebar() {
           onDragStart={(event) => onDragStart(event, 'output', 'Forecast Model')}
           draggable
         >
-          <Database className="w-4 h-4 text-green-600" />
+          <HardDrive className="w-4 h-4 text-green-600" />
           <span className="text-sm font-medium">Model Output</span>
         </div>
       </div>

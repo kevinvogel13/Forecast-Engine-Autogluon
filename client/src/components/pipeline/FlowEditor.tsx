@@ -438,6 +438,25 @@ function FlowWithProvider() {
                     </div>
                   )}
 
+                  {selectedNode.data.type === 'sql' && (
+                    <div className="space-y-2 border rounded-md p-3 bg-muted/20">
+                       <Label className="flex justify-between">
+                          <span>SQL Query</span>
+                          <span className="text-[10px] text-muted-foreground font-mono">DuckDB Dialect</span>
+                       </Label>
+                       <div className="h-48 border rounded-md overflow-hidden">
+                          <Editor
+                             height="100%"
+                             defaultLanguage="sql"
+                             defaultValue={selectedNode.data.query || "SELECT * FROM input_table\nWHERE region = 'US'\nLIMIT 100"}
+                             theme="light"
+                             options={{ minimap: { enabled: false }, fontSize: 11, lineNumbers: 'off' }}
+                             onChange={(val) => updateNodeData('query', val)}
+                          />
+                       </div>
+                    </div>
+                  )}
+
                   {selectedNode.data.type === 'groupby' && (
                     <div className="space-y-4 border rounded-md p-3 bg-muted/20">
                       <div className="space-y-2">
