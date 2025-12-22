@@ -48,6 +48,22 @@ export default function Settings() {
                           <p className="text-[10px] text-muted-foreground">Number of time steps to forecast.</p>
                        </div>
                        <div className="space-y-2">
+                          <Label>Frequency</Label>
+                          <Select defaultValue="M">
+                             <SelectTrigger>
+                                <SelectValue />
+                             </SelectTrigger>
+                             <SelectContent>
+                                <SelectItem value="D">Daily</SelectItem>
+                                <SelectItem value="W">Weekly</SelectItem>
+                                <SelectItem value="M">Monthly</SelectItem>
+                                <SelectItem value="Q">Quarterly</SelectItem>
+                                <SelectItem value="Y">Yearly</SelectItem>
+                             </SelectContent>
+                          </Select>
+                          <p className="text-[10px] text-muted-foreground">Frequency of the time series data.</p>
+                       </div>
+                       <div className="space-y-2">
                           <Label>Evaluation Metric</Label>
                           <Select defaultValue="MASE">
                              <SelectTrigger>
