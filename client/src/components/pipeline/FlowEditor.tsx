@@ -46,6 +46,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import Editor from '@monaco-editor/react';
 import { usePipelines, useCreatePipeline, useUpdatePipeline, useExecutePipeline } from '@/hooks/usePipelines';
+import { useDatasets } from '@/hooks/useDatasets';
 
 const initialNodes: any[] = [];
 
@@ -74,6 +75,7 @@ function FlowWithProvider() {
   const [pipelineDescription, setPipelineDescription] = useState('');
   
   const { data: savedPipelines = [], isLoading: pipelinesLoading } = usePipelines();
+  const { data: datasets = [] } = useDatasets();
   const createPipeline = useCreatePipeline();
   const updatePipeline = useUpdatePipeline();
   const executePipeline = useExecutePipeline();
@@ -437,12 +439,33 @@ function FlowWithProvider() {
     const filters: Array<{ column: string; operator: string; value: any }> = [];
     
     // If this is a filter node with valid config, add it
-    if (node.data.type === 'filter' && node.data.filterColumn && node.data.filterOperator) {
-      filters.push({
-        column: node.data.filterColumn,
-        operator: node.data.filterOperator,
-        value: node.data.filterValue
-      });
+    // Default filterOp to 'eq' to match UI default
+    const filterOp = node.data.filterOp || 'eq';
+    if (node.data.type === 'filter' && node.data.filterColumn) {
+      // Determine the value based on operator type
+      const multiSelectOps = ['isin', 'notin'];
+      const needsValue = !['isnull', 'notnull'].includes(filterOp);
+      
+      let value;
+      let hasValidValue = true;
+      
+      if (multiSelectOps.includes(filterOp)) {
+        value = node.data.filterValues || [];
+        hasValidValue = value.length > 0;
+      } else if (needsValue) {
+        value = node.data.filterValue;
+        hasValidValue = value !== undefined && value !== null && value !== '';
+      } else {
+        value = null; // isnull/notnull don't need a value
+      }
+      
+      if (hasValidValue) {
+        filters.push({
+          column: node.data.filterColumn,
+          operator: filterOp,
+          value: value
+        });
+      }
     }
     
     // Trace back through incoming edges to collect more filters
@@ -504,58 +527,6 @@ function FlowWithProvider() {
     }
   }, [selectedNode, getSourceDatasetId]);
 
-  // Fetch preview data for preview node (with filter support)
-  const fetchPreviewData = useCallback(async (limit: number = 10) => {
-    if (!selectedNode) return;
-    
-    const datasetId = getSourceDatasetId(selectedNode.id);
-    if (!datasetId) {
-      setPreviewData(null);
-      return;
-    }
-    
-    // Collect filters from upstream nodes
-    const filters = getUpstreamFilters(selectedNode.id);
-    
-    setPreviewLoading(true);
-    try {
-      let data;
-      
-      if (filters.length > 0) {
-        // Use filtered-preview endpoint if there are filters
-        const response = await fetch(`/api/datasets/${datasetId}/filtered-preview?limit=${limit}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filters })
-        });
-        if (response.ok) {
-          data = await response.json();
-        }
-      } else {
-        // Use regular preview endpoint if no filters
-        const response = await fetch(`/api/datasets/${datasetId}/preview?limit=${limit}`);
-        if (response.ok) {
-          data = await response.json();
-        }
-      }
-      
-      if (data) {
-        setPreviewData({
-          columns: data.columns,
-          rows: data.rows,
-          totalRows: data.totalRows
-        });
-      } else {
-        setPreviewData(null);
-      }
-    } catch (error) {
-      console.error('Failed to fetch preview data:', error);
-      setPreviewData(null);
-    } finally {
-      setPreviewLoading(false);
-    }
-  }, [selectedNode, getSourceDatasetId, getUpstreamFilters]);
-
   // Effect to fetch column values when filter column changes
   useEffect(() => {
     if (selectedNode?.data.type === 'filter' && selectedNode.data.filterColumn) {
@@ -572,16 +543,28 @@ function FlowWithProvider() {
     const datasetId = getSourceDatasetId(selectedNode.id);
     if (!datasetId) return;
     
-    const { filterColumn, filterOperator, filterValue } = selectedNode.data;
+    const { filterColumn, filterValue, filterValues } = selectedNode.data;
+    // Default to 'eq' if filterOp is not set (matches UI default)
+    const filterOp = selectedNode.data.filterOp || 'eq';
     
-    // Only fetch if we have valid filter configuration
-    if (!filterColumn || !filterOperator) return;
+    // Only fetch if we have a filter column
+    if (!filterColumn) return;
+    
     // For operators that need a value, check if value is provided
-    const needsValue = !['isnull', 'notnull'].includes(filterOperator);
-    if (needsValue && (filterValue === undefined || filterValue === null || filterValue === '')) return;
+    const needsValue = !['isnull', 'notnull'].includes(filterOp);
+    const multiSelectOps = ['isin', 'notin'];
+    
+    // Determine the actual value to use
+    let actualValue = filterValue;
+    if (multiSelectOps.includes(filterOp)) {
+      actualValue = filterValues || [];
+      if (actualValue.length === 0) return; // Need at least one value for isin/notin
+    } else if (needsValue && (filterValue === undefined || filterValue === null || filterValue === '')) {
+      return;
+    }
     
     // Fetch filtered count
-    const filters = [{ column: filterColumn, operator: filterOperator, value: filterValue }];
+    const filters = [{ column: filterColumn, operator: filterOp, value: actualValue }];
     
     fetch(`/api/datasets/${datasetId}/filtered-preview?limit=1`, {
       method: 'POST',
@@ -591,15 +574,17 @@ function FlowWithProvider() {
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data && selectedNode) {
-          // Update the node's metadata
+          // Update the node's stats metadata
           setNodes(nds => nds.map(n => {
             if (n.id === selectedNode.id) {
               return {
                 ...n,
                 data: {
                   ...n.data,
-                  rows: data.totalRows,
-                  cols: data.columns?.length || 0,
+                  stats: {
+                    rows: data.totalRows,
+                    cols: data.columns?.length || 0
+                  },
                   columns: data.columns || []
                 }
               };
@@ -613,41 +598,222 @@ function FlowWithProvider() {
     selectedNode?.id,
     selectedNode?.data.type,
     selectedNode?.data.filterColumn,
-    selectedNode?.data.filterOperator,
+    selectedNode?.data.filterOp,
     selectedNode?.data.filterValue,
+    selectedNode?.data.filterValues,
     getSourceDatasetId,
     setNodes
   ]);
 
-  // Effect to fetch preview when preview node is selected
+  // Keep refs for nodes/edges to avoid dependency issues
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  nodesRef.current = nodes;
+  edgesRef.current = edges;
+
+  // Compute a key that represents the current preview's upstream filter state
+  const getPreviewKey = useCallback(() => {
+    if (!selectedNode || selectedNode.data.type !== 'preview') return '';
+    
+    // Find incoming edges to this node
+    const incomingEdges = edges.filter(e => e.target === selectedNode.id);
+    const upstreamNodeIds = incomingEdges.map(e => e.source).sort().join(',');
+    
+    // Get filter states from upstream nodes
+    const filterStates = incomingEdges.map(e => {
+      const sourceNode = nodes.find(n => n.id === e.source);
+      if (sourceNode?.data.type === 'filter') {
+        const op = sourceNode.data.filterOp || 'eq';
+        const col = sourceNode.data.filterColumn || '';
+        const val = ['isin', 'notin'].includes(op) 
+          ? (sourceNode.data.filterValues || []).join('|')
+          : (sourceNode.data.filterValue || '');
+        return `${col}:${op}:${val}`;
+      }
+      return '';
+    }).join(';');
+    
+    return `${upstreamNodeIds}|${filterStates}`;
+  }, [selectedNode, nodes, edges]);
+
+  const previewKey = getPreviewKey();
+
+  // Effect to fetch preview when preview node is selected or upstream state changes
   useEffect(() => {
-    if (selectedNode?.data.type === 'preview') {
-      const limit = selectedNode.data.previewRows || 10;
-      fetchPreviewData(limit);
-    } else {
+    if (selectedNode?.data.type !== 'preview') {
       setPreviewData(null);
+      return;
     }
-  }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.previewRows, fetchPreviewData]);
+
+    const currentNodes = nodesRef.current;
+    const currentEdges = edgesRef.current;
+
+    // Get source dataset ID directly using refs
+    const traceSourceDataset = (nodeId: string, visitedNodes: Set<string> = new Set()): string | null => {
+      if (visitedNodes.has(nodeId)) return null;
+      visitedNodes.add(nodeId);
+      const node = currentNodes.find(n => n.id === nodeId);
+      if (!node) return null;
+      if (node.data.type === 'input' && node.data.datasetId) {
+        return node.data.datasetId;
+      }
+      const incomingEdges = currentEdges.filter(e => e.target === nodeId);
+      for (const edge of incomingEdges) {
+        const result = traceSourceDataset(edge.source, visitedNodes);
+        if (result) return result;
+      }
+      return null;
+    };
+
+    // Collect upstream filters directly using refs
+    const collectFilters = (nodeId: string, visitedNodes: Set<string> = new Set()): Array<{ column: string; operator: string; value: any }> => {
+      if (visitedNodes.has(nodeId)) return [];
+      visitedNodes.add(nodeId);
+      const node = currentNodes.find(n => n.id === nodeId);
+      if (!node) return [];
+      const filters: Array<{ column: string; operator: string; value: any }> = [];
+      const filterOp = node.data.filterOp || 'eq';
+      if (node.data.type === 'filter' && node.data.filterColumn) {
+        const multiSelectOps = ['isin', 'notin'];
+        const needsValue = !['isnull', 'notnull'].includes(filterOp);
+        let value;
+        let hasValidValue = true;
+        if (multiSelectOps.includes(filterOp)) {
+          value = node.data.filterValues || [];
+          hasValidValue = value.length > 0;
+        } else if (needsValue) {
+          value = node.data.filterValue;
+          hasValidValue = value !== undefined && value !== null && value !== '';
+        } else {
+          value = null;
+        }
+        if (hasValidValue) {
+          filters.push({ column: node.data.filterColumn, operator: filterOp, value });
+        }
+      }
+      const incomingEdges = currentEdges.filter(e => e.target === nodeId);
+      for (const edge of incomingEdges) {
+        filters.push(...collectFilters(edge.source, visitedNodes));
+      }
+      return filters;
+    };
+
+    const datasetId = traceSourceDataset(selectedNode.id);
+    if (!datasetId) {
+      setPreviewData(null);
+      return;
+    }
+
+    const filters = collectFilters(selectedNode.id);
+    const limit = selectedNode.data.previewRows || 10;
+    let isCancelled = false;
+
+    const doFetch = async () => {
+      setPreviewLoading(true);
+      try {
+        let data;
+        if (filters.length > 0) {
+          const response = await fetch(`/api/datasets/${datasetId}/filtered-preview?limit=${limit}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filters })
+          });
+          if (response.ok) data = await response.json();
+        } else {
+          const response = await fetch(`/api/datasets/${datasetId}/preview?limit=${limit}`);
+          if (response.ok) data = await response.json();
+        }
+        if (!isCancelled && data) {
+          setPreviewData({ columns: data.columns, rows: data.rows, totalRows: data.totalRows });
+        } else if (!isCancelled) {
+          setPreviewData(null);
+        }
+      } catch (error) {
+        console.error('Failed to fetch preview data:', error);
+        if (!isCancelled) setPreviewData(null);
+      } finally {
+        if (!isCancelled) setPreviewLoading(false);
+      }
+    };
+
+    doFetch();
+    return () => { isCancelled = true; };
+  }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.previewRows, previewKey]);
 
   // Update preview node metadata when preview data changes
   useEffect(() => {
     if (selectedNode?.data.type === 'preview' && previewData) {
+      const newRows = previewData.totalRows;
+      const newCols = previewData.columns?.length || 0;
+      const currentRows = selectedNode.data.stats?.rows;
+      const currentCols = selectedNode.data.stats?.cols;
+      
+      // Skip update if stats already match to prevent unnecessary re-renders
+      if (currentRows === newRows && currentCols === newCols) {
+        return;
+      }
+      
+      const newStats = { rows: newRows, cols: newCols };
+      const newColumns = previewData.columns || [];
+      
+      // Update nodes
       setNodes(nds => nds.map(n => {
         if (n.id === selectedNode.id) {
           return {
             ...n,
-            data: {
-              ...n.data,
-              rows: previewData.totalRows,
-              cols: previewData.columns?.length || 0,
-              columns: previewData.columns || []
-            }
+            data: { ...n.data, stats: newStats, columns: newColumns }
           };
         }
         return n;
       }));
+      
+      // Also update selectedNode to keep it in sync
+      setSelectedNode((prev: any) => prev && prev.id === selectedNode.id ? {
+        ...prev,
+        data: { ...prev.data, stats: newStats, columns: newColumns }
+      } : prev);
     }
-  }, [selectedNode?.id, selectedNode?.data.type, previewData, setNodes]);
+  }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.stats?.rows, selectedNode?.data.stats?.cols, previewData, setNodes]);
+
+  // Update validation/EDA node stats from upstream data (with filters applied)
+  useEffect(() => {
+    if (!selectedNode || selectedNode.data.type !== 'eda') return;
+    
+    const datasetId = getSourceDatasetId(selectedNode.id);
+    if (!datasetId) return;
+    
+    // Get upstream filters
+    const filters = getUpstreamFilters(selectedNode.id);
+    
+    // Fetch stats with filters applied
+    fetch(`/api/datasets/${datasetId}/filtered-preview?limit=1`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filters })
+    })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && selectedNode) {
+          setNodes(nds => nds.map(n => {
+            if (n.id === selectedNode.id) {
+              return {
+                ...n,
+                data: {
+                  ...n.data,
+                  stats: {
+                    rows: data.totalRows,
+                    cols: data.columns?.length || 0
+                  },
+                  columns: data.columns || []
+                }
+              };
+            }
+            return n;
+          }));
+        }
+      })
+      .catch(err => console.error('Failed to fetch EDA stats:', err));
+  }, [selectedNode?.id, selectedNode?.data.type, getSourceDatasetId, getUpstreamFilters, setNodes, edges]);
   
   // Multi-select dropdown component for columns
   const ColumnMultiSelect = ({ 
@@ -1058,12 +1224,64 @@ function FlowWithProvider() {
                              </SelectTrigger>
                              <SelectContent>
                                <SelectItem value="file">File Upload (CSV, Excel)</SelectItem>
+                               <SelectItem value="existing">Existing Dataset</SelectItem>
                                <SelectItem value="sql">SQL Query</SelectItem>
                              </SelectContent>
                            </Select>
                         </div>
                         
-                        {(selectedNode.data.sourceType === 'sql') ? (
+                        {(selectedNode.data.sourceType === 'existing') ? (
+                           <div className="space-y-2">
+                              <Label>Select Dataset</Label>
+                              <Select 
+                                 value={selectedNode.data.datasetId || ''} 
+                                 onValueChange={(val) => {
+                                   const dataset = datasets?.find(d => d.id === val);
+                                   if (dataset) {
+                                     updateNodeData('datasetId', val);
+                                     updateNodeData('label', dataset.filename);
+                                     setNodes(nds => nds.map(n => {
+                                       if (n.id === selectedNode.id) {
+                                         return {
+                                           ...n,
+                                           data: {
+                                             ...n.data,
+                                             datasetId: val,
+                                             label: dataset.filename,
+                                             columns: dataset.columns || [],
+                                             stats: {
+                                               rows: dataset.rows,
+                                               cols: dataset.cols
+                                             }
+                                           }
+                                         };
+                                       }
+                                       return n;
+                                     }));
+                                   }
+                                 }}
+                              >
+                                <SelectTrigger className="h-8" data-testid="select-existing-dataset">
+                                  <SelectValue placeholder="Choose a dataset..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {datasets?.map(dataset => (
+                                    <SelectItem key={dataset.id} value={dataset.id} className="text-xs">
+                                      <div className="flex flex-col">
+                                        <span>{dataset.filename}</span>
+                                        <span className="text-muted-foreground text-[10px]">{dataset.rows} rows × {dataset.cols} cols</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {selectedNode.data.datasetId && (
+                                <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
+                                  Selected: {selectedNode.data.label}
+                                </div>
+                              )}
+                           </div>
+                        ) : (selectedNode.data.sourceType === 'sql') ? (
                            <div className="space-y-3 border rounded-md p-3 bg-cyan-50/50 border-cyan-100">
                               <div className="space-y-2">
                                  <Label>Connection String</Label>

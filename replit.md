@@ -61,9 +61,24 @@ Preferred communication style: Simple, everyday language.
 - **Output**: View forecast results
 
 ### Data Flow & Preview
-- Nodes trace back through edges to find source dataset ID
+- Nodes trace back through edges to find source dataset ID using recursive edge traversal
 - Preview and column values are fetched dynamically from connected data sources
-- API endpoints: `/api/datasets/:id/preview` and `/api/datasets/:id/column/:column/values`
+- **Filtered Preview**: When a Data Preview node connects to a Filter node, it applies upstream filters
+- API endpoints:
+  - `GET /api/datasets/:id/preview` - Unfiltered dataset preview
+  - `POST /api/datasets/:id/filtered-preview` - Preview with filters applied (accepts filters array in body)
+  - `GET /api/datasets/:id/column/:column/values` - Unique values for a column (for filter dropdowns)
+
+### Filter Node Technical Details
+- Field names: `filterColumn`, `filterOp` (default: 'eq'), `filterValue`, `filterValues` (for isin/notin)
+- Operators: eq, neq, gt, gte, lt, lte, contains, isin, notin, isnull, notnull
+- Filter metadata updates when filter configuration changes via useEffect
+- `getUpstreamFilters()` recursively collects all filter configurations from upstream nodes
+
+### State Management Notes
+- Node metadata uses `data.stats.rows` and `data.stats.cols` structure
+- Preview fetch uses refs (nodesRef, edgesRef) to avoid dependency loops
+- previewKey computed from upstream connections and filter states to trigger re-fetches only on meaningful changes
 
 ### Build Process
 - Development: Vite dev server with HMR for frontend, tsx for backend
