@@ -3,6 +3,7 @@ import { GeneralStats } from './widgets/GeneralStats';
 import { TimeSeriesView } from './widgets/TimeSeriesView';
 import { CategoryDistribution } from './widgets/CategoryDistribution';
 import { OutlierTable } from './widgets/OutlierTable';
+import { DataCompletenessChart } from './widgets/DataCompletenessChart';
 import { Button } from '@/components/ui/button';
 import { Settings2, Eye, EyeOff } from 'lucide-react';
 import {
@@ -18,6 +19,7 @@ export default function EDADashboard() {
   const [widgets, setWidgets] = useState({
     generalStats: true,
     timeSeries: true,
+    completeness: true,
     distribution: true,
     outliers: true,
   });
@@ -51,6 +53,12 @@ export default function EDADashboard() {
               Time Series Analysis
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
+              checked={widgets.completeness}
+              onCheckedChange={() => toggleWidget('completeness')}
+            >
+              Data Completeness
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
               checked={widgets.distribution}
               onCheckedChange={() => toggleWidget('distribution')}
             >
@@ -71,6 +79,8 @@ export default function EDADashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {widgets.timeSeries && <div className="lg:col-span-4"><TimeSeriesView /></div>}
         
+        {widgets.completeness && <div className="lg:col-span-4"><DataCompletenessChart /></div>}
+
         {widgets.distribution && <div className="lg:col-span-2"><CategoryDistribution /></div>}
         {widgets.outliers && <div className="lg:col-span-2"><OutlierTable /></div>}
       </div>

@@ -99,10 +99,38 @@ export default function Settings() {
       "Monthly": "Months",
       "Weekly": "Weeks",
       "Daily": "Days",
-      "Hourly": "Hours"
+      "Hourly": "Hours",
+      "Quarterly": "Quarters",
+      "Yearly": "Years"
     };
     return `${prefix} ${map[frequency] || "Periods"}`;
   };
+
+  const handleFrequencyChange = (newFreq: string) => {
+    setFrequency(newFreq);
+    
+    // Set appropriate defaults based on frequency
+    if (newFreq === "Daily") {
+      setSelectedLags(["1", "7", "14", "28", "365"]);
+      setSelectedRollingWindows(["7", "14", "30", "90"]);
+    } else if (newFreq === "Weekly") {
+      setSelectedLags(["1", "4", "13", "52"]);
+      setSelectedRollingWindows(["4", "13", "26", "52"]);
+    } else if (newFreq === "Monthly") {
+      setSelectedLags(["1", "3", "6", "12"]);
+      setSelectedRollingWindows(["3", "6", "12", "24"]);
+    } else if (newFreq === "Quarterly") {
+      setSelectedLags(["1", "4"]);
+      setSelectedRollingWindows(["4"]);
+    } else if (newFreq === "Yearly") {
+      setSelectedLags(["1", "2"]);
+      setSelectedRollingWindows(["2", "5"]);
+    } else if (newFreq === "Hourly") {
+      setSelectedLags(["1", "24", "48", "168"]);
+      setSelectedRollingWindows(["24", "168"]);
+    }
+  };
+
 
   const ROLLING_WINDOWS = Array.from({ length: 52 }, (_, i) => ({
     value: (i + 2).toString(),
@@ -629,7 +657,7 @@ export default function Settings() {
                        </div>
                        <div className="space-y-2">
                           <Label>Frequency</Label>
-                          <Select defaultValue={frequency} onValueChange={setFrequency}>
+                          <Select defaultValue={frequency} onValueChange={handleFrequencyChange}>
                              <SelectTrigger>
                                 <SelectValue />
                              </SelectTrigger>
