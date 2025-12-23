@@ -1195,7 +1195,28 @@ function FlowWithProvider() {
                             <span className="capitalize">{selectedEdgeData.sourceNode?.data.status}</span>
                          </div>
                       </div>
-                      <Button size="sm" variant="ghost" className="h-6 w-full mt-2 text-[10px] text-blue-600 hover:text-blue-800 hover:bg-blue-100" onClick={() => setSelectedEdgeData(null)}>Close</Button>
+                      <div className="flex gap-2 mt-3">
+                        <Button 
+                          size="sm" 
+                          variant="destructive" 
+                          className="h-7 flex-1 text-xs"
+                          onClick={() => {
+                            disconnectSource(selectedEdgeData.id);
+                            setSelectedEdgeData(null);
+                          }}
+                          data-testid="button-delete-edge"
+                        >
+                          <Trash2 className="w-3 h-3 mr-1" /> Delete
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="ghost" 
+                          className="h-7 flex-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-100" 
+                          onClick={() => setSelectedEdgeData(null)}
+                        >
+                          Close
+                        </Button>
+                      </div>
                    </CardContent>
                 </Card>
              </Panel>
