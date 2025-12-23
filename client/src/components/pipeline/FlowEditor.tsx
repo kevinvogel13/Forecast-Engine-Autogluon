@@ -19,7 +19,7 @@ import {
  
 import '@xyflow/react/dist/style.css';
 import { Button } from '@/components/ui/button';
-import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown } from 'lucide-react';
+import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown, GitMerge } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -311,6 +311,48 @@ function FlowWithProvider() {
     );
     setSelectedNode((prev: any) => ({ ...prev, data: { ...prev.data, [key]: value } }));
   };
+
+  // Connect a source node to the currently selected node
+  const connectFromNode = useCallback((sourceId: string) => {
+    if (!selectedNode || sourceId === selectedNode.id) return;
+    
+    // Check if this connection already exists
+    const existingEdge = edges.find(e => e.source === sourceId && e.target === selectedNode.id);
+    if (existingEdge) return;
+    
+    const newEdge = {
+      id: `e${sourceId}-${selectedNode.id}`,
+      source: sourceId,
+      target: selectedNode.id,
+      animated: true,
+      style: defaultEdgeStyle,
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' }
+    };
+    
+    setEdges((eds) => [...eds, newEdge]);
+  }, [selectedNode, edges, setEdges]);
+
+  // Get available source nodes (nodes that can connect to current node)
+  const getAvailableSourceNodes = useCallback(() => {
+    if (!selectedNode) return [];
+    // All nodes except the current node and output nodes can be sources
+    return nodes.filter(n => n.id !== selectedNode.id && n.data.type !== 'output');
+  }, [nodes, selectedNode]);
+
+  // Get current source connections for the selected node
+  const getCurrentSources = useCallback(() => {
+    if (!selectedNode) return [];
+    const incomingEdges = edges.filter(e => e.target === selectedNode.id);
+    return incomingEdges.map(e => {
+      const sourceNode = nodes.find(n => n.id === e.source);
+      return { edgeId: e.id, sourceId: e.source, sourceLabel: sourceNode?.data.label || e.source };
+    });
+  }, [selectedNode, edges, nodes]);
+
+  // Disconnect a source from the current node
+  const disconnectSource = useCallback((edgeId: string) => {
+    setEdges((eds) => eds.filter(e => e.id !== edgeId));
+  }, [setEdges]);
   
   // Recursively get columns from a node, tracing through the graph
   const getNodeColumns = useCallback((nodeId: string, visited: Set<string> = new Set()): string[] => {
@@ -712,6 +754,49 @@ function FlowWithProvider() {
                       onChange={(e) => updateNodeLabel(e.target.value)} 
                     />
                   </div>
+                  
+                  {/* Connect From dropdown for non-input nodes */}
+                  {selectedNode.data.type !== 'input' && (
+                    <div className="space-y-2 border rounded-md p-3 bg-slate-50">
+                      <Label className="flex items-center gap-2">
+                        <GitMerge className="w-3.5 h-3.5" />
+                        Connect From
+                      </Label>
+                      {getCurrentSources().length > 0 && (
+                        <div className="space-y-1 mb-2">
+                          {getCurrentSources().map((src) => (
+                            <div key={src.edgeId} className="flex items-center justify-between bg-white rounded px-2 py-1 border text-xs">
+                              <span className="font-medium truncate">{src.sourceLabel}</span>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-5 w-5 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => disconnectSource(src.edgeId)}
+                              >
+                                <X className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <Select onValueChange={connectFromNode} value="">
+                        <SelectTrigger className="h-8 text-xs" data-testid="select-connect-from">
+                          <SelectValue placeholder="+ Add connection..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {getAvailableSourceNodes().length === 0 ? (
+                            <div className="px-2 py-1.5 text-xs text-muted-foreground">No source nodes available</div>
+                          ) : (
+                            getAvailableSourceNodes().map(node => (
+                              <SelectItem key={node.id} value={node.id} className="text-xs">
+                                {node.data.label} ({node.data.type})
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   
                   {(selectedNode.data.type === 'input') && (
                      <div className="space-y-4">

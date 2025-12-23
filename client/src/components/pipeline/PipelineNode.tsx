@@ -75,19 +75,16 @@ export default function PipelineNode({ data, selected }: PipelineNodeProps) {
     )}>
       {/* Input Handle - Large and visible */}
       {data.type !== 'input' && (
-        <div className="absolute -left-4 top-1/2 -translate-y-1/2 flex items-center">
-          <div className="w-2 h-8 bg-slate-200 rounded-l-full mr-0.5" />
-          <Handle 
-            type="target" 
-            position={Position.Left} 
-            className={cn(
-              "!w-4 !h-4 !border-2 !border-white !shadow-md transition-all",
-              colors.handle,
-              "hover:!w-5 hover:!h-5 hover:!shadow-lg"
-            )}
-            style={{ position: 'relative', left: 0, transform: 'none' }}
-          />
-        </div>
+        <Handle 
+          type="target" 
+          position={Position.Left} 
+          className={cn(
+            "!w-5 !h-5 !border-2 !border-white !shadow-md transition-all !-left-3",
+            colors.handle,
+            "hover:!w-6 hover:!h-6 hover:!shadow-lg"
+          )}
+          data-testid={`handle-target-${data.type}`}
+        />
       )}
 
       {/* Node Content */}
@@ -145,36 +142,17 @@ export default function PipelineNode({ data, selected }: PipelineNodeProps) {
 
       {/* Output Handle - Large and visible */}
       {data.type !== 'output' && (
-        <div className="absolute -right-4 top-1/2 -translate-y-1/2 flex items-center">
-          <Handle 
-            type="source" 
-            position={Position.Right} 
-            className={cn(
-              "!w-4 !h-4 !border-2 !border-white !shadow-md transition-all",
-              colors.handle,
-              "hover:!w-5 hover:!h-5 hover:!shadow-lg"
-            )}
-            style={{ position: 'relative', right: 0, transform: 'none' }}
-          />
-          <div className="w-2 h-8 bg-slate-200 rounded-r-full ml-0.5" />
-        </div>
+        <Handle 
+          type="source" 
+          position={Position.Right} 
+          className={cn(
+            "!w-5 !h-5 !border-2 !border-white !shadow-md transition-all !-right-3",
+            colors.handle,
+            "hover:!w-6 hover:!h-6 hover:!shadow-lg"
+          )}
+          data-testid={`handle-source-${data.type}`}
+        />
       )}
-
-      {/* Connection hint on hover */}
-      {data.type !== 'output' && (
-        <div className="absolute -right-24 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-          <div className="bg-slate-800 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap shadow-lg">
-            Drag to connect →
-          </div>
-        </div>
-      )}
-
-      {/* Click hint */}
-      <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-        <div className="bg-slate-700 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap shadow-lg">
-          Click to configure
-        </div>
-      </div>
     </div>
   );
 }

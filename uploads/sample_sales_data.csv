@@ -1,0 +1,21 @@
+date,product_id,product_name,category,region,quantity,unit_price,revenue
+2024-01-01,P001,Widget A,Electronics,North,150,29.99,4498.50
+2024-01-01,P002,Widget B,Electronics,South,200,19.99,3998.00
+2024-01-01,P003,Gadget X,Home,East,75,49.99,3749.25
+2024-01-02,P001,Widget A,Electronics,North,180,29.99,5398.20
+2024-01-02,P002,Widget B,Electronics,West,220,19.99,4397.80
+2024-01-02,P003,Gadget X,Home,South,90,49.99,4499.10
+2024-01-03,P001,Widget A,Electronics,East,165,29.99,4948.35
+2024-01-03,P004,Gadget Y,Home,North,55,79.99,4399.45
+2024-01-03,P002,Widget B,Electronics,South,195,19.99,3898.05
+2024-01-04,P003,Gadget X,Home,West,85,49.99,4249.15
+2024-01-04,P001,Widget A,Electronics,North,175,29.99,5248.25
+2024-01-04,P004,Gadget Y,Home,East,60,79.99,4799.40
+2024-01-05,P002,Widget B,Electronics,North,210,19.99,4197.90
+2024-01-05,P003,Gadget X,Home,South,95,49.99,4749.05
+2024-01-05,P001,Widget A,Electronics,West,155,29.99,4648.45
+2024-01-06,P004,Gadget Y,Home,North,70,79.99,5599.30
+2024-01-06,P002,Widget B,Electronics,East,185,19.99,3698.15
+2024-01-06,P003,Gadget X,Home,West,80,49.99,3999.20
+2024-01-07,P001,Widget A,Electronics,South,190,29.99,5698.10
+2024-01-07,P004,Gadget Y,Home,East,65,79.99,5199.35
