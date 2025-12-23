@@ -23,6 +23,7 @@ import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, File
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import FileDropzone from '@/components/file-upload/FileDropzone';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -54,7 +55,8 @@ const initialNodes = [
       label: 'Sales_Data_2023.csv', 
       type: 'input',
       status: 'success',
-      stats: { rows: 45200, cols: 12, volume: '2.1M' }
+      stats: { rows: 45200, cols: 12, volume: '2.1M' },
+      columns: ['date', 'sku_id', 'product_name', 'category', 'region', 'store_id', 'quantity', 'unit_price', 'revenue', 'cost', 'margin', 'channel']
     }, 
     type: 'custom'
   },
@@ -65,7 +67,8 @@ const initialNodes = [
       label: 'Sales_Data_2024.csv', 
       type: 'input',
       status: 'success',
-      stats: { rows: 12400, cols: 12, volume: '0.8M' }
+      stats: { rows: 12400, cols: 12, volume: '0.8M' },
+      columns: ['date', 'sku_id', 'product_name', 'category', 'region', 'store_id', 'quantity', 'unit_price', 'revenue', 'cost', 'margin', 'channel']
     }, 
     type: 'custom' 
   },
@@ -76,7 +79,9 @@ const initialNodes = [
       label: 'Merge: Date & SKU', 
       type: 'merge',
       status: 'pending',
-      stats: { rows: 57600, cols: 12, volume: '2.9M' }
+      stats: { rows: 57600, cols: 12, volume: '2.9M' },
+      leftKeys: ['date', 'sku_id'],
+      rightKeys: ['date', 'sku_id']
     }, 
     type: 'custom'
   },
@@ -109,7 +114,7 @@ const initialNodes = [
       label: 'Forecast Output', 
       type: 'output',
       status: 'pending',
-      stats: { rows: 55100, cols: 14 } // +2 cols for forecast
+      stats: { rows: 55100, cols: 14 }
     }, 
     type: 'custom' 
   },
@@ -274,6 +279,8 @@ function FlowWithProvider() {
        cols: 0,
        volume: '0M'
     };
+    
+    const columns = dataset?.columns || [];
 
     setNodes((nds) =>
        nds.map((node) => {
@@ -285,6 +292,7 @@ function FlowWithProvider() {
                    label: fileName,
                    status: 'success',
                    stats,
+                   columns,
                    datasetId: dataset?.id
                 }
              };
@@ -299,6 +307,7 @@ function FlowWithProvider() {
           ...prev.data, 
           label: fileName,
           stats,
+          columns,
           datasetId: dataset?.id
        } 
     }));
@@ -378,6 +387,120 @@ function FlowWithProvider() {
       })
     );
     setSelectedNode((prev: any) => ({ ...prev, data: { ...prev.data, [key]: value } }));
+  };
+  
+  // Recursively get columns from a node, tracing through the graph
+  const getNodeColumns = useCallback((nodeId: string, visited: Set<string> = new Set()): string[] => {
+    if (visited.has(nodeId)) return [];
+    visited.add(nodeId);
+    
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return [];
+    
+    // If node has explicit columns, return them
+    if (node.data.columns && node.data.columns.length > 0) {
+      return node.data.columns;
+    }
+    
+    // Otherwise, trace back through incoming edges
+    const incomingEdges = edges.filter(e => e.target === nodeId);
+    const allCols: string[] = [];
+    
+    incomingEdges.forEach(edge => {
+      const sourceCols = getNodeColumns(edge.source, visited);
+      sourceCols.forEach((col: string) => {
+        if (!allCols.includes(col)) allCols.push(col);
+      });
+    });
+    
+    return allCols;
+  }, [nodes, edges]);
+  
+  // Get columns from source nodes connected to a given node
+  const getSourceColumns = useCallback((nodeId: string, sourceIndex?: number) => {
+    const incomingEdges = edges.filter(e => e.target === nodeId);
+    if (incomingEdges.length === 0) return [];
+    
+    // If sourceIndex provided, get specific source (for merge left/right)
+    if (sourceIndex !== undefined && incomingEdges[sourceIndex]) {
+      return getNodeColumns(incomingEdges[sourceIndex].source);
+    }
+    
+    // Otherwise merge all source columns
+    const allCols: string[] = [];
+    incomingEdges.forEach(edge => {
+      const sourceCols = getNodeColumns(edge.source);
+      sourceCols.forEach((col: string) => {
+        if (!allCols.includes(col)) allCols.push(col);
+      });
+    });
+    return allCols;
+  }, [edges, getNodeColumns]);
+  
+  // Multi-select dropdown component for columns
+  const ColumnMultiSelect = ({ 
+    label, 
+    selectedCols, 
+    availableCols, 
+    onChange,
+    testId 
+  }: { 
+    label: string, 
+    selectedCols: string[], 
+    availableCols: string[], 
+    onChange: (cols: string[]) => void,
+    testId: string 
+  }) => {
+    const [open, setOpen] = useState(false);
+    
+    const toggleCol = (col: string) => {
+      if (selectedCols.includes(col)) {
+        onChange(selectedCols.filter(c => c !== col));
+      } else {
+        onChange([...selectedCols, col]);
+      }
+    };
+    
+    return (
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button 
+            variant="outline" 
+            className="w-full h-8 justify-between font-mono text-xs"
+            data-testid={testId}
+          >
+            <span className="truncate">
+              {selectedCols.length > 0 ? selectedCols.join(', ') : 'Select columns...'}
+            </span>
+            <ChevronDown className="w-3 h-3 ml-2 shrink-0" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-56 p-2" align="start">
+          <ScrollArea className="max-h-48">
+            {availableCols.length === 0 ? (
+              <p className="text-xs text-muted-foreground p-2">No columns available. Connect a data source.</p>
+            ) : (
+              <div className="space-y-1">
+                {availableCols.map(col => (
+                  <div 
+                    key={col} 
+                    className="flex items-center gap-2 p-1.5 hover:bg-muted rounded cursor-pointer"
+                    onClick={() => toggleCol(col)}
+                  >
+                    <Checkbox 
+                      checked={selectedCols.includes(col)} 
+                      onClick={(e) => e.stopPropagation()}
+                      onCheckedChange={() => toggleCol(col)}
+                    />
+                    <span className="text-xs font-mono">{col}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </PopoverContent>
+      </Popover>
+    );
   };
   
   const runPipeline = () => {
@@ -775,7 +898,7 @@ function FlowWithProvider() {
                            value={selectedNode.data.joinType || 'inner'} 
                            onValueChange={(val) => updateNodeData('joinType', val)}
                         >
-                          <SelectTrigger className="h-8">
+                          <SelectTrigger className="h-8" data-testid="select-join-type">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -787,21 +910,29 @@ function FlowWithProvider() {
                         </Select>
                       </div>
                       <div className="space-y-2">
-                        <Label>Left Key</Label>
-                        <Input 
-                           placeholder="e.g. date, sku_id" 
-                           className="h-8 font-mono text-xs" 
-                           value={selectedNode.data.leftKey || ''}
-                           onChange={(e) => updateNodeData('leftKey', e.target.value)}
+                        <Label className="flex items-center gap-2">
+                          Left Keys
+                          <span className="text-[10px] text-muted-foreground font-normal">(Source 1)</span>
+                        </Label>
+                        <ColumnMultiSelect
+                          label="Left Keys"
+                          selectedCols={selectedNode.data.leftKeys || []}
+                          availableCols={getSourceColumns(selectedNode.id, 0)}
+                          onChange={(cols) => updateNodeData('leftKeys', cols)}
+                          testId="select-left-keys"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Right Key</Label>
-                        <Input 
-                           placeholder="e.g. date, item_id" 
-                           className="h-8 font-mono text-xs" 
-                           value={selectedNode.data.rightKey || ''}
-                           onChange={(e) => updateNodeData('rightKey', e.target.value)}
+                        <Label className="flex items-center gap-2">
+                          Right Keys
+                          <span className="text-[10px] text-muted-foreground font-normal">(Source 2)</span>
+                        </Label>
+                        <ColumnMultiSelect
+                          label="Right Keys"
+                          selectedCols={selectedNode.data.rightKeys || []}
+                          availableCols={getSourceColumns(selectedNode.id, 1)}
+                          onChange={(cols) => updateNodeData('rightKeys', cols)}
+                          testId="select-right-keys"
                         />
                       </div>
                     </div>
@@ -810,13 +941,24 @@ function FlowWithProvider() {
                   {selectedNode.data.type === 'filter' && (
                     <div className="space-y-4 border rounded-md p-3 bg-muted/20">
                       <div className="space-y-2">
-                        <Label>Column</Label>
-                        <Input 
-                           placeholder="Column name" 
-                           className="h-8 font-mono text-xs"
-                           value={selectedNode.data.filterColumn || ''}
-                           onChange={(e) => updateNodeData('filterColumn', e.target.value)}
-                        />
+                        <Label>Filter Column</Label>
+                        <Select 
+                           value={selectedNode.data.filterColumn || ''} 
+                           onValueChange={(val) => updateNodeData('filterColumn', val)}
+                        >
+                          <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-filter-column">
+                            <SelectValue placeholder="Select column..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {getSourceColumns(selectedNode.id).length === 0 ? (
+                              <SelectItem value="" disabled>Connect a data source</SelectItem>
+                            ) : (
+                              getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                          <div className="space-y-2">
@@ -825,14 +967,19 @@ function FlowWithProvider() {
                               value={selectedNode.data.filterOp || 'eq'} 
                               onValueChange={(val) => updateNodeData('filterOp', val)}
                            >
-                             <SelectTrigger className="h-8">
+                             <SelectTrigger className="h-8" data-testid="select-filter-operator">
                                <SelectValue />
                              </SelectTrigger>
                              <SelectContent>
                                <SelectItem value="eq">Equals (=)</SelectItem>
+                               <SelectItem value="neq">Not Equals (!=)</SelectItem>
                                <SelectItem value="gt">Greater ({'>'})</SelectItem>
+                               <SelectItem value="gte">Greater or Equal ({'>'}=)</SelectItem>
                                <SelectItem value="lt">Less ({'<'})</SelectItem>
+                               <SelectItem value="lte">Less or Equal ({'<'}=)</SelectItem>
                                <SelectItem value="contains">Contains</SelectItem>
+                               <SelectItem value="isnull">Is Null</SelectItem>
+                               <SelectItem value="notnull">Not Null</SelectItem>
                              </SelectContent>
                            </Select>
                          </div>
@@ -843,6 +990,7 @@ function FlowWithProvider() {
                               className="h-8 text-xs"
                               value={selectedNode.data.filterValue || ''}
                               onChange={(e) => updateNodeData('filterValue', e.target.value)}
+                              data-testid="input-filter-value"
                            />
                          </div>
                       </div>
@@ -890,22 +1038,49 @@ function FlowWithProvider() {
                   {selectedNode.data.type === 'groupby' && (
                     <div className="space-y-4 border rounded-md p-3 bg-muted/20">
                       <div className="space-y-2">
-                         <Label>Group Columns</Label>
-                         <Input 
-                            placeholder="col1, col2" 
-                            className="h-8 font-mono text-xs"
-                            value={selectedNode.data.groupCols || ''}
-                            onChange={(e) => updateNodeData('groupCols', e.target.value)}
+                         <Label>Group By Columns</Label>
+                         <ColumnMultiSelect
+                           label="Group Columns"
+                           selectedCols={selectedNode.data.groupCols || []}
+                           availableCols={getSourceColumns(selectedNode.id)}
+                           onChange={(cols) => updateNodeData('groupCols', cols)}
+                           testId="select-group-columns"
                          />
                       </div>
                       <div className="space-y-2">
-                         <Label>Aggregations (JSON)</Label>
-                         <Textarea 
-                            placeholder='{"sales": "sum", "qty": "mean"}' 
-                            className="font-mono text-xs h-20"
-                            value={selectedNode.data.aggs || ''}
-                            onChange={(e) => updateNodeData('aggs', e.target.value)}
-                         />
+                         <Label>Aggregation Column</Label>
+                         <Select 
+                           value={selectedNode.data.aggColumn || ''} 
+                           onValueChange={(val) => updateNodeData('aggColumn', val)}
+                         >
+                           <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-agg-column">
+                             <SelectValue placeholder="Select column..." />
+                           </SelectTrigger>
+                           <SelectContent>
+                             {getSourceColumns(selectedNode.id).map(col => (
+                               <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                             ))}
+                           </SelectContent>
+                         </Select>
+                      </div>
+                      <div className="space-y-2">
+                         <Label>Aggregation Function</Label>
+                         <Select 
+                           value={selectedNode.data.aggFunc || 'sum'} 
+                           onValueChange={(val) => updateNodeData('aggFunc', val)}
+                         >
+                           <SelectTrigger className="h-8" data-testid="select-agg-function">
+                             <SelectValue />
+                           </SelectTrigger>
+                           <SelectContent>
+                             <SelectItem value="sum">Sum</SelectItem>
+                             <SelectItem value="mean">Mean</SelectItem>
+                             <SelectItem value="count">Count</SelectItem>
+                             <SelectItem value="min">Min</SelectItem>
+                             <SelectItem value="max">Max</SelectItem>
+                             <SelectItem value="std">Std Dev</SelectItem>
+                           </SelectContent>
+                         </Select>
                       </div>
                     </div>
                   )}

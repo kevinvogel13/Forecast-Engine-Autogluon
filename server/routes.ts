@@ -112,7 +112,8 @@ export async function registerRoutes(
       });
 
       const rows = records.length;
-      const cols = records.length > 0 ? Object.keys(records[0]).length : 0;
+      const columns = records.length > 0 ? Object.keys(records[0]) : [];
+      const cols = columns.length;
 
       const uploadsDir = path.join(process.cwd(), 'uploads');
       await fs.mkdir(uploadsDir, { recursive: true });
@@ -125,6 +126,7 @@ export async function registerRoutes(
         filepath: finalPath,
         rows,
         cols,
+        columns,
         size: req.file.size
       });
 

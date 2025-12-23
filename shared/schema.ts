@@ -26,6 +26,7 @@ export const datasets = pgTable("datasets", {
   rows: integer("rows").notNull().default(0),
   cols: integer("cols").notNull().default(0),
   size: integer("size").notNull().default(0),
+  columns: text("columns").array().default([]),
   uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
 });
 
