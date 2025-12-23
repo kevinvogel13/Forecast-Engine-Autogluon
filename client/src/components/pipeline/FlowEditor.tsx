@@ -19,8 +19,7 @@ import {
  
 import '@xyflow/react/dist/style.css';
 import { Button } from '@/components/ui/button';
-import { Play, Settings2, Trash2, X, FolderOpen, Save } from 'lucide-react';
-import Sidebar from './Sidebar';
+import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -28,7 +27,13 @@ import { Separator } from '@/components/ui/separator';
 import FileDropzone from '@/components/file-upload/FileDropzone';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import PipelineNode from './PipelineNode';
+import EDADashboard from '@/components/dashboard/EDADashboard';
+import ConfigurationPanel from '@/components/configuration/ConfigurationPanel';
+import ForecastResultsDashboard from '@/components/dashboard/ForecastResultsDashboard';
+import NodePalette from './NodePalette';
+import { toast } from 'sonner';
 
 // Define custom node types
 const nodeTypes: NodeTypes = {
@@ -68,7 +73,7 @@ const initialNodes = [
     data: { 
       label: 'Merge: Date & SKU', 
       type: 'merge',
-      status: 'processing',
+      status: 'pending',
       stats: { rows: 57600, cols: 12, volume: '2.9M' }
     }, 
     type: 'custom'
@@ -77,8 +82,8 @@ const initialNodes = [
     id: '4', 
     position: { x: 800, y: 225 }, 
     data: { 
-      label: 'Filter: Valid Regions', 
-      type: 'filter',
+      label: 'Data Validation & EDA', 
+      type: 'eda',
       status: 'pending',
       stats: { rows: 55100, cols: 12, volume: '2.85M' }
     }, 
@@ -88,7 +93,18 @@ const initialNodes = [
     id: '5', 
     position: { x: 1150, y: 225 }, 
     data: { 
-      label: 'Forecast Model', 
+      label: 'Model Configuration', 
+      type: 'config',
+      status: 'pending',
+      stats: { rows: 55100, cols: 12 }
+    }, 
+    type: 'custom' 
+  },
+  { 
+    id: '6', 
+    position: { x: 1500, y: 225 }, 
+    data: { 
+      label: 'Forecast Output', 
       type: 'output',
       status: 'pending',
       stats: { rows: 55100, cols: 14 } // +2 cols for forecast
@@ -98,10 +114,11 @@ const initialNodes = [
 ];
 
 const initialEdges = [
-  { id: 'e1-3', source: '1', target: '3', animated: true, style: { stroke: '#94a3b8' } },
-  { id: 'e2-3', source: '2', target: '3', animated: true, style: { stroke: '#94a3b8' } },
+  { id: 'e1-3', source: '1', target: '3', style: { stroke: '#94a3b8' } },
+  { id: 'e2-3', source: '2', target: '3', style: { stroke: '#94a3b8' } },
   { id: 'e3-4', source: '3', target: '4', markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: '#94a3b8' } },
   { id: 'e4-5', source: '4', target: '5', markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: '#94a3b8' } },
+  { id: 'e5-6', source: '5', target: '6', markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: '#94a3b8' } },
 ];
 
 const savedPipelines = [
@@ -120,6 +137,15 @@ function FlowWithProvider() {
   const { screenToFlowPosition } = useReactFlow();
   const [selectedNode, setSelectedNode] = useState<any>(null);
   const [loadDialogOpen, setLoadDialogOpen] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
+  
+  // Edge click popover state
+  const [selectedEdgeData, setSelectedEdgeData] = useState<{ id: string, x: number, y: number, sourceNode: any, targetNode: any } | null>(null);
+  
+  // Modal states for full views
+  const [edaOpen, setEdaOpen] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [resultsOpen, setResultsOpen] = useState(false);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -137,8 +163,7 @@ function FlowWithProvider() {
 
       const type = event.dataTransfer.getData('application/reactflow/type');
       const label = event.dataTransfer.getData('application/reactflow/label');
-      // Removed className because we handle styling in the custom node now
-
+      
       if (typeof type === 'undefined' || !type) {
         return;
       }
@@ -150,11 +175,11 @@ function FlowWithProvider() {
 
       const newNode = {
         id: getId(),
-        type: 'custom', // Use our custom node renderer
+        type: 'custom', 
         position,
         data: { 
            label: label, 
-           type: type, // Pass the functional type to the node data
+           type: type, 
            stats: { rows: 0, cols: 0 },
            status: 'pending'
         },
@@ -168,6 +193,29 @@ function FlowWithProvider() {
 
   const onNodeClick = useCallback((event: React.MouseEvent, node: any) => {
     setSelectedNode(node);
+    setSelectedEdgeData(null); // Close edge popover
+  }, []);
+
+  const onEdgeClick = useCallback((event: React.MouseEvent, edge: Edge) => {
+    // Find source and target nodes to display relevant info
+    const sourceNode = nodes.find(n => n.id === edge.source);
+    const targetNode = nodes.find(n => n.id === edge.target);
+
+    setSelectedEdgeData({
+      id: edge.id,
+      x: event.clientX,
+      y: event.clientY,
+      sourceNode,
+      targetNode
+    });
+    
+    // Don't select node
+    event.stopPropagation();
+  }, [nodes]);
+
+  const onPaneClick = useCallback(() => {
+    setSelectedNode(null);
+    setSelectedEdgeData(null);
   }, []);
 
   const updateNodeLabel = (label: string) => {
@@ -217,7 +265,6 @@ function FlowWithProvider() {
        })
     );
     
-    // Also update selected node state to reflect changes in the panel immediately
     setSelectedNode((prev: any) => ({ 
        ...prev, 
        data: { 
@@ -243,6 +290,71 @@ function FlowWithProvider() {
       })
     );
     setSelectedNode((prev: any) => ({ ...prev, data: { ...prev.data, [key]: value } }));
+  };
+  
+  // Simulation Logic
+  const runPipeline = () => {
+    if (isRunning) return;
+    setIsRunning(true);
+    toast.info("Pipeline started...");
+
+    // Reset all statuses first (except inputs which stay success)
+    setNodes((nds) => 
+      nds.map(n => ({
+        ...n,
+        data: {
+          ...n.data,
+          status: n.data.type === 'input' ? 'success' : 'pending'
+        }
+      }))
+    );
+
+    // Turn on edge animations
+    setEdges((eds) => eds.map(e => ({ ...e, animated: true })));
+
+    // Simple simulation: go through nodes 3, 4, 5, 6 with delays
+    const sequence = ['3', '4', '5', '6'];
+    
+    let delay = 1000;
+    sequence.forEach((nodeId, index) => {
+       setTimeout(() => {
+          setNodes((nds) => 
+            nds.map(n => {
+              if (n.id === nodeId) {
+                 return { ...n, data: { ...n.data, status: 'processing' } };
+              }
+              return n;
+            })
+          );
+       }, delay);
+
+       delay += 2000; // Processing time
+
+       setTimeout(() => {
+          setNodes((nds) => 
+            nds.map(n => {
+              if (n.id === nodeId) {
+                 return { ...n, data: { ...n.data, status: 'success' } };
+              }
+              return n;
+            })
+          );
+          
+          if (index === sequence.length - 1) {
+            setIsRunning(false);
+            setEdges((eds) => eds.map(e => ({ ...e, animated: false })));
+            toast.success("Pipeline completed successfully!");
+          }
+       }, delay);
+       
+       delay += 500; // Gap
+    });
+  };
+  
+  const onNodeDragStart = (event: React.DragEvent, nodeType: string, label: string) => {
+    event.dataTransfer.setData('application/reactflow/type', nodeType);
+    event.dataTransfer.setData('application/reactflow/label', label);
+    event.dataTransfer.effectAllowed = 'move';
   };
 
   return (
@@ -288,8 +400,14 @@ function FlowWithProvider() {
           <Button size="sm" variant="outline" className="bg-white/80 backdrop-blur gap-2">
              <Save className="w-4 h-4" /> Save
           </Button>
-          <Button size="sm" className="gap-2 shadow-lg hover:shadow-xl transition-all">
-            <Play className="w-4 h-4" /> Run Pipeline
+          <Button 
+            size="sm" 
+            className={`gap-2 shadow-lg hover:shadow-xl transition-all ${isRunning ? 'bg-orange-500 hover:bg-orange-600' : ''}`}
+            onClick={runPipeline}
+            disabled={isRunning}
+          >
+            {isRunning ? <span className="animate-spin">⟳</span> : <Play className="w-4 h-4" />} 
+            {isRunning ? 'Running...' : 'Run Pipeline'}
           </Button>
         </div>
         
@@ -302,7 +420,8 @@ function FlowWithProvider() {
           onDrop={onDrop}
           onDragOver={onDragOver}
           onNodeClick={onNodeClick}
-          onPaneClick={() => setSelectedNode(null)}
+          onEdgeClick={onEdgeClick}
+          onPaneClick={onPaneClick}
           nodeTypes={nodeTypes}
           fitView
           attributionPosition="bottom-left"
@@ -335,6 +454,57 @@ function FlowWithProvider() {
                         <Label>Data Source</Label>
                         <FileDropzone compact onUploadComplete={handleFileUpload} />
                      </div>
+                  )}
+
+                  {selectedNode.data.type === 'eda' && (
+                    <div className="space-y-4 border rounded-md p-4 bg-blue-50/50 border-blue-100">
+                       <div className="flex flex-col items-center justify-center text-center space-y-3 py-2">
+                          <div className="bg-blue-100 p-3 rounded-full">
+                             <BarChart3 className="w-6 h-6 text-blue-600" />
+                          </div>
+                          <div>
+                             <h4 className="text-sm font-semibold text-blue-900">Data Validation & EDA</h4>
+                             <p className="text-xs text-blue-700 mt-1">Explore data distributions, check for anomalies, and validate data quality.</p>
+                          </div>
+                          <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => setEdaOpen(true)}>
+                             Open Dashboard
+                          </Button>
+                       </div>
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'config' && (
+                    <div className="space-y-4 border rounded-md p-4 bg-purple-50/50 border-purple-100">
+                       <div className="flex flex-col items-center justify-center text-center space-y-3 py-2">
+                          <div className="bg-purple-100 p-3 rounded-full">
+                             <Settings2 className="w-6 h-6 text-purple-600" />
+                          </div>
+                          <div>
+                             <h4 className="text-sm font-semibold text-purple-900">Model Configuration</h4>
+                             <p className="text-xs text-purple-700 mt-1">Configure forecasting models, hyperparameters, and feature engineering.</p>
+                          </div>
+                          <Button className="w-full bg-purple-600 hover:bg-purple-700" onClick={() => setConfigOpen(true)}>
+                             Configure Pipeline
+                          </Button>
+                       </div>
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'output' && (
+                    <div className="space-y-4 border rounded-md p-4 bg-green-50/50 border-green-100">
+                       <div className="flex flex-col items-center justify-center text-center space-y-3 py-2">
+                          <div className="bg-green-100 p-3 rounded-full">
+                             <Activity className="w-6 h-6 text-green-600" />
+                          </div>
+                          <div>
+                             <h4 className="text-sm font-semibold text-green-900">Forecast Results</h4>
+                             <p className="text-xs text-green-700 mt-1">View prediction charts, accuracy metrics, and download results.</p>
+                          </div>
+                          <Button className="w-full bg-green-600 hover:bg-green-700" onClick={() => setResultsOpen(true)}>
+                             View Results
+                          </Button>
+                       </div>
+                    </div>
                   )}
 
                   {selectedNode.data.type === 'merge' && (
@@ -516,9 +686,89 @@ function FlowWithProvider() {
               </Card>
             </Panel>
           )}
+
+          {selectedEdgeData && (
+             <Panel position="top-left" style={{ left: selectedEdgeData.x - 250, top: selectedEdgeData.y - 120, pointerEvents: 'none' }}>
+                <Card className="w-64 shadow-xl border-blue-200 bg-blue-50/90 backdrop-blur-sm pointer-events-auto">
+                   <CardHeader className="p-3 pb-2">
+                      <CardTitle className="text-xs font-bold text-blue-800 flex items-center gap-2">
+                         <Activity className="w-3 h-3" /> Data Flow Inspector
+                      </CardTitle>
+                   </CardHeader>
+                   <CardContent className="p-3 pt-0">
+                      <div className="space-y-1 text-xs">
+                         <div className="flex justify-between">
+                            <span className="text-muted-foreground">Source:</span>
+                            <span className="font-mono">{selectedEdgeData.sourceNode?.data.label}</span>
+                         </div>
+                         <div className="flex justify-between">
+                            <span className="text-muted-foreground">Target:</span>
+                            <span className="font-mono">{selectedEdgeData.targetNode?.data.label}</span>
+                         </div>
+                         <Separator className="my-1 bg-blue-200" />
+                         <div className="flex justify-between font-semibold">
+                            <span>Row Count:</span>
+                            <span>{selectedEdgeData.sourceNode?.data.stats?.rows?.toLocaleString() || 'N/A'}</span>
+                         </div>
+                         <div className="flex justify-between text-muted-foreground">
+                            <span>Status:</span>
+                            <span className="capitalize">{selectedEdgeData.sourceNode?.data.status}</span>
+                         </div>
+                      </div>
+                      <Button size="sm" variant="ghost" className="h-6 w-full mt-2 text-[10px] text-blue-600 hover:text-blue-800 hover:bg-blue-100" onClick={() => setSelectedEdgeData(null)}>Close</Button>
+                   </CardContent>
+                </Card>
+             </Panel>
+          )}
+
+          <NodePalette onDragStart={onNodeDragStart} />
+
         </ReactFlow>
       </div>
-      <Sidebar />
+
+      {/* Full Screen Dialogs for EDA and Config */}
+      <Dialog open={edaOpen} onOpenChange={setEdaOpen}>
+        <DialogContent className="max-w-[95vw] w-full h-[95vh] p-0 flex flex-col overflow-hidden">
+           <div className="p-6 border-b shrink-0 flex items-center justify-between">
+              <div>
+                 <DialogTitle className="text-xl">Data Validation & EDA</DialogTitle>
+                 <DialogDescription>Interactive exploratory data analysis.</DialogDescription>
+              </div>
+           </div>
+           <ScrollArea className="flex-1 p-6 bg-slate-50/50">
+              <EDADashboard />
+           </ScrollArea>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={configOpen} onOpenChange={setConfigOpen}>
+        <DialogContent className="max-w-[95vw] w-full h-[95vh] p-0 flex flex-col overflow-hidden">
+           <div className="p-6 border-b shrink-0 flex items-center justify-between">
+              <div>
+                 <DialogTitle className="text-xl">Model Configuration</DialogTitle>
+                 <DialogDescription>Setup your forecasting parameters.</DialogDescription>
+              </div>
+           </div>
+           <ScrollArea className="flex-1 p-6 bg-slate-50/50">
+              <ConfigurationPanel />
+           </ScrollArea>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={resultsOpen} onOpenChange={setResultsOpen}>
+        <DialogContent className="max-w-[95vw] w-full h-[95vh] p-0 flex flex-col overflow-hidden">
+           <div className="p-6 border-b shrink-0 flex items-center justify-between">
+              <div>
+                 <DialogTitle className="text-xl">Forecast Results</DialogTitle>
+                 <DialogDescription>Performance metrics and predictions.</DialogDescription>
+              </div>
+           </div>
+           <ScrollArea className="flex-1 p-6 bg-slate-50/50">
+              <ForecastResultsDashboard />
+           </ScrollArea>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 
