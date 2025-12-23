@@ -613,7 +613,8 @@ function FlowWithProvider() {
 
   // Compute a key that represents the current preview's upstream filter state
   const getPreviewKey = useCallback(() => {
-    if (!selectedNode || selectedNode.data.type !== 'preview') return '';
+    const previewNodeTypes = ['preview', 'python', 'sql'];
+    if (!selectedNode || !previewNodeTypes.includes(selectedNode.data.type)) return '';
     
     // Find incoming edges to this node
     const incomingEdges = edges.filter(e => e.target === selectedNode.id);
@@ -638,9 +639,10 @@ function FlowWithProvider() {
 
   const previewKey = getPreviewKey();
 
-  // Effect to fetch preview when preview node is selected or upstream state changes
+  // Effect to fetch preview when preview/python/sql node is selected or upstream state changes
   useEffect(() => {
-    if (selectedNode?.data.type !== 'preview') {
+    const previewNodeTypes = ['preview', 'python', 'sql'];
+    if (!selectedNode || !previewNodeTypes.includes(selectedNode.data.type)) {
       setPreviewData(null);
       return;
     }
@@ -740,9 +742,10 @@ function FlowWithProvider() {
     return () => { isCancelled = true; };
   }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.previewRows, previewKey]);
 
-  // Update preview node metadata when preview data changes
+  // Update preview/python/sql node metadata when preview data changes
   useEffect(() => {
-    if (selectedNode?.data.type === 'preview' && previewData) {
+    const previewNodeTypes = ['preview', 'python', 'sql'];
+    if (selectedNode && previewNodeTypes.includes(selectedNode.data.type) && previewData) {
       const newRows = previewData.totalRows;
       const newCols = previewData.columns?.length || 0;
       const currentRows = selectedNode.data.stats?.rows;
@@ -1672,40 +1675,138 @@ function FlowWithProvider() {
                   )}
 
                   {selectedNode.data.type === 'python' && (
-                    <div className="space-y-2 border rounded-md p-3 bg-muted/20">
-                       <Label className="flex justify-between">
-                          <span>Python Code</span>
-                          <span className="text-[10px] text-muted-foreground font-mono">pandas available as pd</span>
-                       </Label>
-                       <div className="h-48 border rounded-md overflow-hidden">
-                          <Editor
-                             height="100%"
-                             defaultLanguage="python"
-                             defaultValue={selectedNode.data.code || "# Write your transformation here\n# df = input_df.copy()\n# df['new_col'] = df['val'] * 2\n# return df"}
-                             theme="light"
-                             options={{ minimap: { enabled: false }, fontSize: 11, lineNumbers: 'off' }}
-                             onChange={(val) => updateNodeData('code', val)}
-                          />
+                    <div className="space-y-4 border rounded-md p-3 bg-muted/20">
+                       <div className="space-y-2">
+                         <Label className="flex justify-between">
+                            <span>Python Code</span>
+                            <span className="text-[10px] text-muted-foreground font-mono">pandas available as pd</span>
+                         </Label>
+                         <div className="h-48 border rounded-md overflow-hidden">
+                            <Editor
+                               height="100%"
+                               defaultLanguage="python"
+                               value={selectedNode.data.code || "# Write your transformation here\n# df = input_df.copy()\n# df['new_col'] = df['val'] * 2\n# return df"}
+                               theme="light"
+                               options={{ minimap: { enabled: false }, fontSize: 11, lineNumbers: 'off' }}
+                               onChange={(val) => updateNodeData('code', val)}
+                            />
+                         </div>
                        </div>
+                       
+                       {previewLoading && (
+                         <div className="text-center py-4 text-muted-foreground text-sm">
+                           Loading input data...
+                         </div>
+                       )}
+                       
+                       {!previewLoading && previewData && previewData.columns.length > 0 && (
+                         <div className="space-y-2">
+                           <Label className="flex items-center justify-between">
+                             <span>Input Data Preview</span>
+                             <span className="text-[10px] text-muted-foreground">
+                               {previewData.rows.length} of {previewData.totalRows.toLocaleString()} rows
+                             </span>
+                           </Label>
+                           <div className="border rounded-md overflow-auto max-h-48 bg-white">
+                             <table className="w-full text-xs">
+                               <thead className="bg-muted/50 sticky top-0">
+                                 <tr>
+                                   {previewData.columns.map((col) => (
+                                     <th key={col} className="text-left font-medium p-2 border-b whitespace-nowrap">
+                                       {col}
+                                     </th>
+                                   ))}
+                                 </tr>
+                               </thead>
+                               <tbody>
+                                 {previewData.rows.map((row, idx) => (
+                                   <tr key={idx} className="hover:bg-muted/30">
+                                     {previewData.columns.map((col) => (
+                                       <td key={col} className="p-2 border-b font-mono whitespace-nowrap max-w-[200px] truncate">
+                                         {row[col] !== null && row[col] !== undefined ? String(row[col]) : ''}
+                                       </td>
+                                     ))}
+                                   </tr>
+                                 ))}
+                               </tbody>
+                             </table>
+                           </div>
+                         </div>
+                       )}
+                       
+                       {!previewLoading && !previewData && (
+                         <div className="text-center py-4 text-muted-foreground text-sm border rounded-md bg-white">
+                           Connect a data source to see input data
+                         </div>
+                       )}
                     </div>
                   )}
 
                   {selectedNode.data.type === 'sql' && (
-                    <div className="space-y-2 border rounded-md p-3 bg-muted/20">
-                       <Label className="flex justify-between">
-                          <span>SQL Query</span>
-                          <span className="text-[10px] text-muted-foreground font-mono">DuckDB Dialect</span>
-                       </Label>
-                       <div className="h-48 border rounded-md overflow-hidden">
-                          <Editor
-                             height="100%"
-                             defaultLanguage="sql"
-                             defaultValue={selectedNode.data.query || "SELECT * FROM input_table\nWHERE region = 'US'\nLIMIT 100"}
-                             theme="light"
-                             options={{ minimap: { enabled: false }, fontSize: 11, lineNumbers: 'off' }}
-                             onChange={(val) => updateNodeData('query', val)}
-                          />
+                    <div className="space-y-4 border rounded-md p-3 bg-muted/20">
+                       <div className="space-y-2">
+                         <Label className="flex justify-between">
+                            <span>SQL Query</span>
+                            <span className="text-[10px] text-muted-foreground font-mono">DuckDB Dialect</span>
+                         </Label>
+                         <div className="h-48 border rounded-md overflow-hidden">
+                            <Editor
+                               height="100%"
+                               defaultLanguage="sql"
+                               value={selectedNode.data.query || "SELECT * FROM input_table\nWHERE region = 'US'\nLIMIT 100"}
+                               theme="light"
+                               options={{ minimap: { enabled: false }, fontSize: 11, lineNumbers: 'off' }}
+                               onChange={(val) => updateNodeData('query', val)}
+                            />
+                         </div>
                        </div>
+                       
+                       {previewLoading && (
+                         <div className="text-center py-4 text-muted-foreground text-sm">
+                           Loading input data...
+                         </div>
+                       )}
+                       
+                       {!previewLoading && previewData && previewData.columns.length > 0 && (
+                         <div className="space-y-2">
+                           <Label className="flex items-center justify-between">
+                             <span>Input Data Preview</span>
+                             <span className="text-[10px] text-muted-foreground">
+                               {previewData.rows.length} of {previewData.totalRows.toLocaleString()} rows
+                             </span>
+                           </Label>
+                           <div className="border rounded-md overflow-auto max-h-48 bg-white">
+                             <table className="w-full text-xs">
+                               <thead className="bg-muted/50 sticky top-0">
+                                 <tr>
+                                   {previewData.columns.map((col) => (
+                                     <th key={col} className="text-left font-medium p-2 border-b whitespace-nowrap">
+                                       {col}
+                                     </th>
+                                   ))}
+                                 </tr>
+                               </thead>
+                               <tbody>
+                                 {previewData.rows.map((row, idx) => (
+                                   <tr key={idx} className="hover:bg-muted/30">
+                                     {previewData.columns.map((col) => (
+                                       <td key={col} className="p-2 border-b font-mono whitespace-nowrap max-w-[200px] truncate">
+                                         {row[col] !== null && row[col] !== undefined ? String(row[col]) : ''}
+                                       </td>
+                                     ))}
+                                   </tr>
+                                 ))}
+                               </tbody>
+                             </table>
+                           </div>
+                         </div>
+                       )}
+                       
+                       {!previewLoading && !previewData && (
+                         <div className="text-center py-4 text-muted-foreground text-sm border rounded-md bg-white">
+                           Connect a data source to see input data
+                         </div>
+                       )}
                     </div>
                   )}
 
