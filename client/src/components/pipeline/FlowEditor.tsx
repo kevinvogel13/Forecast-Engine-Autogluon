@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef, useMemo } from 'react';
+import { useCallback, useState, useRef, useMemo, useEffect } from 'react';
 import { 
   ReactFlow, 
   MiniMap, 
@@ -401,6 +401,128 @@ function FlowWithProvider() {
     });
     return allCols;
   }, [edges, getNodeColumns]);
+
+  // Get the source dataset ID by tracing edges back to input node
+  const getSourceDatasetId = useCallback((nodeId: string, visited: Set<string> = new Set()): string | null => {
+    if (visited.has(nodeId)) return null;
+    visited.add(nodeId);
+    
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return null;
+    
+    // If this node has a datasetId, return it
+    if (node.data.datasetId) {
+      return node.data.datasetId;
+    }
+    
+    // Otherwise, trace back through incoming edges
+    const incomingEdges = edges.filter(e => e.target === nodeId);
+    for (const edge of incomingEdges) {
+      const datasetId = getSourceDatasetId(edge.source, visited);
+      if (datasetId) return datasetId;
+    }
+    
+    return null;
+  }, [nodes, edges]);
+
+  // State for column values (for filter dropdowns)
+  const [columnValues, setColumnValues] = useState<{
+    column: string;
+    values: string[];
+    isCategorical: boolean;
+    isNumeric: boolean;
+  } | null>(null);
+  const [columnValuesLoading, setColumnValuesLoading] = useState(false);
+
+  // State for preview data
+  const [previewData, setPreviewData] = useState<{
+    columns: string[];
+    rows: any[];
+    totalRows: number;
+  } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  // Fetch column values when filter column changes
+  const fetchColumnValues = useCallback(async (column: string) => {
+    if (!selectedNode) return;
+    
+    const datasetId = getSourceDatasetId(selectedNode.id);
+    if (!datasetId || !column) {
+      setColumnValues(null);
+      return;
+    }
+    
+    setColumnValuesLoading(true);
+    try {
+      const response = await fetch(`/api/datasets/${datasetId}/column/${encodeURIComponent(column)}/values`);
+      if (response.ok) {
+        const data = await response.json();
+        setColumnValues({
+          column: data.column,
+          values: data.uniqueValues,
+          isCategorical: data.isCategorical,
+          isNumeric: data.isNumeric
+        });
+      } else {
+        setColumnValues(null);
+      }
+    } catch (error) {
+      console.error('Failed to fetch column values:', error);
+      setColumnValues(null);
+    } finally {
+      setColumnValuesLoading(false);
+    }
+  }, [selectedNode, getSourceDatasetId]);
+
+  // Fetch preview data for preview node
+  const fetchPreviewData = useCallback(async (limit: number = 10) => {
+    if (!selectedNode) return;
+    
+    const datasetId = getSourceDatasetId(selectedNode.id);
+    if (!datasetId) {
+      setPreviewData(null);
+      return;
+    }
+    
+    setPreviewLoading(true);
+    try {
+      const response = await fetch(`/api/datasets/${datasetId}/preview?limit=${limit}`);
+      if (response.ok) {
+        const data = await response.json();
+        setPreviewData({
+          columns: data.columns,
+          rows: data.rows,
+          totalRows: data.totalRows
+        });
+      } else {
+        setPreviewData(null);
+      }
+    } catch (error) {
+      console.error('Failed to fetch preview data:', error);
+      setPreviewData(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [selectedNode, getSourceDatasetId]);
+
+  // Effect to fetch column values when filter column changes
+  useEffect(() => {
+    if (selectedNode?.data.type === 'filter' && selectedNode.data.filterColumn) {
+      fetchColumnValues(selectedNode.data.filterColumn);
+    } else {
+      setColumnValues(null);
+    }
+  }, [selectedNode?.data.filterColumn, selectedNode?.data.type, fetchColumnValues]);
+
+  // Effect to fetch preview when preview node is selected
+  useEffect(() => {
+    if (selectedNode?.data.type === 'preview') {
+      const limit = selectedNode.data.previewRows || 10;
+      fetchPreviewData(limit);
+    } else {
+      setPreviewData(null);
+    }
+  }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.previewRows, fetchPreviewData]);
   
   // Multi-select dropdown component for columns
   const ColumnMultiSelect = ({ 
@@ -973,13 +1095,87 @@ function FlowWithProvider() {
                     </div>
                   )}
 
+                  {selectedNode.data.type === 'preview' && (
+                    <div className="space-y-4 border rounded-md p-3 bg-muted/20">
+                      <div className="space-y-2">
+                        <Label className="flex items-center justify-between">
+                          <span>Preview Rows</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {previewData ? `${previewData.rows.length} of ${previewData.totalRows} total` : 'Connect a data source'}
+                          </span>
+                        </Label>
+                        <Select 
+                          value={String(selectedNode.data.previewRows || 10)} 
+                          onValueChange={(val) => updateNodeData('previewRows', parseInt(val))}
+                        >
+                          <SelectTrigger className="h-8" data-testid="select-preview-rows">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="5">5 rows</SelectItem>
+                            <SelectItem value="10">10 rows</SelectItem>
+                            <SelectItem value="20">20 rows</SelectItem>
+                            <SelectItem value="50">50 rows</SelectItem>
+                            <SelectItem value="100">100 rows</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      {previewLoading && (
+                        <div className="text-center py-4 text-muted-foreground text-sm">
+                          Loading preview...
+                        </div>
+                      )}
+                      
+                      {!previewLoading && previewData && previewData.columns.length > 0 && (
+                        <div className="space-y-2">
+                          <Label>Data Preview</Label>
+                          <div className="border rounded-md overflow-auto max-h-64 bg-white">
+                            <table className="w-full text-xs">
+                              <thead className="bg-muted/50 sticky top-0">
+                                <tr>
+                                  {previewData.columns.map((col) => (
+                                    <th key={col} className="text-left font-medium p-2 border-b whitespace-nowrap">
+                                      {col}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {previewData.rows.map((row, idx) => (
+                                  <tr key={idx} className="hover:bg-muted/30">
+                                    {previewData.columns.map((col) => (
+                                      <td key={col} className="p-2 border-b font-mono whitespace-nowrap max-w-[200px] truncate">
+                                        {row[col] !== null && row[col] !== undefined ? String(row[col]) : <span className="text-muted-foreground italic">null</span>}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {!previewLoading && !previewData && (
+                        <div className="text-center py-4 text-muted-foreground text-sm border rounded-md bg-muted/10">
+                          Connect a data source to see preview
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {selectedNode.data.type === 'filter' && (
                     <div className="space-y-4 border rounded-md p-3 bg-muted/20">
                       <div className="space-y-2">
                         <Label>Filter Column</Label>
                         <Select 
                            value={selectedNode.data.filterColumn || ''} 
-                           onValueChange={(val) => updateNodeData('filterColumn', val)}
+                           onValueChange={(val) => {
+                             updateNodeData('filterColumn', val);
+                             updateNodeData('filterValue', '');
+                             updateNodeData('filterValues', []);
+                           }}
                         >
                           <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-filter-column">
                             <SelectValue placeholder="Select column..." />
@@ -995,40 +1191,134 @@ function FlowWithProvider() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
-                         <div className="space-y-2">
-                           <Label>Operator</Label>
-                           <Select 
-                              value={selectedNode.data.filterOp || 'eq'} 
-                              onValueChange={(val) => updateNodeData('filterOp', val)}
-                           >
-                             <SelectTrigger className="h-8" data-testid="select-filter-operator">
-                               <SelectValue />
-                             </SelectTrigger>
-                             <SelectContent>
-                               <SelectItem value="eq">Equals (=)</SelectItem>
-                               <SelectItem value="neq">Not Equals (!=)</SelectItem>
-                               <SelectItem value="gt">Greater ({'>'})</SelectItem>
-                               <SelectItem value="gte">Greater or Equal ({'>'}=)</SelectItem>
-                               <SelectItem value="lt">Less ({'<'})</SelectItem>
-                               <SelectItem value="lte">Less or Equal ({'<'}=)</SelectItem>
-                               <SelectItem value="contains">Contains</SelectItem>
-                               <SelectItem value="isnull">Is Null</SelectItem>
-                               <SelectItem value="notnull">Not Null</SelectItem>
-                             </SelectContent>
-                           </Select>
-                         </div>
-                         <div className="space-y-2">
-                           <Label>Value</Label>
-                           <Input 
+                      <div className="space-y-2">
+                         <Label>Operator</Label>
+                         <Select 
+                            value={selectedNode.data.filterOp || 'eq'} 
+                            onValueChange={(val) => {
+                              updateNodeData('filterOp', val);
+                              if (val === 'isin' || val === 'notin' || val === 'isnull' || val === 'notnull') {
+                                updateNodeData('filterValue', '');
+                              }
+                              if (val !== 'isin' && val !== 'notin') {
+                                updateNodeData('filterValues', []);
+                              }
+                            }}
+                         >
+                           <SelectTrigger className="h-8" data-testid="select-filter-operator">
+                             <SelectValue />
+                           </SelectTrigger>
+                           <SelectContent>
+                             <SelectItem value="eq">Equals (=)</SelectItem>
+                             <SelectItem value="neq">Not Equals (!=)</SelectItem>
+                             <SelectItem value="gt">Greater ({'>'})</SelectItem>
+                             <SelectItem value="gte">Greater or Equal ({'>'}=)</SelectItem>
+                             <SelectItem value="lt">Less ({'<'})</SelectItem>
+                             <SelectItem value="lte">Less or Equal ({'<'}=)</SelectItem>
+                             <SelectItem value="contains">Contains</SelectItem>
+                             <SelectItem value="isin">Is In (multi-select)</SelectItem>
+                             <SelectItem value="notin">Not In (multi-select)</SelectItem>
+                             <SelectItem value="isnull">Is Null</SelectItem>
+                             <SelectItem value="notnull">Not Null</SelectItem>
+                           </SelectContent>
+                         </Select>
+                      </div>
+                      
+                      {/* Multi-select for isin/notin operators */}
+                      {(selectedNode.data.filterOp === 'isin' || selectedNode.data.filterOp === 'notin') && (
+                        <div className="space-y-2">
+                          <Label className="flex items-center gap-2">
+                            Values
+                            {columnValuesLoading && <span className="text-[10px] text-muted-foreground">(loading...)</span>}
+                            {columnValues?.isCategorical && <span className="text-[10px] text-green-600">(categorical)</span>}
+                          </Label>
+                          {columnValues && columnValues.values.length > 0 ? (
+                            <div className="border rounded-md p-2 max-h-48 overflow-y-auto space-y-1 bg-white">
+                              {columnValues.values.map((val) => (
+                                <div key={val} className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`filter-val-${val}`}
+                                    checked={(selectedNode.data.filterValues || []).includes(val)}
+                                    onCheckedChange={(checked) => {
+                                      const currentVals = selectedNode.data.filterValues || [];
+                                      if (checked) {
+                                        updateNodeData('filterValues', [...currentVals, val]);
+                                      } else {
+                                        updateNodeData('filterValues', currentVals.filter((v: string) => v !== val));
+                                      }
+                                    }}
+                                    data-testid={`checkbox-filter-value-${val}`}
+                                  />
+                                  <label
+                                    htmlFor={`filter-val-${val}`}
+                                    className="text-xs font-mono cursor-pointer flex-1 truncate"
+                                  >
+                                    {val}
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <Input 
+                              placeholder="Enter comma-separated values" 
+                              className="h-8 text-xs"
+                              value={(selectedNode.data.filterValues || []).join(', ')}
+                              onChange={(e) => {
+                                const vals = e.target.value.split(',').map(v => v.trim()).filter(v => v);
+                                updateNodeData('filterValues', vals);
+                              }}
+                              data-testid="input-filter-values"
+                            />
+                          )}
+                          {(selectedNode.data.filterValues || []).length > 0 && (
+                            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                              <span>{(selectedNode.data.filterValues || []).length} value(s) selected</span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-5 text-[10px] px-2"
+                                onClick={() => updateNodeData('filterValues', [])}
+                              >
+                                Clear
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Single value input for other operators */}
+                      {selectedNode.data.filterOp !== 'isin' && 
+                       selectedNode.data.filterOp !== 'notin' && 
+                       selectedNode.data.filterOp !== 'isnull' && 
+                       selectedNode.data.filterOp !== 'notnull' && (
+                        <div className="space-y-2">
+                          <Label>Value</Label>
+                          {columnValues?.isCategorical && columnValues.values.length > 0 && 
+                           (selectedNode.data.filterOp === 'eq' || selectedNode.data.filterOp === 'neq') ? (
+                            <Select 
+                              value={selectedNode.data.filterValue || ''} 
+                              onValueChange={(val) => updateNodeData('filterValue', val)}
+                            >
+                              <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-filter-value">
+                                <SelectValue placeholder="Select value..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {columnValues.values.map(val => (
+                                  <SelectItem key={val} value={val} className="font-mono text-xs">{val}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input 
                               placeholder="Value" 
                               className="h-8 text-xs"
                               value={selectedNode.data.filterValue || ''}
                               onChange={(e) => updateNodeData('filterValue', e.target.value)}
                               data-testid="input-filter-value"
-                           />
-                         </div>
-                      </div>
+                            />
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
 
