@@ -55,7 +55,11 @@ Preferred communication style: Simple, everyday language.
   - Categorical columns (≤50 unique values) show dropdowns instead of text input
 - **Merge / Join**: Join datasets on key columns (inner, left, right, full outer)
 - **Python Script**: Custom pandas transformations via Monaco editor
+  - Shows input data preview when connected to upstream data source
+  - Stats (rows/cols) update based on connected input
 - **SQL Transform**: DuckDB SQL-based transformations
+  - Shows input data preview when connected to upstream data source
+  - Stats (rows/cols) update based on connected input
 - **Validation (EDA)**: Exploratory data analysis dashboard with filtered data support
   - Uses upstream filters when connected downstream of Filter nodes
   - Real-time data analysis based on actual dataset columns
