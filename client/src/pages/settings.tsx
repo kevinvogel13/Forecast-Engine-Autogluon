@@ -165,6 +165,12 @@ export default function Settings() {
   const [selectedDateParts, setSelectedDateParts] = useState<string[]>(["year", "month", "dayofweek"]);
   const [datePartsOpen, setDatePartsOpen] = useState(false);
 
+  // State for Output Definitions
+  const [outputConfig, setOutputConfig] = useState({
+    actualHistoricalColumn: "sales_quantity",
+    historicalForecastLag: "1"
+  });
+
   // State for Backtesting
   const [trainDate, setTrainDate] = useState<{ from: Date | undefined; to: Date | undefined }>({
     from: new Date(2023, 0, 1),
@@ -247,8 +253,77 @@ export default function Settings() {
             <TabsTrigger value="backtesting" className="flex-1 min-w-[120px]">Backtesting</TabsTrigger>
             <TabsTrigger value="training" className="flex-1 min-w-[100px]">Strategy</TabsTrigger>
             <TabsTrigger value="hyperparameters" className="flex-1 min-w-[180px]">Models & Hyperparameters</TabsTrigger>
+            <TabsTrigger value="outputs" className="flex-1 min-w-[150px]">Outputs & Visualization</TabsTrigger>
             <TabsTrigger value="general" className="flex-1 min-w-[100px]">System</TabsTrigger>
           </TabsList>
+
+          {/* --- OUTPUTS TAB --- */}
+          <TabsContent value="outputs" className="space-y-6">
+             <Card>
+                <CardHeader>
+                   <div className="flex items-center gap-2">
+                      <Activity className="w-5 h-5 text-primary" />
+                      <CardTitle>Output & Visualization Configuration</CardTitle>
+                   </div>
+                   <CardDescription>Define how forecasting results should be interpreted and displayed across the application.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-8">
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-4">
+                         <Label>Actual Historical (Target)</Label>
+                         <Select 
+                            value={outputConfig.actualHistoricalColumn} 
+                            onValueChange={(val) => setOutputConfig(prev => ({ ...prev, actualHistoricalColumn: val }))}
+                         >
+                            <SelectTrigger>
+                               <SelectValue placeholder="Select target..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                               <SelectItem value="sales_quantity">sales_quantity</SelectItem>
+                               <SelectItem value="revenue_amt">revenue_amt</SelectItem>
+                               <SelectItem value="units_sold">units_sold</SelectItem>
+                            </SelectContent>
+                         </Select>
+                         <p className="text-[13px] text-muted-foreground">The actuals column used for calculating errors and visualizing historical performance.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                         <Label>Historical Forecast of Interest</Label>
+                         <Select 
+                            value={outputConfig.historicalForecastLag} 
+                            onValueChange={(val) => setOutputConfig(prev => ({ ...prev, historicalForecastLag: val }))}
+                         >
+                            <SelectTrigger>
+                               <SelectValue placeholder="Select lag..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                               <SelectItem value="1">Lag 1 {getFrequencyLabel().trim()}</SelectItem>
+                               {LAG_WINDOWS.slice(0, 12).map((lag) => (
+                                 <SelectItem key={lag.value} value={lag.value}>
+                                    {lag.label}
+                                 </SelectItem>
+                               ))}
+                            </SelectContent>
+                         </Select>
+                         <p className="text-[13px] text-muted-foreground">The primary forecast lag to display when comparing Actuals vs Forecast in charts.</p>
+                      </div>
+                   </div>
+                   
+                   <div className="rounded-md bg-blue-50 p-4 border border-blue-100 text-blue-800 text-sm">
+                      <div className="flex gap-2">
+                         <Activity className="w-4 h-4 mt-0.5" />
+                         <div>
+                            <p className="font-semibold mb-1">Impact on Dashboard</p>
+                            <p className="opacity-90">
+                               These settings control the primary lines shown in the Evaluation and Forecast dashboards. 
+                               For example, comparing <strong>{outputConfig.actualHistoricalColumn}</strong> against the <strong>Lag {outputConfig.historicalForecastLag}</strong> forecast allows you to visualize accuracy at your most critical planning horizon.
+                            </p>
+                         </div>
+                      </div>
+                   </div>
+                </CardContent>
+             </Card>
+          </TabsContent>
 
           {/* --- FEATURE ENGINEERING TAB --- */}
           <TabsContent value="features" className="space-y-6">
