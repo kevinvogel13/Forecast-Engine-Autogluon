@@ -48,10 +48,10 @@ export function DemandPatternAnalysis() {
     const cvLimit = cvThreshold[0];
     
     const quadrants = {
-      smooth: { label: "Smooth", count: 0, volume: 0, color: "bg-blue-100 text-blue-800" },       // Low ADI, Low CV
-      intermittent: { label: "Intermittent", count: 0, volume: 0, color: "bg-yellow-100 text-yellow-800" }, // High ADI, Low CV
-      erratic: { label: "Erratic", count: 0, volume: 0, color: "bg-orange-100 text-orange-800" },      // Low ADI, High CV
-      lumpy: { label: "Lumpy", count: 0, volume: 0, color: "bg-red-100 text-red-800" }            // High ADI, High CV
+      smooth: { label: "Smooth", count: 0, volume: 0, color: "bg-blue-100/50 text-blue-800" },       // Low CV, Low ADI
+      intermittent: { label: "Intermittent", count: 0, volume: 0, color: "bg-yellow-100/50 text-yellow-800" }, // Low CV, High ADI
+      erratic: { label: "Erratic", count: 0, volume: 0, color: "bg-orange-100/50 text-orange-800" },      // High CV, Low ADI
+      lumpy: { label: "Lumpy", count: 0, volume: 0, color: "bg-red-100/50 text-red-800" }            // High CV, High ADI
     };
 
     let totalVolume = 0;
@@ -59,11 +59,17 @@ export function DemandPatternAnalysis() {
 
     const classifiedData = MOCK_DATA.map(point => {
       let type = '';
-      if (point.adi < adiLimit) {
-        if (point.cv < cvLimit) type = 'smooth';
-        else type = 'erratic';
+      // New Axis logic: X=CV, Y=ADI
+      // Smooth: CV < Limit, ADI < Limit
+      // Intermittent: CV < Limit, ADI >= Limit
+      // Erratic: CV >= Limit, ADI < Limit
+      // Lumpy: CV >= Limit, ADI >= Limit
+      
+      if (point.cv < cvLimit) {
+        if (point.adi < adiLimit) type = 'smooth';
+        else type = 'intermittent';
       } else {
-        if (point.cv < cvLimit) type = 'intermittent';
+        if (point.adi < adiLimit) type = 'erratic';
         else type = 'lumpy';
       }
 
@@ -88,17 +94,40 @@ export function DemandPatternAnalysis() {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (
-        <div className="bg-background border rounded p-2 shadow-md text-xs">
+        <div className="bg-background border rounded p-2 shadow-md text-xs z-50">
           <p className="font-semibold">{data.id}</p>
           <p>Type: <span className="capitalize">{data.type}</span></p>
-          <p>ADI: {data.adi.toFixed(2)}</p>
           <p>CV: {data.cv.toFixed(2)}</p>
+          <p>ADI: {data.adi.toFixed(2)}</p>
           <p>Volume: {data.volume.toLocaleString()}</p>
           <p>Seasonality: {(data.seasonality * 100).toFixed(0)}%</p>
         </div>
       );
     }
     return null;
+  };
+
+  const QuadrantLabel = ({ x, y, width, height, type, data }: any) => {
+    if (!width || !height) return null;
+    
+    // Position roughly in center of available space
+    return (
+      <foreignObject x={x} y={y} width={width} height={height} style={{ pointerEvents: 'none' }}>
+        <div className={`w-full h-full flex flex-col items-center justify-center p-2 text-center select-none ${data.color.replace('bg-', 'bg-opacity-20 ')}`}>
+           <div className="bg-white/80 backdrop-blur-sm p-2 rounded-md shadow-sm border border-slate-100">
+             <h4 className="font-bold text-sm uppercase mb-1">{data.label}</h4>
+             <div className="text-xs space-y-0.5">
+                <div className="font-medium text-slate-600">
+                   Count: {data.count} <span className="text-slate-400">({getPercentage(data.count, stats.totalCount)})</span>
+                </div>
+                <div className="font-medium text-slate-600">
+                   Vol: {formatVolume(data.volume)} <span className="text-slate-400">({getPercentage(data.volume, stats.totalVolume)})</span>
+                </div>
+             </div>
+           </div>
+        </div>
+      </foreignObject>
+    );
   };
 
   return (
@@ -108,26 +137,13 @@ export function DemandPatternAnalysis() {
            <div>
              <CardTitle>Demand Pattern Analysis</CardTitle>
              <CardDescription>
-               Classification of DFUs based on regularity (ADI) and variability (CV).
+               Classification of DFUs based on variability (CV) and regularity (ADI).
              </CardDescription>
            </div>
            <div className="flex gap-8 text-xs">
               <div className="space-y-2 w-48">
                  <div className="flex justify-between">
-                    <span className="font-medium">ADI Threshold</span>
-                    <span>{adiThreshold[0]}</span>
-                 </div>
-                 <Slider 
-                    value={adiThreshold} 
-                    onValueChange={setAdiThreshold} 
-                    min={1.0} 
-                    max={3.0} 
-                    step={0.01} 
-                 />
-              </div>
-              <div className="space-y-2 w-48">
-                 <div className="flex justify-between">
-                    <span className="font-medium">CV Threshold</span>
+                    <span className="font-medium">CV Threshold (X)</span>
                     <span>{cvThreshold[0]}</span>
                  </div>
                  <Slider 
@@ -138,104 +154,130 @@ export function DemandPatternAnalysis() {
                     step={0.01} 
                  />
               </div>
+              <div className="space-y-2 w-48">
+                 <div className="flex justify-between">
+                    <span className="font-medium">ADI Threshold (Y)</span>
+                    <span>{adiThreshold[0]}</span>
+                 </div>
+                 <Slider 
+                    value={adiThreshold} 
+                    onValueChange={setAdiThreshold} 
+                    min={1.0} 
+                    max={3.0} 
+                    step={0.01} 
+                 />
+              </div>
            </div>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-           {/* Chart Area */}
-           <div className="lg:col-span-2 h-[400px] relative border rounded-md bg-slate-50/50">
-              <ResponsiveContainer width="100%" height="100%">
-                 <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis 
-                       type="number" 
-                       dataKey="adi" 
-                       name="ADI" 
-                       label={{ value: 'Average Demand Interval (ADI)', position: 'bottom', offset: 0 }} 
-                       domain={[0.8, 'auto']}
-                    />
-                    <YAxis 
-                       type="number" 
-                       dataKey="cv" 
-                       name="CV" 
-                       label={{ value: 'Coefficient of Variation (CV)', angle: -90, position: 'left' }} 
-                    />
-                    <Tooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '3 3' }} />
-                    
-                    {/* Threshold Lines */}
-                    <ReferenceLine x={adiThreshold[0]} stroke="black" strokeDasharray="3 3" />
-                    <ReferenceLine y={cvThreshold[0]} stroke="black" strokeDasharray="3 3" />
+        <div className="h-[500px] w-full relative border rounded-md bg-slate-50/30">
+            <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                      type="number" 
+                      dataKey="cv" 
+                      name="CV" 
+                      label={{ value: 'Coefficient of Variation (CV)', position: 'bottom', offset: 0 }} 
+                      domain={[0, 'auto']}
+                  />
+                  <YAxis 
+                      type="number" 
+                      dataKey="adi" 
+                      name="ADI" 
+                      label={{ value: 'Average Demand Interval (ADI)', angle: -90, position: 'left' }} 
+                      domain={[0, 'auto']}
+                  />
+                  <Tooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+                  
+                  {/* Threshold Lines */}
+                  <ReferenceLine x={cvThreshold[0]} stroke="#334155" strokeWidth={2} strokeDasharray="5 5" />
+                  <ReferenceLine y={adiThreshold[0]} stroke="#334155" strokeWidth={2} strokeDasharray="5 5" />
 
-                    {/* Quadrant Labels - Approximate positioning */}
-                    <ReferenceLine x={1} label={{ value: "SMOOTH", position: 'insideTopLeft', fill: '#64748b', fontSize: 10 }} stroke="none" />
-                    <ReferenceLine x={3} label={{ value: "INTERMITTENT", position: 'insideTopLeft', fill: '#64748b', fontSize: 10 }} stroke="none" />
-                    
-                    <Scatter 
-                       data={stats.classifiedData} 
-                       fill="#8884d8"
-                       shape={(props: any) => {
-                          const { cx, cy, payload } = props;
-                          // Color gradient from Blue (0) to Red (1) based on seasonality
-                          const r = Math.round(255 * payload.seasonality);
-                          const b = Math.round(255 * (1 - payload.seasonality));
-                          const fill = `rgb(${r}, 0, ${b})`;
-                          
-                          return <circle cx={cx} cy={cy} r={4} fill={fill} opacity={0.7} />;
-                       }}
-                    />
-                 </ScatterChart>
-              </ResponsiveContainer>
-              
-              {/* Legend for Seasonality */}
-              <div className="absolute top-2 right-2 bg-white/90 p-2 rounded border text-[10px] shadow-sm">
-                 <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold">Seasonality</span>
-                 </div>
-                 <div className="h-2 w-24 bg-gradient-to-r from-blue-600 to-red-600 rounded-full" />
-                 <div className="flex justify-between text-muted-foreground mt-1">
-                    <span>Non-Seasonal</span>
-                    <span>Seasonal</span>
-                 </div>
-              </div>
-           </div>
+                  {/* Quadrant Overlays - using fixed domains for simplification, assuming data fits 0-2 CV and 1-5 ADI typically */}
+                  {/* Ideally, we should use domains from data but fixed ranges work for quadrant visualization logic */}
+                  
+                  {/* Smooth: Low CV, Low ADI (Bottom Left) */}
+                  <ReferenceLine 
+                    segment={[{ x: 0, y: 0 }, { x: cvThreshold[0], y: adiThreshold[0] }]} 
+                    stroke="none"
+                    label={(props) => <QuadrantLabel 
+                        x={props.viewBox.x} 
+                        y={props.viewBox.y + props.viewBox.height - ((props.viewBox.height / (props.viewBox.height + props.viewBox.y)) * adiThreshold[0])} // Complex calc, simplified below
+                        // ReferenceArea is better for this
+                        width={0} height={0} 
+                    />} 
+                   />
 
-           {/* Summary Quadrant Stats */}
-           <div className="grid grid-cols-2 gap-4 h-full content-start">
-              {Object.entries(stats.quadrants).map(([key, data]) => (
-                 <div key={key} className={`p-4 rounded-lg border ${data.color} flex flex-col justify-between h-[190px]`}>
-                    <div>
-                       <h4 className="font-bold text-lg mb-1">{data.label}</h4>
-                       <p className="text-xs opacity-80 mb-4">
-                          {key === 'smooth' && "Low ADI, Low CV"}
-                          {key === 'erratic' && "Low ADI, High CV"}
-                          {key === 'intermittent' && "High ADI, Low CV"}
-                          {key === 'lumpy' && "High ADI, High CV"}
-                       </p>
-                    </div>
-                    
-                    <div className="space-y-3">
-                       <div>
-                          <p className="text-xs uppercase tracking-wider font-semibold opacity-70">DFU Count</p>
-                          <div className="flex items-baseline gap-2">
-                             <span className="text-2xl font-bold">{data.count}</span>
-                             <span className="text-sm opacity-80">({getPercentage(data.count, stats.totalCount)})</span>
-                          </div>
-                       </div>
-                       
-                       <div>
-                          <p className="text-xs uppercase tracking-wider font-semibold opacity-70">Volume</p>
-                          <div className="flex items-baseline gap-2">
-                             <span className="text-xl font-bold">{formatVolume(data.volume)}</span>
-                             <span className="text-xs opacity-80">({getPercentage(data.volume, stats.totalVolume)})</span>
-                          </div>
-                       </div>
-                    </div>
-                 </div>
-              ))}
-           </div>
+                  {/* Using custom content in ReferenceArea to position the stats boxes */}
+                  {/* Smooth (Bottom Left) */}
+                  <ReferenceArea 
+                    x1={0} x2={cvThreshold[0]} 
+                    y1={0} y2={adiThreshold[0]} 
+                    fill="#dbeafe" fillOpacity={0.2}
+                  >
+                    <Label content={(props: any) => <QuadrantLabel {...props} type="smooth" data={stats.quadrants.smooth} />} />
+                  </ReferenceArea>
+
+                  {/* Intermittent (Top Left) */}
+                  <ReferenceArea 
+                    x1={0} x2={cvThreshold[0]} 
+                    y1={adiThreshold[0]} y2={10} // Using 10 as safe max
+                    fill="#fef9c3" fillOpacity={0.2}
+                  >
+                     <Label content={(props: any) => <QuadrantLabel {...props} type="intermittent" data={stats.quadrants.intermittent} />} />
+                  </ReferenceArea>
+
+                  {/* Erratic (Bottom Right) */}
+                  <ReferenceArea 
+                    x1={cvThreshold[0]} x2={10} // Using 10 as safe max
+                    y1={0} y2={adiThreshold[0]} 
+                    fill="#ffedd5" fillOpacity={0.2}
+                  >
+                     <Label content={(props: any) => <QuadrantLabel {...props} type="erratic" data={stats.quadrants.erratic} />} />
+                  </ReferenceArea>
+
+                  {/* Lumpy (Top Right) */}
+                  <ReferenceArea 
+                    x1={cvThreshold[0]} x2={10} 
+                    y1={adiThreshold[0]} y2={10} 
+                    fill="#fee2e2" fillOpacity={0.2}
+                  >
+                     <Label content={(props: any) => <QuadrantLabel {...props} type="lumpy" data={stats.quadrants.lumpy} />} />
+                  </ReferenceArea>
+
+                  <Scatter 
+                      data={stats.classifiedData} 
+                      fill="#8884d8"
+                      shape={(props: any) => {
+                        const { cx, cy, payload } = props;
+                        // Color gradient from Blue (0) to Red (1) based on seasonality
+                        const r = Math.round(255 * payload.seasonality);
+                        const b = Math.round(255 * (1 - payload.seasonality));
+                        const fill = `rgb(${r}, 0, ${b})`;
+                        
+                        return <circle cx={cx} cy={cy} r={5} fill={fill} opacity={0.8} stroke="#fff" strokeWidth={1} />;
+                      }}
+                  />
+                </ScatterChart>
+            </ResponsiveContainer>
+            
+            {/* Legend for Seasonality */}
+            <div className="absolute top-2 right-2 bg-white/90 p-2 rounded border text-[10px] shadow-sm z-10">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-semibold">Seasonality</span>
+                </div>
+                <div className="h-2 w-24 bg-gradient-to-r from-blue-600 to-red-600 rounded-full" />
+                <div className="flex justify-between text-muted-foreground mt-1">
+                  <span>Low</span>
+                  <span>High</span>
+                </div>
+            </div>
         </div>
       </CardContent>
     </Card>
   );
 }
+// Add import for ReferenceArea
+import { ReferenceArea } from 'recharts';
