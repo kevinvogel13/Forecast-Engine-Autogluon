@@ -4,6 +4,7 @@ import { TimeSeriesView } from './widgets/TimeSeriesView';
 import { CategoryDistribution } from './widgets/CategoryDistribution';
 import { OutlierTable } from './widgets/OutlierTable';
 import { DataCompletenessChart } from './widgets/DataCompletenessChart';
+import { DemandPatternAnalysis } from './widgets/DemandPatternAnalysis';
 import { Button } from '@/components/ui/button';
 import { Settings2, Eye, EyeOff } from 'lucide-react';
 import {
@@ -18,6 +19,7 @@ import {
 export default function EDADashboard() {
   const [widgets, setWidgets] = useState({
     generalStats: true,
+    demandPattern: true,
     timeSeries: true,
     completeness: true,
     distribution: true,
@@ -45,6 +47,12 @@ export default function EDADashboard() {
               onCheckedChange={() => toggleWidget('generalStats')}
             >
               General Stats Cards
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={widgets.demandPattern}
+              onCheckedChange={() => toggleWidget('demandPattern')}
+            >
+              Demand Pattern Analysis
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={widgets.timeSeries}
@@ -76,6 +84,8 @@ export default function EDADashboard() {
 
       {widgets.generalStats && <GeneralStats />}
       
+      {widgets.demandPattern && <DemandPatternAnalysis />}
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {widgets.timeSeries && <div className="lg:col-span-4"><TimeSeriesView /></div>}
         
