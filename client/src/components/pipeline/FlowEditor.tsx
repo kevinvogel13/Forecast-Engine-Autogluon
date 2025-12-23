@@ -560,9 +560,58 @@ function FlowWithProvider() {
                   </div>
                   
                   {(selectedNode.data.type === 'input') && (
-                     <div className="space-y-2">
-                        <Label>Data Source</Label>
-                        <FileDropzone compact onUploadComplete={handleFileUpload} />
+                     <div className="space-y-4">
+                        <div className="space-y-2">
+                           <Label>Source Type</Label>
+                           <Select 
+                              value={selectedNode.data.sourceType || 'file'} 
+                              onValueChange={(val) => updateNodeData('sourceType', val)}
+                           >
+                             <SelectTrigger className="h-8" data-testid="select-source-type">
+                               <SelectValue />
+                             </SelectTrigger>
+                             <SelectContent>
+                               <SelectItem value="file">File Upload (CSV, Excel)</SelectItem>
+                               <SelectItem value="sql">SQL Query</SelectItem>
+                             </SelectContent>
+                           </Select>
+                        </div>
+                        
+                        {(selectedNode.data.sourceType === 'sql') ? (
+                           <div className="space-y-3 border rounded-md p-3 bg-cyan-50/50 border-cyan-100">
+                              <div className="space-y-2">
+                                 <Label>Connection String</Label>
+                                 <Input 
+                                    placeholder="postgresql://user:pass@host:5432/db" 
+                                    className="h-8 font-mono text-xs"
+                                    value={selectedNode.data.connectionString || ''}
+                                    onChange={(e) => updateNodeData('connectionString', e.target.value)}
+                                    data-testid="input-connection-string"
+                                 />
+                              </div>
+                              <div className="space-y-2">
+                                 <Label className="flex justify-between">
+                                    <span>SQL Query</span>
+                                    <span className="text-[10px] text-muted-foreground font-mono">PostgreSQL</span>
+                                 </Label>
+                                 <div className="h-32 border rounded-md overflow-hidden">
+                                    <Editor
+                                       height="100%"
+                                       defaultLanguage="sql"
+                                       defaultValue={selectedNode.data.sqlQuery || "SELECT * FROM sales_data\nWHERE date >= '2024-01-01'\nORDER BY date"}
+                                       theme="light"
+                                       options={{ minimap: { enabled: false }, fontSize: 11, lineNumbers: 'off' }}
+                                       onChange={(val) => updateNodeData('sqlQuery', val)}
+                                    />
+                                 </div>
+                              </div>
+                           </div>
+                        ) : (
+                           <div className="space-y-2">
+                              <Label>Upload File</Label>
+                              <FileDropzone compact onUploadComplete={handleFileUpload} />
+                           </div>
+                        )}
                      </div>
                   )}
 
@@ -573,11 +622,17 @@ function FlowWithProvider() {
                              <BarChart3 className="w-6 h-6 text-blue-600" />
                           </div>
                           <div>
-                             <h4 className="text-sm font-semibold text-blue-900">Data Validation & EDA</h4>
-                             <p className="text-xs text-blue-700 mt-1">Explore data distributions, check for anomalies, and validate data quality.</p>
+                             <h4 className="text-sm font-semibold text-blue-900">Data Validation</h4>
+                             <p className="text-xs text-blue-700 mt-1">Validate data quality, check for anomalies, and explore distributions. Data passes through unchanged if validation succeeds.</p>
                           </div>
-                          <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => setEdaOpen(true)}>
-                             Open Dashboard
+                          <div className="w-full space-y-2 text-left">
+                             <div className="flex items-center gap-2 text-xs bg-white/70 rounded p-2 border border-blue-100">
+                                <Database className="w-4 h-4 text-blue-500" />
+                                <span className="text-blue-800">Pass-through: Input data flows to connected nodes</span>
+                             </div>
+                          </div>
+                          <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => setEdaOpen(true)} data-testid="button-open-eda">
+                             Open EDA Dashboard
                           </Button>
                        </div>
                     </div>
@@ -607,11 +662,25 @@ function FlowWithProvider() {
                              <Activity className="w-6 h-6 text-green-600" />
                           </div>
                           <div>
-                             <h4 className="text-sm font-semibold text-green-900">Forecast Results</h4>
-                             <p className="text-xs text-green-700 mt-1">View prediction charts, accuracy metrics, and download results.</p>
+                             <h4 className="text-sm font-semibold text-green-900">Forecast Output & Analysis</h4>
+                             <p className="text-xs text-green-700 mt-1">Compare actual vs predicted values, view accuracy metrics, pattern classification (CV/ADI), and export results.</p>
                           </div>
-                          <Button className="w-full bg-green-600 hover:bg-green-700" onClick={() => setResultsOpen(true)}>
-                             View Results
+                          <div className="w-full grid grid-cols-2 gap-2 text-xs">
+                             <div className="bg-white/70 rounded p-2 border border-green-100 text-left">
+                                <p className="text-green-800 font-medium">Accuracy Metrics</p>
+                                <p className="text-green-600 text-[10px]">MAE, RMSE, MAPE</p>
+                             </div>
+                             <div className="bg-white/70 rounded p-2 border border-green-100 text-left">
+                                <p className="text-green-800 font-medium">Pattern Analysis</p>
+                                <p className="text-green-600 text-[10px]">CV vs ADI Classification</p>
+                             </div>
+                             <div className="bg-white/70 rounded p-2 border border-green-100 text-left col-span-2">
+                                <p className="text-green-800 font-medium">Lag Comparison</p>
+                                <p className="text-green-600 text-[10px]">Actual vs Forecast at specified lags</p>
+                             </div>
+                          </div>
+                          <Button className="w-full bg-green-600 hover:bg-green-700" onClick={() => setResultsOpen(true)} data-testid="button-view-results">
+                             View Results & Analysis
                           </Button>
                        </div>
                     </div>

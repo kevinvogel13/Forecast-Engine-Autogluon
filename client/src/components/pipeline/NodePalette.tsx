@@ -16,9 +16,9 @@ export default function NodePalette({ onDragStart }: { onDragStart: (event: Reac
     { type: 'input', label: 'Data Source', icon: Database, color: 'text-blue-500' },
     { type: 'merge', label: 'Merge / Join', icon: GitMerge, color: 'text-orange-500' },
     { type: 'filter', label: 'Filter', icon: Filter, color: 'text-purple-500' },
-    { type: 'eda', label: 'Data Validation', icon: BarChart3, color: 'text-green-500' },
+    { type: 'eda', label: 'Validation', icon: BarChart3, color: 'text-green-500' },
     { type: 'python', label: 'Python Script', icon: Code2, color: 'text-yellow-500' },
-    { type: 'sql', label: 'SQL Query', icon: Binary, color: 'text-cyan-500' },
+    { type: 'sql', label: 'SQL Transform', icon: Binary, color: 'text-cyan-500' },
     { type: 'config', label: 'Model Config', icon: Settings2, color: 'text-slate-500' },
     { type: 'output', label: 'Output', icon: FileOutput, color: 'text-red-500' },
   ];
