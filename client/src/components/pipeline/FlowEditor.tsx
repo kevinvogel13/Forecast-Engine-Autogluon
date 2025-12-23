@@ -598,7 +598,7 @@ function FlowWithProvider() {
                                     <Editor
                                        height="100%"
                                        defaultLanguage="sql"
-                                       defaultValue={selectedNode.data.sqlQuery || "SELECT * FROM sales_data\nWHERE date >= '2024-01-01'\nORDER BY date"}
+                                       value={selectedNode.data.sqlQuery || "SELECT * FROM sales_data\nWHERE date >= '2024-01-01'\nORDER BY date"}
                                        theme="light"
                                        options={{ minimap: { enabled: false }, fontSize: 11, lineNumbers: 'off' }}
                                        onChange={(val) => updateNodeData('sqlQuery', val)}

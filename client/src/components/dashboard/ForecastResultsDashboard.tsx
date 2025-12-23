@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Download, TrendingUp, AlertCircle, ArrowUpRight, Clock, Target, Layers, BarChart3 } from "lucide-react";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, Legend, BarChart, Bar, ScatterChart, Scatter, Cell, ComposedChart, Line } from 'recharts';
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, Legend, BarChart, Bar, ScatterChart, Scatter, Cell, ComposedChart, Line, ReferenceLine } from 'recharts';
 
 const mockForecastData = [
   { date: '2024-01', actual: 4000, forecast: 4100, lower: 3800, upper: 4400 },
@@ -254,8 +254,8 @@ export default function ForecastResultsDashboard() {
                         <Cell key={`cell-${index}`} fill={categoryColors[entry.category]} />
                       ))}
                     </Scatter>
-                    {/* Reference lines for quadrant boundaries */}
-                    <line x1="50%" y1="0" x2="50%" y2="100%" stroke="#999" strokeDasharray="5 5" />
+                    <ReferenceLine x={0.5} stroke="#999" strokeDasharray="5 5" label={{ value: 'CV=0.5', position: 'top' }} />
+                    <ReferenceLine y={1.32} stroke="#999" strokeDasharray="5 5" label={{ value: 'ADI=1.32', position: 'right' }} />
                   </ScatterChart>
                 </ResponsiveContainer>
               </div>
