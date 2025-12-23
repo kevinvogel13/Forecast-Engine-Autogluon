@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, FileSpreadsheet, GitMerge, Settings } from "lucide-react";
+import { GitMerge } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -10,12 +10,6 @@ import {
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-
-  const navItems = [
-    { icon: GitMerge, label: "Pipeline", href: "/" },
-    { icon: LayoutDashboard, label: "Validation", href: "/validate" },
-    { icon: Settings, label: "Settings", href: "/settings" },
-  ];
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -36,26 +30,19 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           </div>
           
           <nav className="flex-1 p-2 space-y-2 overflow-hidden flex flex-col items-center">
-            {navItems.map((item) => {
-              const isActive = location === item.href;
-              return (
-                <Tooltip key={item.href}>
-                  <TooltipTrigger asChild>
-                    <Link href={item.href} className={cn(
-                        "flex items-center justify-center w-10 h-10 rounded-md transition-colors cursor-pointer",
-                        isActive 
-                          ? "bg-primary/10 text-primary" 
-                          : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                      )}>
-                        <item.icon className="w-5 h-5 shrink-0" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>{item.label}</p>
-                  </TooltipContent>
-                </Tooltip>
-              );
-            })}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link href="/" className={cn(
+                    "flex items-center justify-center w-10 h-10 rounded-md transition-colors cursor-pointer",
+                    "bg-primary/10 text-primary" 
+                  )}>
+                    <GitMerge className="w-5 h-5 shrink-0" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <p>Pipeline</p>
+              </TooltipContent>
+            </Tooltip>
           </nav>
 
           <div className="p-4 border-t border-border overflow-hidden flex justify-center">
@@ -79,7 +66,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-background">
           <header className="h-14 border-b border-border bg-card/50 backdrop-blur-sm px-6 flex items-center justify-between shrink-0 z-10">
             <h1 className="text-sm font-medium text-muted-foreground">
-              {navItems.find(i => i.href === location)?.label || 'Dashboard'}
+              Pipeline Designer
             </h1>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
                <span>Project: Q3 Forecasting</span>
