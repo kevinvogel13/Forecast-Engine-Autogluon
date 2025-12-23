@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
-import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, Label } from 'recharts';
+import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, Label, ReferenceArea } from 'recharts';
 
 // Mock data generation for DFU analysis
 const generateMockDFUs = (count = 200) => {
@@ -107,21 +107,30 @@ export function DemandPatternAnalysis() {
     return null;
   };
 
-  const QuadrantLabel = ({ x, y, width, height, type, data }: any) => {
+  const QuadrantLabel = ({ viewBox, type, data }: any) => {
+    // Recharts passes viewBox in props for Label content component inside ReferenceArea
+    if (!viewBox || !data) return null;
+    const { x, y, width, height } = viewBox;
     if (!width || !height) return null;
     
-    // Position roughly in center of available space
+    // Position exactly in center of the ReferenceArea
     return (
-      <foreignObject x={x} y={y} width={width} height={height} style={{ pointerEvents: 'none' }}>
-        <div className={`w-full h-full flex flex-col items-center justify-center p-2 text-center select-none ${data.color.replace('bg-', 'bg-opacity-20 ')}`}>
-           <div className="bg-white/80 backdrop-blur-sm p-2 rounded-md shadow-sm border border-slate-100">
+      <foreignObject x={x} y={y} width={width} height={height} style={{ pointerEvents: 'none', overflow: 'visible' }}>
+        <div className="w-full h-full flex items-center justify-center p-2">
+           <div className={`
+             backdrop-blur-md p-3 rounded-lg shadow-sm border border-slate-200/50 
+             flex flex-col items-center justify-center min-w-[120px]
+             ${data.color.replace('text-', 'border-').replace('bg-', 'bg-opacity-90 bg-')}
+           `}>
              <h4 className="font-bold text-sm uppercase mb-1">{data.label}</h4>
-             <div className="text-xs space-y-0.5">
-                <div className="font-medium text-slate-600">
-                   Count: {data.count} <span className="text-slate-400">({getPercentage(data.count, stats.totalCount)})</span>
+             <div className="text-xs space-y-0.5 text-center w-full">
+                <div className="font-medium flex justify-between gap-3 w-full">
+                   <span>Count:</span>
+                   <span>{data.count} <span className="opacity-70">({getPercentage(data.count, stats.totalCount)})</span></span>
                 </div>
-                <div className="font-medium text-slate-600">
-                   Vol: {formatVolume(data.volume)} <span className="text-slate-400">({getPercentage(data.volume, stats.totalVolume)})</span>
+                <div className="font-medium flex justify-between gap-3 w-full">
+                   <span>Vol:</span>
+                   <span>{formatVolume(data.volume)} <span className="opacity-70">({getPercentage(data.volume, stats.totalVolume)})</span></span>
                 </div>
              </div>
            </div>
@@ -195,21 +204,6 @@ export function DemandPatternAnalysis() {
                   <ReferenceLine x={cvThreshold[0]} stroke="#334155" strokeWidth={2} strokeDasharray="5 5" />
                   <ReferenceLine y={adiThreshold[0]} stroke="#334155" strokeWidth={2} strokeDasharray="5 5" />
 
-                  {/* Quadrant Overlays - using fixed domains for simplification, assuming data fits 0-2 CV and 1-5 ADI typically */}
-                  {/* Ideally, we should use domains from data but fixed ranges work for quadrant visualization logic */}
-                  
-                  {/* Smooth: Low CV, Low ADI (Bottom Left) */}
-                  <ReferenceLine 
-                    segment={[{ x: 0, y: 0 }, { x: cvThreshold[0], y: adiThreshold[0] }]} 
-                    stroke="none"
-                    label={(props) => <QuadrantLabel 
-                        x={props.viewBox.x} 
-                        y={props.viewBox.y + props.viewBox.height - ((props.viewBox.height / (props.viewBox.height + props.viewBox.y)) * adiThreshold[0])} // Complex calc, simplified below
-                        // ReferenceArea is better for this
-                        width={0} height={0} 
-                    />} 
-                   />
-
                   {/* Using custom content in ReferenceArea to position the stats boxes */}
                   {/* Smooth (Bottom Left) */}
                   <ReferenceArea 
@@ -279,5 +273,3 @@ export function DemandPatternAnalysis() {
     </Card>
   );
 }
-// Add import for ReferenceArea
-import { ReferenceArea } from 'recharts';
