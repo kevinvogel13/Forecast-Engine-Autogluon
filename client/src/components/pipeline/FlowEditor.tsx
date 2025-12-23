@@ -43,6 +43,7 @@ const nodeTypes: NodeTypes = {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import Editor from '@monaco-editor/react';
+import { usePipelines, useCreatePipeline, useUpdatePipeline, useExecutePipeline } from '@/hooks/usePipelines';
 
 const initialNodes = [
   { 
@@ -121,11 +122,6 @@ const initialEdges = [
   { id: 'e5-6', source: '5', target: '6', markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: '#94a3b8' } },
 ];
 
-const savedPipelines = [
-  { id: 'p1', name: 'Q3 Sales Forecast', description: 'Standard sales forecasting model for Q3 2024', nodes: 5, lastModified: '2024-12-20' },
-  { id: 'p2', name: 'Inventory Optimization', description: 'Weekly inventory level predictions', nodes: 8, lastModified: '2024-12-18' },
-  { id: 'p3', name: 'Marketing ROI Analysis', description: 'Campaign performance vs sales correlation', nodes: 4, lastModified: '2024-12-15' },
-];
 
 let id = 10;
 const getId = () => `${id++}`;
@@ -137,7 +133,16 @@ function FlowWithProvider() {
   const { screenToFlowPosition } = useReactFlow();
   const [selectedNode, setSelectedNode] = useState<any>(null);
   const [loadDialogOpen, setLoadDialogOpen] = useState(false);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [currentPipelineId, setCurrentPipelineId] = useState<string | null>(null);
+  const [pipelineName, setPipelineName] = useState('');
+  const [pipelineDescription, setPipelineDescription] = useState('');
+  
+  const { data: savedPipelines = [], isLoading: pipelinesLoading } = usePipelines();
+  const createPipeline = useCreatePipeline();
+  const updatePipeline = useUpdatePipeline();
+  const executePipeline = useExecutePipeline();
   
   // Edge click popover state
   const [selectedEdgeData, setSelectedEdgeData] = useState<{ id: string, x: number, y: number, sourceNode: any, targetNode: any } | null>(null);
@@ -238,14 +243,17 @@ function FlowWithProvider() {
     setSelectedNode(null);
   };
 
-  const handleFileUpload = (fileName: string) => {
+  const handleFileUpload = (fileName: string, dataset?: any) => {
     if (!selectedNode) return;
     
-    // Simulate updating stats after upload
-    const mockStats = {
-       rows: Math.floor(Math.random() * 50000) + 10000,
-       cols: Math.floor(Math.random() * 20) + 5,
-       volume: (Math.random() * 5).toFixed(1) + 'M'
+    const stats = dataset ? {
+       rows: dataset.rows,
+       cols: dataset.cols,
+       volume: (dataset.size / (1024 * 1024)).toFixed(1) + 'M'
+    } : {
+       rows: 0,
+       cols: 0,
+       volume: '0M'
     };
 
     setNodes((nds) =>
@@ -257,7 +265,8 @@ function FlowWithProvider() {
                    ...node.data, 
                    label: fileName,
                    status: 'success',
-                   stats: mockStats
+                   stats,
+                   datasetId: dataset?.id
                 }
              };
           }
@@ -270,13 +279,52 @@ function FlowWithProvider() {
        data: { 
           ...prev.data, 
           label: fileName,
-          stats: mockStats
+          stats,
+          datasetId: dataset?.id
        } 
     }));
   };
 
-  const loadPipeline = (pipelineId: string) => {
+  const loadPipeline = (pipeline: any) => {
+    setNodes(pipeline.nodes || []);
+    setEdges(pipeline.edges || []);
+    setCurrentPipelineId(pipeline.id);
+    setPipelineName(pipeline.name);
+    setPipelineDescription(pipeline.description || '');
     setLoadDialogOpen(false);
+    toast.success(`Loaded pipeline: ${pipeline.name}`);
+  };
+
+  const handleSavePipeline = () => {
+    if (!pipelineName.trim()) {
+      toast.error('Please enter a pipeline name');
+      return;
+    }
+
+    const pipelineData = {
+      name: pipelineName,
+      description: pipelineDescription,
+      nodes,
+      edges,
+    };
+
+    if (currentPipelineId) {
+      updatePipeline.mutate({
+        id: currentPipelineId,
+        data: pipelineData,
+      }, {
+        onSuccess: () => {
+          setSaveDialogOpen(false);
+        },
+      });
+    } else {
+      createPipeline.mutate(pipelineData, {
+        onSuccess: (newPipeline) => {
+          setCurrentPipelineId(newPipeline.id);
+          setSaveDialogOpen(false);
+        },
+      });
+    }
   };
 
   const updateNodeData = (key: string, value: any) => {
@@ -292,9 +340,14 @@ function FlowWithProvider() {
     setSelectedNode((prev: any) => ({ ...prev, data: { ...prev.data, [key]: value } }));
   };
   
-  // Simulation Logic
   const runPipeline = () => {
     if (isRunning) return;
+    
+    if (!currentPipelineId) {
+      toast.error("Please save the pipeline first");
+      return;
+    }
+    
     setIsRunning(true);
     toast.info("Pipeline started...");
 
@@ -312,42 +365,50 @@ function FlowWithProvider() {
     // Turn on edge animations
     setEdges((eds) => eds.map(e => ({ ...e, animated: true })));
 
-    // Simple simulation: go through nodes 3, 4, 5, 6 with delays
-    const sequence = ['3', '4', '5', '6'];
-    
-    let delay = 1000;
-    sequence.forEach((nodeId, index) => {
-       setTimeout(() => {
-          setNodes((nds) => 
-            nds.map(n => {
-              if (n.id === nodeId) {
-                 return { ...n, data: { ...n.data, status: 'processing' } };
-              }
-              return n;
-            })
-          );
-       }, delay);
+    // Execute pipeline via API
+    executePipeline.mutate(currentPipelineId, {
+      onSuccess: () => {
+        // Simple simulation for visual feedback
+        const nonInputNodes = nodes.filter(n => n.data.type !== 'input').map(n => n.id);
+        
+        let delay = 1000;
+        nonInputNodes.forEach((nodeId, index) => {
+           setTimeout(() => {
+              setNodes((nds) => 
+                nds.map(n => {
+                  if (n.id === nodeId) {
+                     return { ...n, data: { ...n.data, status: 'processing' } };
+                  }
+                  return n;
+                })
+              );
+           }, delay);
 
-       delay += 2000; // Processing time
+           delay += 2000;
 
-       setTimeout(() => {
-          setNodes((nds) => 
-            nds.map(n => {
-              if (n.id === nodeId) {
-                 return { ...n, data: { ...n.data, status: 'success' } };
+           setTimeout(() => {
+              setNodes((nds) => 
+                nds.map(n => {
+                  if (n.id === nodeId) {
+                     return { ...n, data: { ...n.data, status: 'success' } };
+                  }
+                  return n;
+                })
+              );
+              
+              if (index === nonInputNodes.length - 1) {
+                setIsRunning(false);
+                setEdges((eds) => eds.map(e => ({ ...e, animated: false })));
               }
-              return n;
-            })
-          );
-          
-          if (index === sequence.length - 1) {
-            setIsRunning(false);
-            setEdges((eds) => eds.map(e => ({ ...e, animated: false })));
-            toast.success("Pipeline completed successfully!");
-          }
-       }, delay);
-       
-       delay += 500; // Gap
+           }, delay);
+           
+           delay += 500;
+        });
+      },
+      onError: () => {
+        setIsRunning(false);
+        setEdges((eds) => eds.map(e => ({ ...e, animated: false })));
+      }
     });
   };
   
@@ -376,30 +437,79 @@ function FlowWithProvider() {
               </DialogHeader>
               <ScrollArea className="h-[300px] mt-4 pr-4">
                  <div className="space-y-2">
-                    {savedPipelines.map((pipeline) => (
+                    {pipelinesLoading ? (
+                      <div className="text-center py-4 text-muted-foreground">Loading pipelines...</div>
+                    ) : savedPipelines.length === 0 ? (
+                      <div className="text-center py-4 text-muted-foreground">No saved pipelines</div>
+                    ) : (
+                      savedPipelines.map((pipeline) => (
                        <button
                           key={pipeline.id}
                           className="w-full text-left p-3 rounded-lg border border-border hover:bg-accent hover:border-primary/50 transition-all group"
-                          onClick={() => loadPipeline(pipeline.id)}
+                          onClick={() => loadPipeline(pipeline)}
+                          data-testid={`button-load-pipeline-${pipeline.id}`}
                        >
                           <div className="flex items-center justify-between mb-1">
                              <span className="font-medium group-hover:text-primary transition-colors">{pipeline.name}</span>
-                             <span className="text-xs text-muted-foreground">{pipeline.lastModified}</span>
+                             <span className="text-xs text-muted-foreground">{new Date(pipeline.updatedAt).toLocaleDateString()}</span>
                           </div>
                           <p className="text-xs text-muted-foreground line-clamp-1">{pipeline.description}</p>
                           <div className="mt-2 text-xs flex gap-2">
-                             <span className="bg-secondary px-1.5 py-0.5 rounded">{pipeline.nodes} Nodes</span>
+                             <span className="bg-secondary px-1.5 py-0.5 rounded">{Array.isArray(pipeline.nodes) ? pipeline.nodes.length : 0} Nodes</span>
                           </div>
                        </button>
-                    ))}
+                      ))
+                    )}
                  </div>
               </ScrollArea>
             </DialogContent>
           </Dialog>
           
-          <Button size="sm" variant="outline" className="bg-white/80 backdrop-blur gap-2">
-             <Save className="w-4 h-4" /> Save
-          </Button>
+          <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" variant="outline" className="bg-white/80 backdrop-blur gap-2" data-testid="button-save-pipeline">
+                <Save className="w-4 h-4" /> Save
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>{currentPipelineId ? 'Update Pipeline' : 'Save Pipeline'}</DialogTitle>
+                <DialogDescription>
+                  {currentPipelineId ? 'Update your pipeline configuration.' : 'Save your pipeline configuration for later use.'}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="pipeline-name">Pipeline Name</Label>
+                  <Input 
+                    id="pipeline-name" 
+                    placeholder="e.g., Q3 Sales Forecast" 
+                    value={pipelineName}
+                    onChange={(e) => setPipelineName(e.target.value)}
+                    data-testid="input-pipeline-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="pipeline-description">Description (optional)</Label>
+                  <Textarea 
+                    id="pipeline-description" 
+                    placeholder="Describe what this pipeline does..."
+                    value={pipelineDescription}
+                    onChange={(e) => setPipelineDescription(e.target.value)}
+                    data-testid="input-pipeline-description"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setSaveDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleSavePipeline} data-testid="button-confirm-save">
+                    {currentPipelineId ? 'Update' : 'Save'}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
           <Button 
             size="sm" 
             className={`gap-2 shadow-lg hover:shadow-xl transition-all ${isRunning ? 'bg-orange-500 hover:bg-orange-600' : ''}`}

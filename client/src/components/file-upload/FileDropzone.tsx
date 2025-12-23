@@ -5,20 +5,22 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { useUploadDataset } from '@/hooks/useDatasets';
+import type { Dataset } from '@shared/schema';
 
 interface FileDropzoneProps {
-  onUploadComplete?: (fileName: string) => void;
+  onUploadComplete?: (fileName: string, dataset?: Dataset) => void;
   compact?: boolean;
 }
 
 export default function FileDropzone({ onUploadComplete, compact = false }: FileDropzoneProps) {
   const [files, setFiles] = useState<File[]>([]);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
+  const uploadMutation = useUploadDataset();
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    setFiles(prev => compact ? acceptedFiles : [...prev, ...acceptedFiles]); // In compact mode, only allow one file at a time or replace
+    setFiles(prev => compact ? acceptedFiles : [...prev, ...acceptedFiles]);
     
-    // Simulate upload progress
     acceptedFiles.forEach(file => {
       let progress = 0;
       const interval = setInterval(() => {
@@ -26,11 +28,16 @@ export default function FileDropzone({ onUploadComplete, compact = false }: File
         setUploadProgress(prev => ({ ...prev, [file.name]: progress }));
         if (progress >= 100) {
           clearInterval(interval);
-          if (onUploadComplete) onUploadComplete(file.name);
         }
       }, 100);
+
+      uploadMutation.mutate(file, {
+        onSuccess: (dataset) => {
+          if (onUploadComplete) onUploadComplete(file.name, dataset);
+        },
+      });
     });
-  }, [compact, onUploadComplete]);
+  }, [compact, onUploadComplete, uploadMutation]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop,
