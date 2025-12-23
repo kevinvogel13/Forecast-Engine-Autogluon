@@ -47,91 +47,14 @@ import { Textarea } from '@/components/ui/textarea';
 import Editor from '@monaco-editor/react';
 import { usePipelines, useCreatePipeline, useUpdatePipeline, useExecutePipeline } from '@/hooks/usePipelines';
 
-const initialNodes = [
-  { 
-    id: '1', 
-    position: { x: 100, y: 100 }, 
-    data: { 
-      label: 'Sales_Data_2023.csv', 
-      type: 'input',
-      status: 'success',
-      stats: { rows: 45200, cols: 12, volume: '2.1M' },
-      columns: ['date', 'sku_id', 'product_name', 'category', 'region', 'store_id', 'quantity', 'unit_price', 'revenue', 'cost', 'margin', 'channel']
-    }, 
-    type: 'custom'
-  },
-  { 
-    id: '2', 
-    position: { x: 100, y: 350 }, 
-    data: { 
-      label: 'Sales_Data_2024.csv', 
-      type: 'input',
-      status: 'success',
-      stats: { rows: 12400, cols: 12, volume: '0.8M' },
-      columns: ['date', 'sku_id', 'product_name', 'category', 'region', 'store_id', 'quantity', 'unit_price', 'revenue', 'cost', 'margin', 'channel']
-    }, 
-    type: 'custom' 
-  },
-  { 
-    id: '3', 
-    position: { x: 450, y: 225 }, 
-    data: { 
-      label: 'Merge: Date & SKU', 
-      type: 'merge',
-      status: 'pending',
-      stats: { rows: 57600, cols: 12, volume: '2.9M' },
-      leftKeys: ['date', 'sku_id'],
-      rightKeys: ['date', 'sku_id']
-    }, 
-    type: 'custom'
-  },
-  { 
-    id: '4', 
-    position: { x: 800, y: 225 }, 
-    data: { 
-      label: 'Data Validation & EDA', 
-      type: 'eda',
-      status: 'pending',
-      stats: { rows: 55100, cols: 12, volume: '2.85M' }
-    }, 
-    type: 'custom' 
-  },
-  { 
-    id: '5', 
-    position: { x: 1150, y: 225 }, 
-    data: { 
-      label: 'Model Configuration', 
-      type: 'config',
-      status: 'pending',
-      stats: { rows: 55100, cols: 12 }
-    }, 
-    type: 'custom' 
-  },
-  { 
-    id: '6', 
-    position: { x: 1500, y: 225 }, 
-    data: { 
-      label: 'Forecast Output', 
-      type: 'output',
-      status: 'pending',
-      stats: { rows: 55100, cols: 14 }
-    }, 
-    type: 'custom' 
-  },
-];
+const initialNodes: any[] = [];
 
 const defaultEdgeStyle = { 
   stroke: '#64748b', 
   strokeWidth: 2,
 };
 
-const initialEdges = [
-  { id: 'e1-3', source: '1', target: '3', animated: true, style: defaultEdgeStyle, markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' } },
-  { id: 'e2-3', source: '2', target: '3', animated: true, style: defaultEdgeStyle, markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' } },
-  { id: 'e3-4', source: '3', target: '4', animated: true, style: defaultEdgeStyle, markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' } },
-  { id: 'e4-5', source: '4', target: '5', animated: true, style: defaultEdgeStyle, markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' } },
-  { id: 'e5-6', source: '5', target: '6', animated: true, style: defaultEdgeStyle, markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' } },
-];
+const initialEdges: any[] = [];
 
 
 let id = 10;
