@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GeneralStats } from './widgets/GeneralStats';
 import { TimeSeriesView } from './widgets/TimeSeriesView';
 import { CategoryDistribution } from './widgets/CategoryDistribution';
@@ -6,7 +6,7 @@ import { OutlierTable } from './widgets/OutlierTable';
 import { DataCompletenessChart } from './widgets/DataCompletenessChart';
 import { DemandPatternAnalysis } from './widgets/DemandPatternAnalysis';
 import { Button } from '@/components/ui/button';
-import { Settings2, Eye, EyeOff } from 'lucide-react';
+import { Settings2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -16,7 +16,41 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-export default function EDADashboard() {
+interface EDADashboardProps {
+  datasetId?: string | null;
+}
+
+export default function EDADashboard({ datasetId }: EDADashboardProps) {
+  const [previewData, setPreviewData] = useState<{
+    columns: string[];
+    rows: any[];
+    totalRows: number;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!datasetId) {
+      setPreviewData(null);
+      return;
+    }
+
+    setLoading(true);
+    fetch(`/api/datasets/${datasetId}/preview?limit=100`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) {
+          setPreviewData({
+            columns: data.columns,
+            rows: data.rows,
+            totalRows: data.totalRows
+          });
+        } else {
+          setPreviewData(null);
+        }
+      })
+      .catch(() => setPreviewData(null))
+      .finally(() => setLoading(false));
+  }, [datasetId]);
   const [widgets, setWidgets] = useState({
     generalStats: true,
     demandPattern: true,
@@ -82,7 +116,23 @@ export default function EDADashboard() {
         </DropdownMenu>
       </div>
 
-      {widgets.generalStats && <GeneralStats />}
+      {loading && (
+        <div className="flex items-center justify-center py-8 text-muted-foreground">
+          Loading data...
+        </div>
+      )}
+      
+      {!loading && !previewData && (
+        <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800">
+          <AlertCircle className="w-5 h-5" />
+          <div>
+            <p className="font-medium">No data connected</p>
+            <p className="text-sm text-amber-700">Connect a data source to the Validation node to see analytics.</p>
+          </div>
+        </div>
+      )}
+      
+      {widgets.generalStats && previewData && <GeneralStats data={previewData} />}
       
       {widgets.demandPattern && <DemandPatternAnalysis />}
 

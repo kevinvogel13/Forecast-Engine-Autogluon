@@ -83,6 +83,7 @@ function FlowWithProvider() {
   
   // Modal states for full views
   const [edaOpen, setEdaOpen] = useState(false);
+  const [edaDatasetId, setEdaDatasetId] = useState<string | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
   const [resultsOpen, setResultsOpen] = useState(false);
   
@@ -992,7 +993,11 @@ function FlowWithProvider() {
                                 <span className="text-blue-800">Pass-through: Input data flows to connected nodes</span>
                              </div>
                           </div>
-                          <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => setEdaOpen(true)} data-testid="button-open-eda">
+                          <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => {
+                               const datasetId = getSourceDatasetId(selectedNode.id);
+                               setEdaDatasetId(datasetId);
+                               setEdaOpen(true);
+                          }} data-testid="button-open-eda">
                              Open EDA Dashboard
                           </Button>
                        </div>
@@ -1532,7 +1537,7 @@ function FlowWithProvider() {
               </div>
            </div>
            <ScrollArea className="flex-1 p-6 bg-slate-50/50">
-              <EDADashboard />
+              <EDADashboard datasetId={edaDatasetId} />
            </ScrollArea>
         </DialogContent>
       </Dialog>
