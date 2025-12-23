@@ -114,12 +114,17 @@ const initialNodes = [
   },
 ];
 
+const defaultEdgeStyle = { 
+  stroke: '#64748b', 
+  strokeWidth: 2,
+};
+
 const initialEdges = [
-  { id: 'e1-3', source: '1', target: '3', style: { stroke: '#94a3b8' } },
-  { id: 'e2-3', source: '2', target: '3', style: { stroke: '#94a3b8' } },
-  { id: 'e3-4', source: '3', target: '4', markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: '#94a3b8' } },
-  { id: 'e4-5', source: '4', target: '5', markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: '#94a3b8' } },
-  { id: 'e5-6', source: '5', target: '6', markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: '#94a3b8' } },
+  { id: 'e1-3', source: '1', target: '3', animated: true, style: defaultEdgeStyle, markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' } },
+  { id: 'e2-3', source: '2', target: '3', animated: true, style: defaultEdgeStyle, markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' } },
+  { id: 'e3-4', source: '3', target: '4', animated: true, style: defaultEdgeStyle, markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' } },
+  { id: 'e4-5', source: '4', target: '5', animated: true, style: defaultEdgeStyle, markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' } },
+  { id: 'e5-6', source: '5', target: '6', animated: true, style: defaultEdgeStyle, markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' } },
 ];
 
 
@@ -151,9 +156,17 @@ function FlowWithProvider() {
   const [edaOpen, setEdaOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [resultsOpen, setResultsOpen] = useState(false);
+  
+  // Component palette toggle
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const onConnect = useCallback(
-    (params: Connection) => setEdges((eds) => addEdge(params, eds)),
+    (params: Connection) => setEdges((eds) => addEdge({
+      ...params,
+      animated: true,
+      style: defaultEdgeStyle,
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' }
+    }, eds)),
     [setEdges],
   );
 
@@ -850,17 +863,27 @@ function FlowWithProvider() {
                   )}
 
                   <Separator />
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-muted-foreground">ID: {selectedNode.id}</span>
-                    <Button 
-                      variant="destructive" 
-                      size="sm" 
-                      onClick={deleteSelectedNode}
-                      className="h-8 px-2"
-                    >
-                      <Trash2 className="w-4 h-4 mr-1" /> Delete
-                    </Button>
+                  
+                  {/* Delete Section - Prominent */}
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-red-800">Remove Component</p>
+                        <p className="text-xs text-red-600">This will also disconnect all edges</p>
+                      </div>
+                      <Button 
+                        variant="destructive" 
+                        size="sm" 
+                        onClick={deleteSelectedNode}
+                        className="h-9 px-4"
+                        data-testid="button-delete-node"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" /> Delete
+                      </Button>
+                    </div>
                   </div>
+                  
+                  <p className="text-[10px] text-muted-foreground text-center pt-2">ID: {selectedNode.id}</p>
                 </CardContent>
               </Card>
             </Panel>
@@ -900,7 +923,11 @@ function FlowWithProvider() {
              </Panel>
           )}
 
-          <NodePalette onDragStart={onNodeDragStart} />
+          <NodePalette 
+            onDragStart={onNodeDragStart} 
+            isOpen={paletteOpen} 
+            onToggle={() => setPaletteOpen(!paletteOpen)} 
+          />
 
         </ReactFlow>
       </div>
