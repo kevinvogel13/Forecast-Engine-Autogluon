@@ -629,16 +629,16 @@ export default function Settings() {
                        </div>
                        <div className="space-y-2">
                           <Label>Frequency</Label>
-                          <Select defaultValue="M">
+                          <Select defaultValue={frequency} onValueChange={setFrequency}>
                              <SelectTrigger>
                                 <SelectValue />
                              </SelectTrigger>
                              <SelectContent>
-                                <SelectItem value="D">Daily</SelectItem>
-                                <SelectItem value="W">Weekly</SelectItem>
-                                <SelectItem value="M">Monthly</SelectItem>
-                                <SelectItem value="Q">Quarterly</SelectItem>
-                                <SelectItem value="Y">Yearly</SelectItem>
+                                <SelectItem value="Daily">Daily</SelectItem>
+                                <SelectItem value="Weekly">Weekly</SelectItem>
+                                <SelectItem value="Monthly">Monthly</SelectItem>
+                                <SelectItem value="Quarterly">Quarterly</SelectItem>
+                                <SelectItem value="Yearly">Yearly</SelectItem>
                              </SelectContent>
                           </Select>
                           <p className="text-[10px] text-muted-foreground">Frequency of the time series data.</p>
