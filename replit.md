@@ -47,6 +47,24 @@ Preferred communication style: Simple, everyday language.
   - `components/dashboard/` - EDA and validation widgets
   - `components/layout/` - Shell and navigation
 
+### Pipeline Node Types
+- **Data Source**: Import CSV files with automatic column detection
+- **Data Preview**: View head of dataframe with configurable row count (5-100 rows)
+- **Filter**: Filter rows with operators: eq, neq, gt, gte, lt, lte, contains, isin, notin, isnull, notnull
+  - isin/notin support multi-select with auto-populated categorical values
+  - Categorical columns (≤50 unique values) show dropdowns instead of text input
+- **Merge / Join**: Join datasets on key columns (inner, left, right, full outer)
+- **Python Script**: Custom pandas transformations via Monaco editor
+- **SQL Transform**: DuckDB SQL-based transformations
+- **Validation (EDA)**: Exploratory data analysis dashboard
+- **Model Config**: AutoGluon forecast model configuration
+- **Output**: View forecast results
+
+### Data Flow & Preview
+- Nodes trace back through edges to find source dataset ID
+- Preview and column values are fetched dynamically from connected data sources
+- API endpoints: `/api/datasets/:id/preview` and `/api/datasets/:id/column/:column/values`
+
 ### Build Process
 - Development: Vite dev server with HMR for frontend, tsx for backend
 - Production: esbuild bundles server code, Vite builds client to `dist/public`
