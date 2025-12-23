@@ -16,11 +16,12 @@ import { cn } from "@/lib/utils";
 
 interface NodePaletteProps {
   onDragStart: (event: React.DragEvent, nodeType: string, label: string) => void;
+  onAddNode: (nodeType: string, label: string) => void;
   isOpen: boolean;
   onToggle: () => void;
 }
 
-export default function NodePalette({ onDragStart, isOpen, onToggle }: NodePaletteProps) {
+export default function NodePalette({ onDragStart, onAddNode, isOpen, onToggle }: NodePaletteProps) {
   const nodes = [
     { type: 'input', label: 'Data Source', icon: Database, color: 'bg-blue-100 text-blue-600', description: 'Import data from file or SQL' },
     { type: 'merge', label: 'Merge / Join', icon: GitMerge, color: 'bg-orange-100 text-orange-600', description: 'Combine multiple datasets' },
@@ -52,16 +53,20 @@ export default function NodePalette({ onDragStart, isOpen, onToggle }: NodePalet
         <Card className="absolute top-16 left-0 shadow-xl border-border/60 bg-white w-72 animate-in fade-in slide-in-from-top-2 duration-200">
           <CardContent className="p-3">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-1">
-              Drag components onto canvas
+              Tap to add or drag onto canvas
             </p>
             <div className="space-y-1">
               {nodes.map((node) => (
                 <div
                   key={node.type}
-                  className="flex items-center gap-3 cursor-grab active:cursor-grabbing p-2.5 hover:bg-slate-50 rounded-lg transition-all border border-transparent hover:border-slate-200 hover:shadow-sm group"
+                  className="flex items-center gap-3 cursor-pointer p-2.5 hover:bg-slate-50 rounded-lg transition-all border border-transparent hover:border-slate-200 hover:shadow-sm group active:bg-slate-100"
                   draggable
                   onDragStart={(event) => {
                     onDragStart(event, node.type, node.label);
+                    onToggle();
+                  }}
+                  onClick={() => {
+                    onAddNode(node.type, node.label);
                     onToggle();
                   }}
                   data-testid={`palette-${node.type}`}
@@ -74,7 +79,7 @@ export default function NodePalette({ onDragStart, isOpen, onToggle }: NodePalet
                     <p className="text-[10px] text-muted-foreground truncate">{node.description}</p>
                   </div>
                   <div className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-blue-600 font-medium">
-                    DRAG
+                    TAP
                   </div>
                 </div>
               ))}

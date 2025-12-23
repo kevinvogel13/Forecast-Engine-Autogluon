@@ -504,6 +504,33 @@ function FlowWithProvider() {
     event.dataTransfer.effectAllowed = 'move';
   };
 
+  // Click-to-add for touch devices
+  const onAddNode = useCallback((nodeType: string, label: string) => {
+    // Calculate a position in the center of the visible viewport
+    const viewportCenter = screenToFlowPosition({
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2,
+    });
+    
+    // Offset each new node slightly to avoid stacking
+    const offset = nodes.length * 30;
+    
+    const newNode = {
+      id: getId(),
+      type: 'custom',
+      position: { x: viewportCenter.x + offset, y: viewportCenter.y + offset },
+      data: { 
+        label: label, 
+        type: nodeType, 
+        stats: { rows: 0, cols: 0 },
+        status: 'pending'
+      },
+    };
+
+    setNodes((nds) => nds.concat(newNode));
+    setSelectedNode(newNode);
+  }, [screenToFlowPosition, setNodes, nodes.length]);
+
   return (
     <div className="flex h-full w-full border border-border rounded-xl bg-slate-50 overflow-hidden shadow-inner relative">
       <div className="flex-1 relative h-full" ref={reactFlowWrapper}>
@@ -1090,7 +1117,8 @@ function FlowWithProvider() {
           )}
 
           <NodePalette 
-            onDragStart={onNodeDragStart} 
+            onDragStart={onNodeDragStart}
+            onAddNode={onAddNode}
             isOpen={paletteOpen} 
             onToggle={() => setPaletteOpen(!paletteOpen)} 
           />
