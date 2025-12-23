@@ -111,7 +111,7 @@ export default function Settings() {
 
   const LAG_WINDOWS = Array.from({ length: 52 }, (_, i) => ({
     value: (i + 2).toString(),
-    label: `Lag ${i + 2}`
+    label: `Lag ${i + 2} ${getFrequencyLabel().trim()}`
   }));
 
   // State for Model Specs
