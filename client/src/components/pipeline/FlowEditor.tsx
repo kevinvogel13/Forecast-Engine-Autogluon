@@ -901,7 +901,7 @@ function FlowWithProvider() {
                           </SelectTrigger>
                           <SelectContent>
                             {getSourceColumns(selectedNode.id).length === 0 ? (
-                              <SelectItem value="" disabled>Connect a data source</SelectItem>
+                              <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
                             ) : (
                               getSourceColumns(selectedNode.id).map(col => (
                                 <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
