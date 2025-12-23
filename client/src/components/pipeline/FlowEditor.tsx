@@ -19,7 +19,7 @@ import {
  
 import '@xyflow/react/dist/style.css';
 import { Button } from '@/components/ui/button';
-import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity } from 'lucide-react';
+import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -28,6 +28,7 @@ import FileDropzone from '@/components/file-upload/FileDropzone';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import PipelineNode from './PipelineNode';
 import EDADashboard from '@/components/dashboard/EDADashboard';
 import ConfigurationPanel from '@/components/configuration/ConfigurationPanel';
@@ -159,6 +160,11 @@ function FlowWithProvider() {
   
   // Component palette toggle
   const [paletteOpen, setPaletteOpen] = useState(false);
+  
+  // Save as new flag and stashed values for restore on cancel
+  const [saveAsNew, setSaveAsNew] = useState(false);
+  const [stashedPipelineName, setStashedPipelineName] = useState('');
+  const [stashedPipelineDescription, setStashedPipelineDescription] = useState('');
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge({
@@ -321,22 +327,43 @@ function FlowWithProvider() {
       edges,
     };
 
-    if (currentPipelineId) {
+    // If saveAsNew is true or no current pipeline, create a new one
+    if (saveAsNew || !currentPipelineId) {
+      createPipeline.mutate(pipelineData, {
+        onSuccess: (newPipeline) => {
+          setCurrentPipelineId(newPipeline.id);
+          setSaveDialogOpen(false);
+          setSaveAsNew(false);
+          setStashedPipelineName('');
+          setStashedPipelineDescription('');
+        },
+      });
+    } else {
       updatePipeline.mutate({
         id: currentPipelineId,
         data: pipelineData,
       }, {
         onSuccess: () => {
           setSaveDialogOpen(false);
+          setSaveAsNew(false);
+          setStashedPipelineName('');
+          setStashedPipelineDescription('');
         },
       });
-    } else {
-      createPipeline.mutate(pipelineData, {
-        onSuccess: (newPipeline) => {
-          setCurrentPipelineId(newPipeline.id);
-          setSaveDialogOpen(false);
-        },
-      });
+    }
+  };
+  
+  const handleCloseSaveDialog = (open: boolean) => {
+    setSaveDialogOpen(open);
+    if (!open) {
+      // Restore stashed values if cancelling Save As New
+      if (saveAsNew && stashedPipelineName) {
+        setPipelineName(stashedPipelineName);
+        setPipelineDescription(stashedPipelineDescription);
+      }
+      setSaveAsNew(false);
+      setStashedPipelineName('');
+      setStashedPipelineDescription('');
     }
   };
 
@@ -434,105 +461,146 @@ function FlowWithProvider() {
   return (
     <div className="flex h-full w-full border border-border rounded-xl bg-slate-50 overflow-hidden shadow-inner relative">
       <div className="flex-1 relative h-full" ref={reactFlowWrapper}>
-        <div className="absolute top-4 right-4 z-10 flex gap-2">
-           <Dialog open={loadDialogOpen} onOpenChange={setLoadDialogOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" variant="outline" className="bg-white/80 backdrop-blur gap-2">
-                 <FolderOpen className="w-4 h-4" /> Load
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>Load Pipeline</DialogTitle>
-                <DialogDescription>
-                  Select a saved pipeline configuration to load.
-                </DialogDescription>
-              </DialogHeader>
-              <ScrollArea className="h-[300px] mt-4 pr-4">
-                 <div className="space-y-2">
-                    {pipelinesLoading ? (
-                      <div className="text-center py-4 text-muted-foreground">Loading pipelines...</div>
-                    ) : savedPipelines.length === 0 ? (
-                      <div className="text-center py-4 text-muted-foreground">No saved pipelines</div>
-                    ) : (
-                      savedPipelines.map((pipeline) => (
-                       <button
-                          key={pipeline.id}
-                          className="w-full text-left p-3 rounded-lg border border-border hover:bg-accent hover:border-primary/50 transition-all group"
-                          onClick={() => loadPipeline(pipeline)}
-                          data-testid={`button-load-pipeline-${pipeline.id}`}
-                       >
-                          <div className="flex items-center justify-between mb-1">
-                             <span className="font-medium group-hover:text-primary transition-colors">{pipeline.name}</span>
-                             <span className="text-xs text-muted-foreground">{new Date(pipeline.updatedAt).toLocaleDateString()}</span>
-                          </div>
-                          <p className="text-xs text-muted-foreground line-clamp-1">{pipeline.description}</p>
-                          <div className="mt-2 text-xs flex gap-2">
-                             <span className="bg-secondary px-1.5 py-0.5 rounded">{Array.isArray(pipeline.nodes) ? pipeline.nodes.length : 0} Nodes</span>
-                          </div>
-                       </button>
-                      ))
-                    )}
-                 </div>
-              </ScrollArea>
-            </DialogContent>
-          </Dialog>
+        {/* Consolidated Toolbar */}
+        <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+          {/* Pipeline name indicator */}
+          {currentPipelineId && pipelineName && (
+            <div className="bg-white/90 backdrop-blur px-3 py-1.5 rounded-lg border shadow-sm mr-2">
+              <p className="text-xs text-muted-foreground">Current Pipeline</p>
+              <p className="text-sm font-medium truncate max-w-[150px]">{pipelineName}</p>
+            </div>
+          )}
           
-          <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" variant="outline" className="bg-white/80 backdrop-blur gap-2" data-testid="button-save-pipeline">
-                <Save className="w-4 h-4" /> Save
+          {/* File Menu Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline" className="bg-white/90 backdrop-blur gap-1.5" data-testid="button-file-menu">
+                <FileText className="w-4 h-4" />
+                File
+                <ChevronDown className="w-3 h-3 ml-1" />
               </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>{currentPipelineId ? 'Update Pipeline' : 'Save Pipeline'}</DialogTitle>
-                <DialogDescription>
-                  {currentPipelineId ? 'Update your pipeline configuration.' : 'Save your pipeline configuration for later use.'}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 mt-4">
-                <div className="space-y-2">
-                  <Label htmlFor="pipeline-name">Pipeline Name</Label>
-                  <Input 
-                    id="pipeline-name" 
-                    placeholder="e.g., Q3 Sales Forecast" 
-                    value={pipelineName}
-                    onChange={(e) => setPipelineName(e.target.value)}
-                    data-testid="input-pipeline-name"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="pipeline-description">Description (optional)</Label>
-                  <Textarea 
-                    id="pipeline-description" 
-                    placeholder="Describe what this pipeline does..."
-                    value={pipelineDescription}
-                    onChange={(e) => setPipelineDescription(e.target.value)}
-                    data-testid="input-pipeline-description"
-                  />
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setSaveDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button onClick={handleSavePipeline} data-testid="button-confirm-save">
-                    {currentPipelineId ? 'Update' : 'Save'}
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => setLoadDialogOpen(true)} data-testid="menu-load">
+                <FolderOpen className="w-4 h-4 mr-2" />
+                Open Pipeline
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSaveDialogOpen(true)} data-testid="menu-save">
+                <Save className="w-4 h-4 mr-2" />
+                {currentPipelineId ? 'Save Pipeline' : 'Save As...'}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => {
+                setSaveAsNew(true);
+                setStashedPipelineName(pipelineName);
+                setStashedPipelineDescription(pipelineDescription);
+                setPipelineName('');
+                setPipelineDescription('');
+                setSaveDialogOpen(true);
+              }} data-testid="menu-save-as">
+                <Save className="w-4 h-4 mr-2" />
+                Save As New...
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Run Pipeline Button - Prominent */}
           <Button 
             size="sm" 
-            className={`gap-2 shadow-lg hover:shadow-xl transition-all ${isRunning ? 'bg-orange-500 hover:bg-orange-600' : ''}`}
+            className={`gap-2 shadow-lg hover:shadow-xl transition-all ${isRunning ? 'bg-orange-500 hover:bg-orange-600' : 'bg-green-600 hover:bg-green-700'}`}
             onClick={runPipeline}
             disabled={isRunning}
+            data-testid="button-run-pipeline"
           >
             {isRunning ? <span className="animate-spin">⟳</span> : <Play className="w-4 h-4" />} 
-            {isRunning ? 'Running...' : 'Run Pipeline'}
+            {isRunning ? 'Running...' : 'Run'}
           </Button>
         </div>
+
+        {/* Load Pipeline Dialog */}
+        <Dialog open={loadDialogOpen} onOpenChange={setLoadDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Open Pipeline</DialogTitle>
+              <DialogDescription>
+                Select a saved pipeline configuration to load.
+              </DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="h-[300px] mt-4 pr-4">
+               <div className="space-y-2">
+                  {pipelinesLoading ? (
+                    <div className="text-center py-4 text-muted-foreground">Loading pipelines...</div>
+                  ) : savedPipelines.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <FolderOpen className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p>No saved pipelines yet</p>
+                      <p className="text-xs mt-1">Create and save your first pipeline</p>
+                    </div>
+                  ) : (
+                    savedPipelines.map((pipeline) => (
+                     <button
+                        key={pipeline.id}
+                        className="w-full text-left p-3 rounded-lg border border-border hover:bg-accent hover:border-primary/50 transition-all group"
+                        onClick={() => loadPipeline(pipeline)}
+                        data-testid={`button-load-pipeline-${pipeline.id}`}
+                     >
+                        <div className="flex items-center justify-between mb-1">
+                           <span className="font-medium group-hover:text-primary transition-colors">{pipeline.name}</span>
+                           <span className="text-xs text-muted-foreground">{new Date(pipeline.updatedAt).toLocaleDateString()}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-1">{pipeline.description}</p>
+                        <div className="mt-2 text-xs flex gap-2">
+                           <span className="bg-secondary px-1.5 py-0.5 rounded">{Array.isArray(pipeline.nodes) ? pipeline.nodes.length : 0} Nodes</span>
+                        </div>
+                     </button>
+                    ))
+                  )}
+               </div>
+            </ScrollArea>
+          </DialogContent>
+        </Dialog>
+
+        {/* Save Pipeline Dialog */}
+        <Dialog open={saveDialogOpen} onOpenChange={handleCloseSaveDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>{saveAsNew ? 'Save As New Pipeline' : (currentPipelineId ? 'Save Pipeline' : 'Save Pipeline As')}</DialogTitle>
+              <DialogDescription>
+                {currentPipelineId ? 'Update your pipeline configuration.' : 'Save your pipeline configuration for later use.'}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label htmlFor="pipeline-name">Pipeline Name</Label>
+                <Input 
+                  id="pipeline-name" 
+                  placeholder="e.g., Q3 Sales Forecast" 
+                  value={pipelineName}
+                  onChange={(e) => setPipelineName(e.target.value)}
+                  data-testid="input-pipeline-name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="pipeline-description">Description (optional)</Label>
+                <Textarea 
+                  id="pipeline-description" 
+                  placeholder="Describe what this pipeline does..."
+                  value={pipelineDescription}
+                  onChange={(e) => setPipelineDescription(e.target.value)}
+                  data-testid="input-pipeline-description"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => handleCloseSaveDialog(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSavePipeline} data-testid="button-confirm-save">
+                  {saveAsNew ? 'Save As New' : (currentPipelineId ? 'Save' : 'Save Pipeline')}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
         
         <ReactFlow
           nodes={nodes}
