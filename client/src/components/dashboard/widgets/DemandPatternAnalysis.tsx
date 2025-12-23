@@ -43,15 +43,17 @@ export function DemandPatternAnalysis() {
   const [adiThreshold, setAdiThreshold] = useState([1.32]);
   const [cvThreshold, setCvThreshold] = useState([0.49]);
 
+  const [activeQuadrant, setActiveQuadrant] = useState<string | null>(null);
+
   const stats = useMemo(() => {
     const adiLimit = adiThreshold[0];
     const cvLimit = cvThreshold[0];
     
     // Updated Colors
     const quadrants = {
-      smooth: { label: "Smooth", count: 0, volume: 0, color: "bg-blue-100/50 text-blue-800" },       // Low CV, Low ADI
-      intermittent: { label: "Intermittent", count: 0, volume: 0, color: "bg-fuchsia-100/50 text-fuchsia-900" }, // Low CV, High ADI (Purple/Red mix)
-      erratic: { label: "Erratic", count: 0, volume: 0, color: "bg-indigo-100/50 text-indigo-900" },      // High CV, Low ADI (Purple/Blue mix)
+      smooth: { label: "Smooth", count: 0, volume: 0, color: "bg-green-100/50 text-green-800" },       // Low CV, Low ADI
+      intermittent: { label: "Intermittent", count: 0, volume: 0, color: "bg-yellow-100/50 text-yellow-800" }, // Low CV, High ADI
+      erratic: { label: "Erratic", count: 0, volume: 0, color: "bg-orange-100/50 text-orange-800" },      // High CV, Low ADI
       lumpy: { label: "Lumpy", count: 0, volume: 0, color: "bg-red-100/50 text-red-800" }            // High CV, High ADI
     };
 
@@ -59,8 +61,9 @@ export function DemandPatternAnalysis() {
     let totalCount = 0;
     
     // Calculate Max values for domain scaling
-    let maxADI = 5; // Default minimum max
-    let maxCV = 2;  // Default minimum max
+    // Use fixed reasonable bounds as baseline (e.g., ADI=5, CV=2) but expand if data demands it
+    let maxADI = 5; 
+    let maxCV = 2.5;  
 
     const classifiedData = MOCK_DATA.map(point => {
       let type = '';
@@ -88,11 +91,12 @@ export function DemandPatternAnalysis() {
     });
     
     // Add some padding to domains
-    maxADI = maxADI * 1.1;
-    maxCV = maxCV * 1.1;
+    maxADI = maxADI * 1.05;
+    maxCV = maxCV * 1.05;
 
     return { quadrants, totalVolume, totalCount, classifiedData, maxADI, maxCV };
   }, [adiThreshold, cvThreshold]);
+
 
 
   const getPercentage = (val: number, total: number) => ((val / total) * 100).toFixed(1) + '%';
@@ -122,15 +126,20 @@ export function DemandPatternAnalysis() {
     const { x, y, width, height } = viewBox;
     if (!width || !height) return null;
     
+    const isActive = activeQuadrant === type;
+
     // Position exactly in center of the ReferenceArea
     return (
       <foreignObject x={x} y={y} width={width} height={height} style={{ pointerEvents: 'none', overflow: 'visible' }}>
         <div className="w-full h-full flex items-center justify-center p-2">
-           <div className={`
-             backdrop-blur-md p-3 rounded-lg shadow-sm border border-slate-200/50 
-             flex flex-col items-center justify-center min-w-[120px]
-             ${data.color.replace('text-', 'border-').replace('bg-', 'bg-opacity-90 bg-')}
-           `}>
+           <div 
+             className={`
+               backdrop-blur-md p-3 rounded-lg shadow-sm border border-slate-200/50 
+               flex flex-col items-center justify-center min-w-[120px] transition-all duration-300
+               ${data.color.replace('text-', 'border-').replace('bg-', 'bg-opacity-90 bg-')}
+               ${isActive ? 'opacity-100 scale-110 z-50 shadow-lg ring-2 ring-offset-1 ring-slate-400' : 'opacity-60 scale-95'}
+             `}
+           >
              <h4 className="font-bold text-sm uppercase mb-1">{data.label}</h4>
              <div className="text-xs space-y-0.5 text-center w-full">
                 <div className="font-medium flex justify-between gap-3 w-full">
@@ -147,6 +156,7 @@ export function DemandPatternAnalysis() {
       </foreignObject>
     );
   };
+
 
   return (
     <Card className="col-span-4">
@@ -193,6 +203,46 @@ export function DemandPatternAnalysis() {
             <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" />
+                  
+                  {/* Background Areas for Event Capture and Coloring */}
+                  {/* These are rendered FIRST so they are behind the scatter points */}
+                  
+                  {/* Smooth (Bottom Left) */}
+                  <ReferenceArea 
+                    x1={0} x2={cvThreshold[0]} 
+                    y1={0} y2={adiThreshold[0]} 
+                    fill="#dcfce7" fillOpacity={0.4} // Green
+                    onMouseEnter={() => setActiveQuadrant('smooth')}
+                    onMouseLeave={() => setActiveQuadrant(null)}
+                  />
+
+                  {/* Intermittent (Top Left) */}
+                  <ReferenceArea 
+                    x1={0} x2={cvThreshold[0]} 
+                    y1={adiThreshold[0]} y2={stats.maxADI} 
+                    fill="#fef9c3" fillOpacity={0.4} // Yellow
+                    onMouseEnter={() => setActiveQuadrant('intermittent')}
+                    onMouseLeave={() => setActiveQuadrant(null)}
+                  />
+
+                  {/* Erratic (Bottom Right) */}
+                  <ReferenceArea 
+                    x1={cvThreshold[0]} x2={stats.maxCV} 
+                    y1={0} y2={adiThreshold[0]} 
+                    fill="#ffedd5" fillOpacity={0.4} // Orange
+                    onMouseEnter={() => setActiveQuadrant('erratic')}
+                    onMouseLeave={() => setActiveQuadrant(null)}
+                  />
+
+                  {/* Lumpy (Top Right) */}
+                  <ReferenceArea 
+                    x1={cvThreshold[0]} x2={stats.maxCV} 
+                    y1={adiThreshold[0]} y2={stats.maxADI} 
+                    fill="#fee2e2" fillOpacity={0.4} // Red
+                    onMouseEnter={() => setActiveQuadrant('lumpy')}
+                    onMouseLeave={() => setActiveQuadrant(null)}
+                  />
+
                   <XAxis 
                       type="number" 
                       dataKey="cv" 
@@ -209,47 +259,6 @@ export function DemandPatternAnalysis() {
                   />
                   <Tooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '3 3' }} />
                   
-                  {/* Threshold Lines */}
-                  <ReferenceLine x={cvThreshold[0]} stroke="#334155" strokeWidth={2} strokeDasharray="5 5" />
-                  <ReferenceLine y={adiThreshold[0]} stroke="#334155" strokeWidth={2} strokeDasharray="5 5" />
-
-                  {/* Using custom content in ReferenceArea to position the stats boxes */}
-                  {/* Smooth (Bottom Left) */}
-                  <ReferenceArea 
-                    x1={0} x2={cvThreshold[0]} 
-                    y1={0} y2={adiThreshold[0]} 
-                    fill="#dbeafe" fillOpacity={0.2}
-                  >
-                    <Label content={(props: any) => <QuadrantLabel {...props} type="smooth" data={stats.quadrants.smooth} />} />
-                  </ReferenceArea>
-
-                  {/* Intermittent (Top Left) */}
-                  <ReferenceArea 
-                    x1={0} x2={cvThreshold[0]} 
-                    y1={adiThreshold[0]} y2={stats.maxADI} 
-                    fill="#fae8ff" fillOpacity={0.2}
-                  >
-                     <Label content={(props: any) => <QuadrantLabel {...props} type="intermittent" data={stats.quadrants.intermittent} />} />
-                  </ReferenceArea>
-
-                  {/* Erratic (Bottom Right) */}
-                  <ReferenceArea 
-                    x1={cvThreshold[0]} x2={stats.maxCV} 
-                    y1={0} y2={adiThreshold[0]} 
-                    fill="#e0e7ff" fillOpacity={0.2}
-                  >
-                     <Label content={(props: any) => <QuadrantLabel {...props} type="erratic" data={stats.quadrants.erratic} />} />
-                  </ReferenceArea>
-
-                  {/* Lumpy (Top Right) */}
-                  <ReferenceArea 
-                    x1={cvThreshold[0]} x2={stats.maxCV} 
-                    y1={adiThreshold[0]} y2={stats.maxADI} 
-                    fill="#fee2e2" fillOpacity={0.2}
-                  >
-                     <Label content={(props: any) => <QuadrantLabel {...props} type="lumpy" data={stats.quadrants.lumpy} />} />
-                  </ReferenceArea>
-
                   <Scatter 
                       data={stats.classifiedData} 
                       fill="#8884d8"
@@ -263,8 +272,35 @@ export function DemandPatternAnalysis() {
                         return <circle cx={cx} cy={cy} r={5} fill={fill} opacity={0.8} stroke="#fff" strokeWidth={1} />;
                       }}
                   />
+                  
+                  {/* Foreground Labels (No Fill, Just Text) - Rendered LAST to be on top */}
+                  {/* Threshold Lines */}
+                  <ReferenceLine x={cvThreshold[0]} stroke="#334155" strokeWidth={2} strokeDasharray="5 5" />
+                  <ReferenceLine y={adiThreshold[0]} stroke="#334155" strokeWidth={2} strokeDasharray="5 5" />
+
+                   {/* Smooth Label */}
+                   <ReferenceArea x1={0} x2={cvThreshold[0]} y1={0} y2={adiThreshold[0]} fill="none">
+                    <Label content={(props: any) => <QuadrantLabel {...props} type="smooth" data={stats.quadrants.smooth} />} />
+                   </ReferenceArea>
+
+                   {/* Intermittent Label */}
+                   <ReferenceArea x1={0} x2={cvThreshold[0]} y1={adiThreshold[0]} y2={stats.maxADI} fill="none">
+                     <Label content={(props: any) => <QuadrantLabel {...props} type="intermittent" data={stats.quadrants.intermittent} />} />
+                   </ReferenceArea>
+
+                   {/* Erratic Label */}
+                   <ReferenceArea x1={cvThreshold[0]} x2={stats.maxCV} y1={0} y2={adiThreshold[0]} fill="none">
+                     <Label content={(props: any) => <QuadrantLabel {...props} type="erratic" data={stats.quadrants.erratic} />} />
+                   </ReferenceArea>
+
+                   {/* Lumpy Label */}
+                   <ReferenceArea x1={cvThreshold[0]} x2={stats.maxCV} y1={adiThreshold[0]} y2={stats.maxADI} fill="none">
+                     <Label content={(props: any) => <QuadrantLabel {...props} type="lumpy" data={stats.quadrants.lumpy} />} />
+                   </ReferenceArea>
+
                 </ScatterChart>
             </ResponsiveContainer>
+
             
             {/* Legend for Seasonality */}
             <div className="absolute top-2 right-2 bg-white/90 p-2 rounded border text-[10px] shadow-sm z-10">
