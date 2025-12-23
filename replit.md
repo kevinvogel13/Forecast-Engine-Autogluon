@@ -56,7 +56,11 @@ Preferred communication style: Simple, everyday language.
 - **Merge / Join**: Join datasets on key columns (inner, left, right, full outer)
 - **Python Script**: Custom pandas transformations via Monaco editor
 - **SQL Transform**: DuckDB SQL-based transformations
-- **Validation (EDA)**: Exploratory data analysis dashboard
+- **Validation (EDA)**: Exploratory data analysis dashboard with filtered data support
+  - Uses upstream filters when connected downstream of Filter nodes
+  - Real-time data analysis based on actual dataset columns
+  - Export Summary button downloads JSON analysis file
+  - Widgets: GeneralStats, TimeSeriesView, CategoryDistribution, DataCompletenessChart, DemandPatternAnalysis, OutlierTable
 - **Model Config**: AutoGluon forecast model configuration
 - **Output**: View forecast results
 

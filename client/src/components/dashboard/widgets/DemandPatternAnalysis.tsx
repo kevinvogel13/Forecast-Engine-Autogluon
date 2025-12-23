@@ -1,74 +1,158 @@
 import { useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Slider } from "@/components/ui/slider";
-import { Badge } from "@/components/ui/badge";
-import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, Label, ReferenceArea } from 'recharts';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { AlertCircle, Info } from 'lucide-react';
+import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, Label as RechartsLabel, ReferenceArea } from 'recharts';
 
-// Mock data generation for DFU analysis
-const generateMockDFUs = (count = 200) => {
-  return Array.from({ length: count }, (_, i) => {
-    // Generate realistic ADI and CV values
-    // ADI: 1 to 5
-    // CV: 0 to 2
-    const adi = 1 + Math.random() * 4 * (Math.random() > 0.7 ? 1 : 0.2); // Skew towards lower ADI
-    const cv = Math.random() * 2 * (Math.random() > 0.6 ? 1 : 0.3); // Skew towards lower CV
-    
-    // Simulate volume based on pattern (Smooth items tend to have higher volume)
-    let volumeBase = 1000;
-    if (adi < 1.32 && cv < 0.49) volumeBase = 5000; // Smooth
-    else if (adi >= 1.32 && cv >= 0.49) volumeBase = 200; // Lumpy
-    
-    const volume = Math.floor(volumeBase * (0.5 + Math.random()));
-    
-    // Seasonality score (0 to 1)
-    // Smooth items more likely to be seasonal
-    const isLikelySeasonal = adi < 1.5 && cv < 1.0;
-    const seasonality = isLikelySeasonal 
-      ? 0.5 + Math.random() * 0.5 
-      : Math.random() * 0.4;
+interface DemandPatternAnalysisProps {
+  data?: {
+    columns: string[];
+    rows: any[];
+    totalRows: number;
+  };
+}
 
-    return {
-      id: `DFU-${i + 1}`,
-      adi,
-      cv, // This is CV (not CV squared for this visualization, usually people plot CV vs ADI)
-      volume,
-      seasonality, // 0 (blue/not seasonal) -> 1 (red/seasonal)
-    };
-  });
-};
+function isNumeric(value: any): boolean {
+  if (value === null || value === undefined || value === '') return false;
+  return !isNaN(Number(value));
+}
 
-const MOCK_DATA = generateMockDFUs(200);
+function isDateLike(value: any): boolean {
+  if (value === null || value === undefined || value === '') return false;
+  const datePatterns = [
+    /^\d{4}-\d{2}-\d{2}/,
+    /^\d{2}\/\d{2}\/\d{4}/,
+    /^\d{2}-\d{2}-\d{4}/,
+  ];
+  const strVal = String(value);
+  return datePatterns.some(p => p.test(strVal)) || !isNaN(Date.parse(strVal));
+}
 
-export function DemandPatternAnalysis() {
+interface DFUData {
+  id: string;
+  adi: number;
+  cv: number;
+  volume: number;
+  seasonality: number;
+  type?: string;
+}
+
+export function DemandPatternAnalysis({ data }: DemandPatternAnalysisProps) {
   const [adiThreshold, setAdiThreshold] = useState([1.32]);
   const [cvThreshold, setCvThreshold] = useState([0.49]);
-
   const [activeQuadrant, setActiveQuadrant] = useState<string | null>(null);
+  const [selectedIdColumn, setSelectedIdColumn] = useState<string>('');
+  const [selectedValueColumn, setSelectedValueColumn] = useState<string>('');
+
+  const analysis = useMemo(() => {
+    if (!data || !data.rows.length || !data.columns.length) {
+      return { hasValidData: false, columns: { id: [], numeric: [], date: null }, dfuData: [] };
+    }
+
+    const idColumns: string[] = [];
+    const numericColumns: string[] = [];
+    let dateColumn: string | null = null;
+
+    data.columns.forEach(col => {
+      let numericCount = 0;
+      let dateCount = 0;
+      const sampleSize = Math.min(data.rows.length, 50);
+      
+      for (let i = 0; i < sampleSize; i++) {
+        const val = data.rows[i][col];
+        if (isNumeric(val)) numericCount++;
+        if (isDateLike(val)) dateCount++;
+      }
+
+      const threshold = sampleSize * 0.7;
+      if (numericCount >= threshold) {
+        numericColumns.push(col);
+      } else if (dateCount >= threshold && !dateColumn) {
+        dateColumn = col;
+      } else {
+        idColumns.push(col);
+      }
+    });
+
+    return {
+      hasValidData: numericColumns.length > 0 && (idColumns.length > 0 || dateColumn),
+      columns: { id: idColumns, numeric: numericColumns, date: dateColumn }
+    };
+  }, [data]);
+
+  const effectiveIdColumn = selectedIdColumn || analysis.columns.id[0] || '';
+  const effectiveValueColumn = selectedValueColumn || analysis.columns.numeric[0] || '';
+
+  const dfuData = useMemo(() => {
+    if (!data || !effectiveIdColumn || !effectiveValueColumn) return [];
+
+    const groupedData: Record<string, number[]> = {};
+    
+    data.rows.forEach(row => {
+      const id = String(row[effectiveIdColumn] || 'Unknown');
+      const value = Number(row[effectiveValueColumn]) || 0;
+      
+      if (!groupedData[id]) groupedData[id] = [];
+      groupedData[id].push(value);
+    });
+
+    const result: DFUData[] = [];
+
+    Object.entries(groupedData).forEach(([id, values]) => {
+      if (values.length < 2) return;
+
+      const nonZeroValues = values.filter(v => v > 0);
+      const zeroCount = values.length - nonZeroValues.length;
+      
+      const adi = values.length / (nonZeroValues.length || 1);
+      
+      const mean = nonZeroValues.length > 0 
+        ? nonZeroValues.reduce((a, b) => a + b, 0) / nonZeroValues.length 
+        : 0;
+      
+      let cv = 0;
+      if (mean > 0 && nonZeroValues.length > 1) {
+        const variance = nonZeroValues.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / nonZeroValues.length;
+        cv = Math.sqrt(variance) / mean;
+      }
+      
+      const volume = values.reduce((a, b) => a + b, 0);
+      
+      const seasonality = Math.min(1, cv * 0.5);
+
+      result.push({
+        id,
+        adi: Math.min(adi, 10),
+        cv: Math.min(cv, 3),
+        volume,
+        seasonality
+      });
+    });
+
+    return result;
+  }, [data, effectiveIdColumn, effectiveValueColumn]);
 
   const stats = useMemo(() => {
     const adiLimit = adiThreshold[0];
     const cvLimit = cvThreshold[0];
     
-    // Updated Colors
     const quadrants = {
-      smooth: { label: "Smooth", count: 0, volume: 0, color: "bg-green-100/50 text-green-800" },       // Low CV, Low ADI
-      intermittent: { label: "Intermittent", count: 0, volume: 0, color: "bg-yellow-100/50 text-yellow-800" }, // Low CV, High ADI
-      erratic: { label: "Erratic", count: 0, volume: 0, color: "bg-orange-100/50 text-orange-800" },      // High CV, Low ADI
-      lumpy: { label: "Lumpy", count: 0, volume: 0, color: "bg-red-100/50 text-red-800" }            // High CV, High ADI
+      smooth: { label: "Smooth", count: 0, volume: 0, color: "bg-green-100/50 text-green-800" },
+      intermittent: { label: "Intermittent", count: 0, volume: 0, color: "bg-yellow-100/50 text-yellow-800" },
+      erratic: { label: "Erratic", count: 0, volume: 0, color: "bg-orange-100/50 text-orange-800" },
+      lumpy: { label: "Lumpy", count: 0, volume: 0, color: "bg-red-100/50 text-red-800" }
     };
 
     let totalVolume = 0;
     let totalCount = 0;
-    
-    // Calculate Max values for domain scaling
-    // Use fixed reasonable bounds as baseline (e.g., ADI=5, CV=2) but expand if data demands it
-    let maxADI = 5; 
-    let maxCV = 2.5;  
+    let maxADI = 5;
+    let maxCV = 2.5;
 
-    const classifiedData = MOCK_DATA.map(point => {
+    const classifiedData = dfuData.map(point => {
       let type = '';
       
-      // Track Max
       if (point.adi > maxADI) maxADI = point.adi;
       if (point.cv > maxCV) maxCV = point.cv;
 
@@ -80,29 +164,23 @@ export function DemandPatternAnalysis() {
         else type = 'lumpy';
       }
 
-      // @ts-ignore
-      quadrants[type].count++;
-      // @ts-ignore
-      quadrants[type].volume += point.volume;
+      quadrants[type as keyof typeof quadrants].count++;
+      quadrants[type as keyof typeof quadrants].volume += point.volume;
       totalVolume += point.volume;
       totalCount++;
 
       return { ...point, type };
     });
     
-    // Add some padding to domains
     maxADI = maxADI * 1.05;
     maxCV = maxCV * 1.05;
 
     return { quadrants, totalVolume, totalCount, classifiedData, maxADI, maxCV };
-  }, [adiThreshold, cvThreshold]);
+  }, [dfuData, adiThreshold, cvThreshold]);
 
-
-
-  const getPercentage = (val: number, total: number) => ((val / total) * 100).toFixed(1) + '%';
+  const getPercentage = (val: number, total: number) => total > 0 ? ((val / total) * 100).toFixed(1) + '%' : '0%';
   const formatVolume = (val: number) => (val / 1000).toFixed(1) + 'k';
 
-  // Custom tooltip for the scatter plot
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
@@ -113,22 +191,19 @@ export function DemandPatternAnalysis() {
           <p>CV: {data.cv.toFixed(2)}</p>
           <p>ADI: {data.adi.toFixed(2)}</p>
           <p>Volume: {data.volume.toLocaleString()}</p>
-          <p>Seasonality: {(data.seasonality * 100).toFixed(0)}%</p>
         </div>
       );
     }
     return null;
   };
 
-  const QuadrantLabel = ({ viewBox, type, data }: any) => {
-    // Recharts passes viewBox in props for Label content component inside ReferenceArea
-    if (!viewBox || !data) return null;
+  const QuadrantLabel = ({ viewBox, type, data: quadrantData }: any) => {
+    if (!viewBox || !quadrantData) return null;
     const { x, y, width, height } = viewBox;
     if (!width || !height) return null;
     
     const isActive = activeQuadrant === type;
 
-    // Position exactly in center of the ReferenceArea
     return (
       <foreignObject x={x} y={y} width={width} height={height} style={{ pointerEvents: 'none', overflow: 'visible' }}>
         <div className="w-full h-full flex items-center justify-center p-2">
@@ -136,19 +211,19 @@ export function DemandPatternAnalysis() {
              className={`
                backdrop-blur-md p-3 rounded-lg shadow-sm border border-slate-200/50 
                flex flex-col items-center justify-center min-w-[120px] transition-all duration-300
-               ${data.color.replace('text-', 'border-').replace('bg-', 'bg-opacity-90 bg-')}
+               ${quadrantData.color.replace('text-', 'border-').replace('bg-', 'bg-opacity-90 bg-')}
                ${isActive ? 'opacity-100 scale-110 z-50 shadow-lg ring-2 ring-offset-1 ring-slate-400' : 'opacity-60 scale-95'}
              `}
            >
-             <h4 className="font-bold text-sm uppercase mb-1">{data.label}</h4>
+             <h4 className="font-bold text-sm uppercase mb-1">{quadrantData.label}</h4>
              <div className="text-xs space-y-0.5 text-center w-full">
                 <div className="font-medium flex justify-between gap-3 w-full">
                    <span>Count:</span>
-                   <span>{data.count} <span className="opacity-70">({getPercentage(data.count, stats.totalCount)})</span></span>
+                   <span>{quadrantData.count} <span className="opacity-70">({getPercentage(quadrantData.count, stats.totalCount)})</span></span>
                 </div>
                 <div className="font-medium flex justify-between gap-3 w-full">
                    <span>Vol:</span>
-                   <span>{formatVolume(data.volume)} <span className="opacity-70">({getPercentage(data.volume, stats.totalVolume)})</span></span>
+                   <span>{formatVolume(quadrantData.volume)} <span className="opacity-70">({getPercentage(quadrantData.volume, stats.totalVolume)})</span></span>
                 </div>
              </div>
            </div>
@@ -157,21 +232,147 @@ export function DemandPatternAnalysis() {
     );
   };
 
+  if (!data || !data.rows.length) {
+    return (
+      <Card className="col-span-4">
+        <CardHeader>
+          <CardTitle>Demand Pattern Analysis</CardTitle>
+          <CardDescription>Classification of items based on variability (CV) and regularity (ADI)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[400px] flex items-center justify-center text-muted-foreground">
+            <div className="text-center">
+              <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p>No data available</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!analysis.hasValidData || analysis.columns.numeric.length === 0 || analysis.columns.id.length === 0) {
+    return (
+      <Card className="col-span-4">
+        <CardHeader>
+          <CardTitle>Demand Pattern Analysis</CardTitle>
+          <CardDescription>Classification of items based on variability (CV) and regularity (ADI)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[400px] flex items-center justify-center">
+            <div className="text-center max-w-md">
+              <Info className="w-12 h-12 mx-auto mb-4 text-blue-500" />
+              <p className="font-medium text-lg mb-2">No demand pattern data available</p>
+              <p className="text-muted-foreground text-sm mb-4">
+                This analysis requires time series data with demand values.
+              </p>
+              <div className="bg-muted/50 rounded-lg p-4 text-left text-sm">
+                <p className="font-medium mb-2">Required data format:</p>
+                <ul className="list-disc list-inside text-muted-foreground space-y-1">
+                  <li>An <strong>identifier column</strong> (SKU, Product ID, etc.)</li>
+                  <li>A <strong>numeric demand/quantity column</strong></li>
+                  <li>Multiple rows per identifier (time series)</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (dfuData.length === 0) {
+    return (
+      <Card className="col-span-4">
+        <CardHeader>
+          <div className="flex justify-between items-start">
+            <div>
+              <CardTitle>Demand Pattern Analysis</CardTitle>
+              <CardDescription>Classification based on CV and ADI</CardDescription>
+            </div>
+            <div className="flex gap-4">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Group By</Label>
+                <Select value={effectiveIdColumn} onValueChange={setSelectedIdColumn} data-testid="select-id-column">
+                  <SelectTrigger className="w-[140px] h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {analysis.columns.id.map(col => (
+                      <SelectItem key={col} value={col}>{col}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Demand Column</Label>
+                <Select value={effectiveValueColumn} onValueChange={setSelectedValueColumn} data-testid="select-value-column">
+                  <SelectTrigger className="w-[140px] h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {analysis.columns.numeric.map(col => (
+                      <SelectItem key={col} value={col}>{col}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[400px] flex items-center justify-center text-muted-foreground">
+            <div className="text-center">
+              <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p>Not enough data points per group</p>
+              <p className="text-sm mt-1">Each group needs at least 2 observations</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="col-span-4">
       <CardHeader>
-        <div className="flex justify-between items-start">
+        <div className="flex justify-between items-start flex-wrap gap-4">
            <div>
              <CardTitle>Demand Pattern Analysis</CardTitle>
              <CardDescription>
-               Classification of DFUs based on variability (CV) and regularity (ADI).
+               Classification of {dfuData.length} items based on variability (CV) and regularity (ADI)
              </CardDescription>
            </div>
-           <div className="flex gap-8 text-xs">
-              <div className="space-y-2 w-48">
-                 <div className="flex justify-between">
-                    <span className="font-medium">CV Threshold (X)</span>
+           <div className="flex gap-4 flex-wrap">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Group By</Label>
+                <Select value={effectiveIdColumn} onValueChange={setSelectedIdColumn} data-testid="select-id-column">
+                  <SelectTrigger className="w-[140px] h-8 text-xs" data-testid="select-id-trigger">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {analysis.columns.id.map(col => (
+                      <SelectItem key={col} value={col} data-testid={`id-option-${col}`}>{col}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Demand Column</Label>
+                <Select value={effectiveValueColumn} onValueChange={setSelectedValueColumn} data-testid="select-value-column">
+                  <SelectTrigger className="w-[140px] h-8 text-xs" data-testid="select-value-trigger">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {analysis.columns.numeric.map(col => (
+                      <SelectItem key={col} value={col} data-testid={`value-option-${col}`}>{col}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2 w-40">
+                 <div className="flex justify-between text-xs">
+                    <span className="font-medium">CV Threshold</span>
                     <span>{cvThreshold[0]}</span>
                  </div>
                  <Slider 
@@ -179,12 +380,13 @@ export function DemandPatternAnalysis() {
                     onValueChange={setCvThreshold} 
                     min={0.1} 
                     max={1.5} 
-                    step={0.01} 
+                    step={0.01}
+                    data-testid="slider-cv"
                  />
               </div>
-              <div className="space-y-2 w-48">
-                 <div className="flex justify-between">
-                    <span className="font-medium">ADI Threshold (Y)</span>
+              <div className="space-y-2 w-40">
+                 <div className="flex justify-between text-xs">
+                    <span className="font-medium">ADI Threshold</span>
                     <span>{adiThreshold[0]}</span>
                  </div>
                  <Slider 
@@ -192,53 +394,47 @@ export function DemandPatternAnalysis() {
                     onValueChange={setAdiThreshold} 
                     min={1.0} 
                     max={3.0} 
-                    step={0.01} 
+                    step={0.01}
+                    data-testid="slider-adi"
                  />
               </div>
            </div>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="h-[500px] w-full relative border rounded-md bg-slate-50/30">
+        <div className="h-[500px] w-full relative border rounded-md bg-slate-50/30" data-testid="demand-pattern-chart">
             <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   
-                  {/* Background Areas for Event Capture and Coloring */}
-                  {/* These are rendered FIRST so they are behind the scatter points */}
-                  
-                  {/* Smooth (Bottom Left) */}
                   <ReferenceArea 
                     x1={0} x2={cvThreshold[0]} 
                     y1={0} y2={adiThreshold[0]} 
-                    fill="#dcfce7" fillOpacity={0.4} // Green
+                    fill="#dcfce7" fillOpacity={0.4}
                     onMouseEnter={() => setActiveQuadrant('smooth')}
                     onMouseLeave={() => setActiveQuadrant(null)}
                   />
 
-                  {/* Intermittent (Top Left) */}
                   <ReferenceArea 
                     x1={0} x2={cvThreshold[0]} 
                     y1={adiThreshold[0]} y2={stats.maxADI} 
-                    fill="#fef9c3" fillOpacity={0.4} // Yellow
+                    fill="#fef9c3" fillOpacity={0.4}
                     onMouseEnter={() => setActiveQuadrant('intermittent')}
                     onMouseLeave={() => setActiveQuadrant(null)}
                   />
 
-                  {/* Erratic (Bottom Right) */}
                   <ReferenceArea 
                     x1={cvThreshold[0]} x2={stats.maxCV} 
                     y1={0} y2={adiThreshold[0]} 
-                    fill="#ffedd5" fillOpacity={0.4} // Orange
+                    fill="#ffedd5" fillOpacity={0.4}
                     onMouseEnter={() => setActiveQuadrant('erratic')}
                     onMouseLeave={() => setActiveQuadrant(null)}
                   />
 
-                  {/* Lumpy (Top Right) */}
                   <ReferenceArea 
                     x1={cvThreshold[0]} x2={stats.maxCV} 
                     y1={adiThreshold[0]} y2={stats.maxADI} 
-                    fill="#fee2e2" fillOpacity={0.4} // Red
+                    fill="#fee2e2" fillOpacity={0.4}
                     onMouseEnter={() => setActiveQuadrant('lumpy')}
                     onMouseLeave={() => setActiveQuadrant(null)}
                   />
@@ -264,7 +460,6 @@ export function DemandPatternAnalysis() {
                       fill="#8884d8"
                       shape={(props: any) => {
                         const { cx, cy, payload } = props;
-                        // Color gradient from Blue (0) to Red (1) based on seasonality
                         const r = Math.round(255 * payload.seasonality);
                         const b = Math.round(255 * (1 - payload.seasonality));
                         const fill = `rgb(${r}, 0, ${b})`;
@@ -273,39 +468,31 @@ export function DemandPatternAnalysis() {
                       }}
                   />
                   
-                  {/* Foreground Labels (No Fill, Just Text) - Rendered LAST to be on top */}
-                  {/* Threshold Lines */}
                   <ReferenceLine x={cvThreshold[0]} stroke="#334155" strokeWidth={2} strokeDasharray="5 5" />
                   <ReferenceLine y={adiThreshold[0]} stroke="#334155" strokeWidth={2} strokeDasharray="5 5" />
 
-                   {/* Smooth Label */}
                    <ReferenceArea x1={0} x2={cvThreshold[0]} y1={0} y2={adiThreshold[0]} fill="none">
-                    <Label content={(props: any) => <QuadrantLabel {...props} type="smooth" data={stats.quadrants.smooth} />} />
+                    <RechartsLabel content={(props: any) => <QuadrantLabel {...props} type="smooth" data={stats.quadrants.smooth} />} />
                    </ReferenceArea>
 
-                   {/* Intermittent Label */}
                    <ReferenceArea x1={0} x2={cvThreshold[0]} y1={adiThreshold[0]} y2={stats.maxADI} fill="none">
-                     <Label content={(props: any) => <QuadrantLabel {...props} type="intermittent" data={stats.quadrants.intermittent} />} />
+                     <RechartsLabel content={(props: any) => <QuadrantLabel {...props} type="intermittent" data={stats.quadrants.intermittent} />} />
                    </ReferenceArea>
 
-                   {/* Erratic Label */}
                    <ReferenceArea x1={cvThreshold[0]} x2={stats.maxCV} y1={0} y2={adiThreshold[0]} fill="none">
-                     <Label content={(props: any) => <QuadrantLabel {...props} type="erratic" data={stats.quadrants.erratic} />} />
+                     <RechartsLabel content={(props: any) => <QuadrantLabel {...props} type="erratic" data={stats.quadrants.erratic} />} />
                    </ReferenceArea>
 
-                   {/* Lumpy Label */}
                    <ReferenceArea x1={cvThreshold[0]} x2={stats.maxCV} y1={adiThreshold[0]} y2={stats.maxADI} fill="none">
-                     <Label content={(props: any) => <QuadrantLabel {...props} type="lumpy" data={stats.quadrants.lumpy} />} />
+                     <RechartsLabel content={(props: any) => <QuadrantLabel {...props} type="lumpy" data={stats.quadrants.lumpy} />} />
                    </ReferenceArea>
 
                 </ScatterChart>
             </ResponsiveContainer>
 
-            
-            {/* Legend for Seasonality */}
             <div className="absolute top-2 right-2 bg-white/90 p-2 rounded border text-[10px] shadow-sm z-10">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="font-semibold">Seasonality</span>
+                  <span className="font-semibold">Variability</span>
                 </div>
                 <div className="h-2 w-24 bg-gradient-to-r from-blue-600 to-red-600 rounded-full" />
                 <div className="flex justify-between text-muted-foreground mt-1">

@@ -58,8 +58,7 @@ const defaultEdgeStyle = {
 const initialEdges: any[] = [];
 
 
-let id = 10;
-const getId = () => `${id++}`;
+const getId = () => `node_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 function FlowWithProvider() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -86,6 +85,7 @@ function FlowWithProvider() {
   // Modal states for full views
   const [edaOpen, setEdaOpen] = useState(false);
   const [edaDatasetId, setEdaDatasetId] = useState<string | null>(null);
+  const [edaFilters, setEdaFilters] = useState<Array<{ column: string; operator: string; value: any }>>([]);
   const [configOpen, setConfigOpen] = useState(false);
   const [resultsOpen, setResultsOpen] = useState(false);
   
@@ -1337,7 +1337,9 @@ function FlowWithProvider() {
                           </div>
                           <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => {
                                const datasetId = getSourceDatasetId(selectedNode.id);
+                               const filters = getUpstreamFilters(selectedNode.id);
                                setEdaDatasetId(datasetId);
+                               setEdaFilters(filters);
                                setEdaOpen(true);
                           }} data-testid="button-open-eda">
                              Open EDA Dashboard
@@ -1879,7 +1881,7 @@ function FlowWithProvider() {
               </div>
            </div>
            <ScrollArea className="flex-1 p-6 bg-slate-50/50">
-              <EDADashboard datasetId={edaDatasetId} />
+              <EDADashboard datasetId={edaDatasetId} filters={edaFilters} />
            </ScrollArea>
         </DialogContent>
       </Dialog>

@@ -1,114 +1,168 @@
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
-import { format, subDays, addDays } from 'date-fns';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, Cell } from 'recharts';
+import { AlertCircle } from 'lucide-react';
 
-export function DataCompletenessChart() {
-  // Generate mock data representing record counts over time
-  // This simulates data where some dates might have fewer records (missing data)
-  const data = useMemo(() => {
-    const result = [];
-    const startDate = subDays(new Date(), 365);
-    
-    for (let i = 0; i < 365; i++) {
-      const currentDate = addDays(startDate, i);
-      const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
-      
-      // Simulate variable record counts
-      // Base count: 100
-      // Weekends: lower counts (sometimes missing)
-      // Random drops to simulate outages
-      let recordCount = 100;
-      let minTime = "00:00:00";
-      let maxTime = "23:59:59";
-      
-      if (isWeekend) {
-        recordCount = Math.floor(Math.random() * 20) + 80; // 80-100 records
-      } else {
-        recordCount = Math.floor(Math.random() * 10) + 95; // 95-105 records
-      }
-      
-      // Simulate a data outage on a specific range
-      if (i > 150 && i < 155) {
-        recordCount = Math.floor(Math.random() * 50); // Significant drop
-      }
+interface DataCompletenessChartProps {
+  data?: {
+    columns: string[];
+    rows: any[];
+    totalRows: number;
+  };
+}
 
-      // Simulate gaps in min/max time (e.g., data arrived late or stopped early)
-      if (recordCount < 80) {
-        minTime = "08:00:00"; 
-        maxTime = "16:00:00";
-      }
-
-      result.push({
-        date: format(currentDate, 'yyyy-MM-dd'),
-        count: recordCount,
-        minTime,
-        maxTime,
-        expected: 100
-      });
+export function DataCompletenessChart({ data }: DataCompletenessChartProps) {
+  const completenessData = useMemo(() => {
+    if (!data || !data.rows.length || !data.columns.length) {
+      return [];
     }
-    return result;
-  }, []);
+
+    const totalRows = data.rows.length;
+    
+    return data.columns.map(col => {
+      let nonNullCount = 0;
+      
+      data.rows.forEach(row => {
+        const val = row[col];
+        if (val !== null && val !== undefined && val !== '') {
+          nonNullCount++;
+        }
+      });
+      
+      const completeness = Math.round((nonNullCount / totalRows) * 100);
+      const missingCount = totalRows - nonNullCount;
+      
+      return {
+        column: col,
+        completeness,
+        missingCount,
+        filledCount: nonNullCount,
+        totalRows
+      };
+    }).sort((a, b) => a.completeness - b.completeness);
+  }, [data]);
+
+  const stats = useMemo(() => {
+    if (completenessData.length === 0) return null;
+    
+    const avgCompleteness = Math.round(
+      completenessData.reduce((sum, d) => sum + d.completeness, 0) / completenessData.length
+    );
+    const fullyComplete = completenessData.filter(d => d.completeness === 100).length;
+    const withMissing = completenessData.filter(d => d.completeness < 100).length;
+    
+    return { avgCompleteness, fullyComplete, withMissing };
+  }, [completenessData]);
+
+  if (!data || !data.rows.length) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Data Completeness</CardTitle>
+          <CardDescription>Percentage of non-null values per column</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+            <div className="text-center">
+              <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p>No data available</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Data Completeness Over Time</CardTitle>
-        <CardDescription>
-          Daily record counts and time coverage. Drops indicate potential missing data or outages.
-        </CardDescription>
+        <div className="flex justify-between items-start">
+          <div>
+            <CardTitle>Data Completeness</CardTitle>
+            <CardDescription>
+              Percentage of non-null values per column. Columns with missing data are highlighted.
+            </CardDescription>
+          </div>
+          {stats && (
+            <div className="flex gap-4 text-xs">
+              <div className="text-center">
+                <p className="text-2xl font-bold text-primary">{stats.avgCompleteness}%</p>
+                <p className="text-muted-foreground">Average</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-green-600">{stats.fullyComplete}</p>
+                <p className="text-muted-foreground">Complete</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-amber-600">{stats.withMissing}</p>
+                <p className="text-muted-foreground">With Missing</p>
+              </div>
+            </div>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="h-[300px] w-full">
+        <div className="h-[300px] w-full" data-testid="completeness-chart">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+            <BarChart 
+              data={completenessData} 
+              layout="vertical"
+              margin={{ top: 5, right: 30, bottom: 5, left: 100 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="hsl(var(--border))" />
               <XAxis 
-                dataKey="date" 
-                tickFormatter={(val) => format(new Date(val), 'MMM d')}
-                minTickGap={30}
+                type="number"
+                domain={[0, 100]}
+                tickFormatter={(val) => `${val}%`}
                 axisLine={false}
                 tickLine={false}
-                tick={{ fontSize: 12, fill: '#6B7280' }}
+                tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
               />
               <YAxis 
-                yAxisId="left"
+                type="category"
+                dataKey="column"
                 axisLine={false}
                 tickLine={false}
-                tick={{ fontSize: 12, fill: '#6B7280' }}
+                tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
+                width={90}
               />
               <Tooltip 
-                contentStyle={{ borderRadius: '8px', border: '1px solid #E5E7EB', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                labelStyle={{ fontWeight: 'bold', color: '#111827', marginBottom: '4px' }}
-                formatter={(value: any, name: any) => {
-                  if (name === "Record Count") return [value, "Records"];
-                  return [value, name];
+                contentStyle={{ 
+                  borderRadius: '8px', 
+                  border: '1px solid hsl(var(--border))', 
+                  backgroundColor: 'hsl(var(--popover))',
+                  boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' 
                 }}
-                labelFormatter={(label) => format(new Date(label), 'MMM d, yyyy')}
+                formatter={(value: number, name: string, props: any) => {
+                  const item = props.payload;
+                  return [
+                    <span key="val">
+                      <strong>{value}%</strong> complete
+                      <br />
+                      <span className="text-muted-foreground">
+                        {item.filledCount} filled / {item.missingCount} missing
+                      </span>
+                    </span>,
+                    ''
+                  ];
+                }}
+                labelFormatter={(label) => <strong>{label}</strong>}
               />
-              <Legend />
-              
+              <ReferenceLine x={100} stroke="hsl(var(--primary))" strokeDasharray="3 3" strokeWidth={2} />
               <Bar 
-                yAxisId="left"
-                dataKey="count" 
-                name="Record Count" 
-                fill="#3b82f6" 
-                radius={[4, 4, 0, 0]}
-                opacity={0.8}
-              />
-              
-              <Line 
-                yAxisId="left"
-                type="monotone" 
-                dataKey="expected" 
-                name="Expected Count" 
-                stroke="#ef4444" 
-                strokeWidth={2}
-                dot={false}
-                strokeDasharray="5 5"
-              />
-
-            </ComposedChart>
+                dataKey="completeness" 
+                name="Completeness" 
+                radius={[0, 4, 4, 0]}
+              >
+                {completenessData.map((entry, index) => (
+                  <Cell 
+                    key={`cell-${index}`} 
+                    fill={entry.completeness === 100 ? 'hsl(var(--chart-2))' : entry.completeness >= 90 ? 'hsl(var(--chart-4))' : 'hsl(var(--destructive))'}
+                    opacity={0.8}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
           </ResponsiveContainer>
         </div>
       </CardContent>

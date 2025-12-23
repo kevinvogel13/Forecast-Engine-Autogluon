@@ -1,68 +1,216 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { AlertCircle } from 'lucide-react';
 
-const outliers = [
-  { id: 'SKU-1029', date: '2023-11-15', value: 12400, mean: 1200, zScore: 8.5, reason: 'Spike' },
-  { id: 'SKU-5521', date: '2023-12-01', value: 0, mean: 500, zScore: -2.1, reason: 'Zero Value' },
-  { id: 'SKU-3392', date: '2023-10-22', value: 45000, mean: 2300, zScore: 12.1, reason: 'Extreme' },
-  { id: 'SKU-1122', date: '2023-09-05', value: -50, mean: 120, zScore: -4.5, reason: 'Negative' },
-];
+interface OutlierTableProps {
+  data?: {
+    columns: string[];
+    rows: any[];
+    totalRows: number;
+  };
+}
 
-const mockHistoryData = [
-   { date: '2023-01', value: 1100 },
-   { date: '2023-02', value: 1200 },
-   { date: '2023-03', value: 1150 },
-   { date: '2023-04', value: 1250 },
-   { date: '2023-05', value: 1300 },
-   { date: '2023-06', value: 1180 },
-   { date: '2023-07', value: 1220 },
-   { date: '2023-08', value: 1210 },
-   { date: '2023-09', value: 1240 },
-   { date: '2023-10', value: 1260 },
-   { date: '2023-11', value: 12400 }, // The spike
-   { date: '2023-12', value: 1280 },
-];
+interface Outlier {
+  rowIndex: number;
+  column: string;
+  value: number;
+  mean: number;
+  std: number;
+  zScore: number;
+  reason: string;
+  rowData: Record<string, any>;
+}
 
-export function OutlierTable() {
-  const [selectedAnomaly, setSelectedAnomaly] = useState<any>(null);
+function isNumeric(value: any): boolean {
+  if (value === null || value === undefined || value === '') return false;
+  return !isNaN(Number(value));
+}
+
+export function OutlierTable({ data }: OutlierTableProps) {
+  const [selectedOutlier, setSelectedOutlier] = useState<Outlier | null>(null);
+
+  const { outliers, numericColumns } = useMemo(() => {
+    if (!data || !data.rows.length || !data.columns.length) {
+      return { outliers: [], numericColumns: [] };
+    }
+
+    const numericColumns: string[] = [];
+    const columnStats: Record<string, { values: number[]; mean: number; std: number }> = {};
+
+    data.columns.forEach(col => {
+      const values: number[] = [];
+      const sampleSize = Math.min(data.rows.length, 100);
+      let numericCount = 0;
+      
+      for (let i = 0; i < sampleSize; i++) {
+        const val = data.rows[i][col];
+        if (isNumeric(val)) {
+          numericCount++;
+        }
+      }
+
+      if (numericCount >= sampleSize * 0.7) {
+        numericColumns.push(col);
+        
+        data.rows.forEach(row => {
+          const val = row[col];
+          if (isNumeric(val)) {
+            values.push(Number(val));
+          }
+        });
+
+        if (values.length > 0) {
+          const mean = values.reduce((a, b) => a + b, 0) / values.length;
+          const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
+          const std = Math.sqrt(variance);
+          
+          columnStats[col] = { values, mean, std };
+        }
+      }
+    });
+
+    const detectedOutliers: Outlier[] = [];
+
+    data.rows.forEach((row, rowIndex) => {
+      numericColumns.forEach(col => {
+        const val = row[col];
+        if (!isNumeric(val)) return;
+        
+        const numVal = Number(val);
+        const stats = columnStats[col];
+        
+        if (!stats || stats.std === 0) return;
+        
+        const zScore = (numVal - stats.mean) / stats.std;
+        
+        if (Math.abs(zScore) > 3) {
+          let reason = 'Extreme';
+          if (numVal < 0 && stats.mean >= 0) reason = 'Negative';
+          else if (numVal === 0 && stats.mean > 10) reason = 'Zero Value';
+          else if (zScore > 0) reason = 'Spike';
+          else reason = 'Drop';
+          
+          detectedOutliers.push({
+            rowIndex,
+            column: col,
+            value: numVal,
+            mean: Math.round(stats.mean * 100) / 100,
+            std: Math.round(stats.std * 100) / 100,
+            zScore: Math.round(zScore * 10) / 10,
+            reason,
+            rowData: row
+          });
+        }
+      });
+    });
+
+    detectedOutliers.sort((a, b) => Math.abs(b.zScore) - Math.abs(a.zScore));
+
+    return { 
+      outliers: detectedOutliers.slice(0, 20), 
+      numericColumns 
+    };
+  }, [data]);
+
+  if (!data || !data.rows.length) {
+    return (
+      <Card className="col-span-2">
+        <CardHeader>
+          <CardTitle>Top Anomalies</CardTitle>
+          <CardDescription>Records exceeding 3σ deviation</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[200px] flex items-center justify-center text-muted-foreground">
+            <div className="text-center">
+              <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p>No data available</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (numericColumns.length === 0) {
+    return (
+      <Card className="col-span-2">
+        <CardHeader>
+          <CardTitle>Top Anomalies</CardTitle>
+          <CardDescription>Records exceeding 3σ deviation</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[200px] flex items-center justify-center text-muted-foreground">
+            <div className="text-center">
+              <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p>No numeric columns detected</p>
+              <p className="text-sm mt-1">Outlier detection requires numeric data</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (outliers.length === 0) {
+    return (
+      <Card className="col-span-2">
+        <CardHeader>
+          <CardTitle>Top Anomalies</CardTitle>
+          <CardDescription>Records exceeding 3σ deviation</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[200px] flex items-center justify-center text-muted-foreground">
+            <div className="text-center">
+              <div className="text-4xl mb-2">✓</div>
+              <p className="text-green-600 font-medium">No outliers detected</p>
+              <p className="text-sm mt-1">All numeric values are within 3 standard deviations</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <>
        <Card className="col-span-2">
          <CardHeader>
            <CardTitle>Top Anomalies</CardTitle>
-           <CardDescription>Records exceeding 3σ deviation or logic checks</CardDescription>
+           <CardDescription>Records exceeding 3σ deviation ({outliers.length} found)</CardDescription>
          </CardHeader>
          <CardContent>
-           <Table>
+           <Table data-testid="outlier-table">
              <TableHeader>
                <TableRow>
-                 <TableHead>DFU ID</TableHead>
-                 <TableHead>Date</TableHead>
+                 <TableHead>Row</TableHead>
+                 <TableHead>Column</TableHead>
                  <TableHead className="text-right">Value</TableHead>
+                 <TableHead className="text-right">Z-Score</TableHead>
                  <TableHead>Issue</TableHead>
                </TableRow>
              </TableHeader>
              <TableBody>
-               {outliers.map((row) => (
+               {outliers.slice(0, 10).map((row, idx) => (
                  <TableRow 
-                     key={row.id + row.date} 
+                     key={`${row.rowIndex}-${row.column}-${idx}`} 
                      className="cursor-pointer hover:bg-muted/50"
-                     onClick={() => setSelectedAnomaly(row)}
+                     onClick={() => setSelectedOutlier(row)}
+                     data-testid={`outlier-row-${idx}`}
                   >
-                   <TableCell className="font-medium text-xs">{row.id}</TableCell>
-                   <TableCell className="text-xs text-muted-foreground">{row.date}</TableCell>
-                   <TableCell className="text-right text-xs font-mono">{row.value}</TableCell>
+                   <TableCell className="font-medium text-xs">{row.rowIndex + 1}</TableCell>
+                   <TableCell className="text-xs text-muted-foreground">{row.column}</TableCell>
+                   <TableCell className="text-right text-xs font-mono">{row.value.toLocaleString()}</TableCell>
+                   <TableCell className="text-right text-xs font-mono">{row.zScore}σ</TableCell>
                    <TableCell>
                      <Badge 
                        variant="outline" 
                        className={
                          row.reason === 'Negative' ? "text-destructive border-destructive" :
                          row.reason === 'Zero Value' ? "text-amber-500 border-amber-500" :
+                         row.reason === 'Drop' ? "text-orange-500 border-orange-500" :
                          "text-blue-500 border-blue-500"
                        }
                      >
@@ -76,58 +224,38 @@ export function OutlierTable() {
          </CardContent>
        </Card>
 
-       <Dialog open={!!selectedAnomaly} onOpenChange={(open) => !open && setSelectedAnomaly(null)}>
+       <Dialog open={!!selectedOutlier} onOpenChange={(open) => !open && setSelectedOutlier(null)}>
          <DialogContent className="sm:max-w-[600px]">
            <DialogHeader>
              <DialogTitle className="flex items-center gap-2">
-               Anomaly Detail: <span className="font-mono text-primary">{selectedAnomaly?.id}</span>
+               Outlier Detail: <span className="font-mono text-primary">Row {selectedOutlier ? selectedOutlier.rowIndex + 1 : ''}</span>
              </DialogTitle>
              <DialogDescription>
-               Detected issue: <span className="font-medium text-foreground">{selectedAnomaly?.reason}</span> on {selectedAnomaly?.date}
+               Detected issue: <span className="font-medium text-foreground">{selectedOutlier?.reason}</span> in column <span className="font-mono">{selectedOutlier?.column}</span>
              </DialogDescription>
            </DialogHeader>
            
            <div className="space-y-6 pt-4">
               <div className="grid grid-cols-3 gap-4">
                  <div className="p-3 border rounded-md bg-muted/20">
-                    <p className="text-xs text-muted-foreground">Reported Value</p>
-                    <p className="text-xl font-bold font-mono">{selectedAnomaly?.value}</p>
+                    <p className="text-xs text-muted-foreground">Value</p>
+                    <p className="text-xl font-bold font-mono">{selectedOutlier?.value?.toLocaleString()}</p>
                  </div>
                  <div className="p-3 border rounded-md bg-muted/20">
-                    <p className="text-xs text-muted-foreground">Historical Mean</p>
-                    <p className="text-xl font-bold font-mono">{selectedAnomaly?.mean}</p>
+                    <p className="text-xs text-muted-foreground">Column Mean</p>
+                    <p className="text-xl font-bold font-mono">{selectedOutlier?.mean?.toLocaleString()}</p>
                  </div>
                  <div className="p-3 border rounded-md bg-muted/20">
                     <p className="text-xs text-muted-foreground">Z-Score</p>
-                    <p className={`text-xl font-bold font-mono ${selectedAnomaly?.zScore > 3 ? 'text-destructive' : 'text-foreground'}`}>
-                       {selectedAnomaly?.zScore}σ
+                    <p className={`text-xl font-bold font-mono ${selectedOutlier && Math.abs(selectedOutlier.zScore) > 3 ? 'text-destructive' : 'text-foreground'}`}>
+                       {selectedOutlier?.zScore}σ
                     </p>
                  </div>
               </div>
 
-              <div className="h-[200px] w-full border rounded-md p-2">
-                 <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={mockHistoryData}>
-                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                       <XAxis dataKey="date" hide />
-                       <Tooltip 
-                          contentStyle={{ backgroundColor: 'hsl(var(--popover))', borderColor: 'hsl(var(--border))' }}
-                          labelStyle={{ color: 'hsl(var(--foreground))' }}
-                       />
-                       <Line 
-                          type="monotone" 
-                          dataKey="value" 
-                          stroke="hsl(var(--primary))" 
-                          strokeWidth={2}
-                          dot={{ r: 2 }} 
-                       />
-                    </LineChart>
-                 </ResponsiveContainer>
-              </div>
-
               <div>
-                 <p className="text-sm font-medium mb-2">Raw Record Data</p>
-                 <div className="border rounded-md overflow-hidden">
+                 <p className="text-sm font-medium mb-2">Full Row Data</p>
+                 <div className="border rounded-md overflow-hidden max-h-[300px] overflow-y-auto">
                     <Table>
                        <TableHeader>
                           <TableRow className="bg-muted/50">
@@ -136,18 +264,17 @@ export function OutlierTable() {
                           </TableRow>
                        </TableHeader>
                        <TableBody>
-                          <TableRow>
-                             <TableCell className="py-2 text-xs font-medium">Product Category</TableCell>
-                             <TableCell className="py-2 text-xs">Electronics</TableCell>
-                          </TableRow>
-                          <TableRow>
-                             <TableCell className="py-2 text-xs font-medium">Region</TableCell>
-                             <TableCell className="py-2 text-xs">North America</TableCell>
-                          </TableRow>
-                          <TableRow>
-                             <TableCell className="py-2 text-xs font-medium">Source File</TableCell>
-                             <TableCell className="py-2 text-xs">sales_q3_raw.csv</TableCell>
-                          </TableRow>
+                          {selectedOutlier && Object.entries(selectedOutlier.rowData).map(([field, value]) => (
+                            <TableRow key={field}>
+                               <TableCell className={`py-2 text-xs font-medium ${field === selectedOutlier.column ? 'text-primary' : ''}`}>
+                                 {field}
+                                 {field === selectedOutlier.column && <Badge variant="outline" className="ml-2 text-[10px]">Outlier</Badge>}
+                               </TableCell>
+                               <TableCell className={`py-2 text-xs ${field === selectedOutlier.column ? 'font-bold text-primary' : ''}`}>
+                                 {value === null || value === undefined ? <span className="text-muted-foreground">(null)</span> : String(value)}
+                               </TableCell>
+                            </TableRow>
+                          ))}
                        </TableBody>
                     </Table>
                  </div>
