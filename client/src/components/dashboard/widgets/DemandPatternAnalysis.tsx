@@ -47,24 +47,28 @@ export function DemandPatternAnalysis() {
     const adiLimit = adiThreshold[0];
     const cvLimit = cvThreshold[0];
     
+    // Updated Colors
     const quadrants = {
       smooth: { label: "Smooth", count: 0, volume: 0, color: "bg-blue-100/50 text-blue-800" },       // Low CV, Low ADI
-      intermittent: { label: "Intermittent", count: 0, volume: 0, color: "bg-yellow-100/50 text-yellow-800" }, // Low CV, High ADI
-      erratic: { label: "Erratic", count: 0, volume: 0, color: "bg-orange-100/50 text-orange-800" },      // High CV, Low ADI
+      intermittent: { label: "Intermittent", count: 0, volume: 0, color: "bg-fuchsia-100/50 text-fuchsia-900" }, // Low CV, High ADI (Purple/Red mix)
+      erratic: { label: "Erratic", count: 0, volume: 0, color: "bg-indigo-100/50 text-indigo-900" },      // High CV, Low ADI (Purple/Blue mix)
       lumpy: { label: "Lumpy", count: 0, volume: 0, color: "bg-red-100/50 text-red-800" }            // High CV, High ADI
     };
 
     let totalVolume = 0;
     let totalCount = 0;
+    
+    // Calculate Max values for domain scaling
+    let maxADI = 5; // Default minimum max
+    let maxCV = 2;  // Default minimum max
 
     const classifiedData = MOCK_DATA.map(point => {
       let type = '';
-      // New Axis logic: X=CV, Y=ADI
-      // Smooth: CV < Limit, ADI < Limit
-      // Intermittent: CV < Limit, ADI >= Limit
-      // Erratic: CV >= Limit, ADI < Limit
-      // Lumpy: CV >= Limit, ADI >= Limit
       
+      // Track Max
+      if (point.adi > maxADI) maxADI = point.adi;
+      if (point.cv > maxCV) maxCV = point.cv;
+
       if (point.cv < cvLimit) {
         if (point.adi < adiLimit) type = 'smooth';
         else type = 'intermittent';
@@ -82,9 +86,14 @@ export function DemandPatternAnalysis() {
 
       return { ...point, type };
     });
+    
+    // Add some padding to domains
+    maxADI = maxADI * 1.1;
+    maxCV = maxCV * 1.1;
 
-    return { quadrants, totalVolume, totalCount, classifiedData };
+    return { quadrants, totalVolume, totalCount, classifiedData, maxADI, maxCV };
   }, [adiThreshold, cvThreshold]);
+
 
   const getPercentage = (val: number, total: number) => ((val / total) * 100).toFixed(1) + '%';
   const formatVolume = (val: number) => (val / 1000).toFixed(1) + 'k';
@@ -189,14 +198,14 @@ export function DemandPatternAnalysis() {
                       dataKey="cv" 
                       name="CV" 
                       label={{ value: 'Coefficient of Variation (CV)', position: 'bottom', offset: 0 }} 
-                      domain={[0, 'auto']}
+                      domain={[0, stats.maxCV]}
                   />
                   <YAxis 
                       type="number" 
                       dataKey="adi" 
                       name="ADI" 
                       label={{ value: 'Average Demand Interval (ADI)', angle: -90, position: 'left' }} 
-                      domain={[0, 'auto']}
+                      domain={[0, stats.maxADI]}
                   />
                   <Tooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '3 3' }} />
                   
@@ -217,25 +226,25 @@ export function DemandPatternAnalysis() {
                   {/* Intermittent (Top Left) */}
                   <ReferenceArea 
                     x1={0} x2={cvThreshold[0]} 
-                    y1={adiThreshold[0]} y2={10} // Using 10 as safe max
-                    fill="#fef9c3" fillOpacity={0.2}
+                    y1={adiThreshold[0]} y2={stats.maxADI} 
+                    fill="#fae8ff" fillOpacity={0.2}
                   >
                      <Label content={(props: any) => <QuadrantLabel {...props} type="intermittent" data={stats.quadrants.intermittent} />} />
                   </ReferenceArea>
 
                   {/* Erratic (Bottom Right) */}
                   <ReferenceArea 
-                    x1={cvThreshold[0]} x2={10} // Using 10 as safe max
+                    x1={cvThreshold[0]} x2={stats.maxCV} 
                     y1={0} y2={adiThreshold[0]} 
-                    fill="#ffedd5" fillOpacity={0.2}
+                    fill="#e0e7ff" fillOpacity={0.2}
                   >
                      <Label content={(props: any) => <QuadrantLabel {...props} type="erratic" data={stats.quadrants.erratic} />} />
                   </ReferenceArea>
 
                   {/* Lumpy (Top Right) */}
                   <ReferenceArea 
-                    x1={cvThreshold[0]} x2={10} 
-                    y1={adiThreshold[0]} y2={10} 
+                    x1={cvThreshold[0]} x2={stats.maxCV} 
+                    y1={adiThreshold[0]} y2={stats.maxADI} 
                     fill="#fee2e2" fillOpacity={0.2}
                   >
                      <Label content={(props: any) => <QuadrantLabel {...props} type="lumpy" data={stats.quadrants.lumpy} />} />
