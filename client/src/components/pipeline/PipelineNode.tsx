@@ -1,6 +1,6 @@
 import { Handle, Position } from '@xyflow/react';
 import { Badge } from '@/components/ui/badge';
-import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, AlertCircle, Layers, ListTree, TableProperties, Code, HardDrive, History, Trash2, Settings2, BarChart3, CheckCircle2 } from 'lucide-react';
+import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, AlertCircle, Layers, ListTree, TableProperties, Code, HardDrive, History, Trash2, Settings2, BarChart3, CheckCircle2, Table2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface PipelineNodeProps {
@@ -21,6 +21,7 @@ interface PipelineNodeProps {
 const getIcon = (type: string) => {
   switch (type) {
     case 'input': return Database;
+    case 'preview': return Table2;
     case 'sql': return Code;
     case 'merge': return GitMerge;
     case 'union': return Layers;
@@ -40,6 +41,7 @@ const getIcon = (type: string) => {
 const getTypeColor = (type: string) => {
   switch (type) {
     case 'input': return { bg: 'bg-blue-50', border: 'border-blue-200', icon: 'bg-blue-100 text-blue-600', handle: 'bg-blue-500' };
+    case 'preview': return { bg: 'bg-indigo-50', border: 'border-indigo-200', icon: 'bg-indigo-100 text-indigo-600', handle: 'bg-indigo-500' };
     case 'merge': return { bg: 'bg-orange-50', border: 'border-orange-200', icon: 'bg-orange-100 text-orange-600', handle: 'bg-orange-500' };
     case 'filter': return { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'bg-purple-100 text-purple-600', handle: 'bg-purple-500' };
     case 'eda': return { bg: 'bg-green-50', border: 'border-green-200', icon: 'bg-green-100 text-green-600', handle: 'bg-green-500' };

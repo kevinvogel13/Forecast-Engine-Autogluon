@@ -161,6 +161,76 @@ export async function registerRoutes(
     }
   });
 
+  // Get data preview (first N rows)
+  app.get("/api/datasets/:id/preview", async (req, res) => {
+    try {
+      const dataset = await storage.getDataset(req.params.id);
+      if (!dataset) {
+        return res.status(404).json({ error: "Dataset not found" });
+      }
+
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
+      
+      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const records = parse(fileContent, { 
+        columns: true, 
+        skip_empty_lines: true 
+      });
+
+      const preview = records.slice(0, limit);
+      const columns = records.length > 0 ? Object.keys(records[0]) : [];
+
+      res.json({
+        columns,
+        rows: preview,
+        totalRows: records.length,
+        previewRows: preview.length
+      });
+    } catch (error) {
+      console.error("Error fetching dataset preview:", error);
+      res.status(500).json({ error: "Failed to fetch dataset preview" });
+    }
+  });
+
+  // Get unique values for a column (for filter dropdowns)
+  app.get("/api/datasets/:id/column/:column/values", async (req, res) => {
+    try {
+      const dataset = await storage.getDataset(req.params.id);
+      if (!dataset) {
+        return res.status(404).json({ error: "Dataset not found" });
+      }
+
+      const columnName = req.params.column;
+      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const records = parse(fileContent, { 
+        columns: true, 
+        skip_empty_lines: true 
+      });
+
+      if (records.length === 0 || !(columnName in records[0])) {
+        return res.status(404).json({ error: "Column not found" });
+      }
+
+      // Get unique values
+      const uniqueValues = [...new Set(records.map((r: any) => r[columnName]))];
+      
+      // Determine if categorical (fewer than 50 unique values and not all numeric)
+      const isCategorical = uniqueValues.length <= 50;
+      const isNumeric = uniqueValues.every((v: any) => !isNaN(parseFloat(v)) && isFinite(v));
+
+      res.json({
+        column: columnName,
+        uniqueValues: uniqueValues.slice(0, 100), // Limit to 100 values
+        totalUnique: uniqueValues.length,
+        isCategorical,
+        isNumeric
+      });
+    } catch (error) {
+      console.error("Error fetching column values:", error);
+      res.status(500).json({ error: "Failed to fetch column values" });
+    }
+  });
+
   // Pipeline execution route
   app.post("/api/pipelines/:id/execute", async (req, res) => {
     try {

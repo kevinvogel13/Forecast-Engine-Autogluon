@@ -10,7 +10,8 @@ import {
   Code2, 
   FileOutput,
   Plus,
-  X
+  X,
+  Table2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +25,7 @@ interface NodePaletteProps {
 export default function NodePalette({ onDragStart, onAddNode, isOpen, onToggle }: NodePaletteProps) {
   const nodes = [
     { type: 'input', label: 'Data Source', icon: Database, color: 'bg-blue-100 text-blue-600', description: 'Import data from file or SQL' },
+    { type: 'preview', label: 'Data Preview', icon: Table2, color: 'bg-indigo-100 text-indigo-600', description: 'View head of dataframe' },
     { type: 'merge', label: 'Merge / Join', icon: GitMerge, color: 'bg-orange-100 text-orange-600', description: 'Combine multiple datasets' },
     { type: 'filter', label: 'Filter', icon: Filter, color: 'bg-purple-100 text-purple-600', description: 'Filter rows by condition' },
     { type: 'eda', label: 'Validation', icon: BarChart3, color: 'bg-green-100 text-green-600', description: 'Validate and explore data' },
