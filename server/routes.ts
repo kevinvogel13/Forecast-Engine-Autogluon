@@ -231,6 +231,79 @@ export async function registerRoutes(
     }
   });
 
+  // Filtered data preview - applies filter transformations
+  app.post("/api/datasets/:id/filtered-preview", async (req, res) => {
+    try {
+      const dataset = await storage.getDataset(req.params.id);
+      if (!dataset) {
+        return res.status(404).json({ error: "Dataset not found" });
+      }
+
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
+      const { filters } = req.body as { filters?: Array<{ column: string; operator: string; value: any }> };
+      
+      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      let records = parse(fileContent, { 
+        columns: true, 
+        skip_empty_lines: true 
+      }) as any[];
+
+      // Apply filters
+      if (filters && filters.length > 0) {
+        for (const filter of filters) {
+          const { column, operator, value } = filter;
+          if (!column || !operator) continue;
+
+          records = records.filter((row: any) => {
+            const cellValue = row[column];
+            
+            switch (operator) {
+              case 'eq':
+                return String(cellValue) === String(value);
+              case 'neq':
+                return String(cellValue) !== String(value);
+              case 'gt':
+                return parseFloat(cellValue) > parseFloat(value);
+              case 'gte':
+                return parseFloat(cellValue) >= parseFloat(value);
+              case 'lt':
+                return parseFloat(cellValue) < parseFloat(value);
+              case 'lte':
+                return parseFloat(cellValue) <= parseFloat(value);
+              case 'contains':
+                return String(cellValue).toLowerCase().includes(String(value).toLowerCase());
+              case 'isin':
+                const inValues = Array.isArray(value) ? value : [value];
+                return inValues.map(String).includes(String(cellValue));
+              case 'notin':
+                const notInValues = Array.isArray(value) ? value : [value];
+                return !notInValues.map(String).includes(String(cellValue));
+              case 'isnull':
+                return cellValue === null || cellValue === undefined || cellValue === '' || cellValue === 'null';
+              case 'notnull':
+                return cellValue !== null && cellValue !== undefined && cellValue !== '' && cellValue !== 'null';
+              default:
+                return true;
+            }
+          });
+        }
+      }
+
+      const columns = records.length > 0 ? Object.keys(records[0]) : (dataset.columns || []);
+      const preview = records.slice(0, limit);
+
+      res.json({
+        columns,
+        rows: preview,
+        totalRows: records.length,
+        previewRows: preview.length
+      });
+    } catch (error) {
+      console.error("Error fetching filtered preview:", error);
+      res.status(500).json({ error: "Failed to fetch filtered preview" });
+    }
+  });
+
   // Pipeline execution route
   app.post("/api/pipelines/:id/execute", async (req, res) => {
     try {

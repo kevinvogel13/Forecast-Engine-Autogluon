@@ -426,6 +426,35 @@ function FlowWithProvider() {
     return null;
   }, [nodes, edges]);
 
+  // Collect all filter configurations from upstream nodes
+  const getUpstreamFilters = useCallback((nodeId: string, visited: Set<string> = new Set()): Array<{ column: string; operator: string; value: any }> => {
+    if (visited.has(nodeId)) return [];
+    visited.add(nodeId);
+    
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return [];
+    
+    const filters: Array<{ column: string; operator: string; value: any }> = [];
+    
+    // If this is a filter node with valid config, add it
+    if (node.data.type === 'filter' && node.data.filterColumn && node.data.filterOperator) {
+      filters.push({
+        column: node.data.filterColumn,
+        operator: node.data.filterOperator,
+        value: node.data.filterValue
+      });
+    }
+    
+    // Trace back through incoming edges to collect more filters
+    const incomingEdges = edges.filter(e => e.target === nodeId);
+    for (const edge of incomingEdges) {
+      const upstreamFilters = getUpstreamFilters(edge.source, visited);
+      filters.push(...upstreamFilters);
+    }
+    
+    return filters;
+  }, [nodes, edges]);
+
   // State for column values (for filter dropdowns)
   const [columnValues, setColumnValues] = useState<{
     column: string;
@@ -475,7 +504,7 @@ function FlowWithProvider() {
     }
   }, [selectedNode, getSourceDatasetId]);
 
-  // Fetch preview data for preview node
+  // Fetch preview data for preview node (with filter support)
   const fetchPreviewData = useCallback(async (limit: number = 10) => {
     if (!selectedNode) return;
     
@@ -485,11 +514,32 @@ function FlowWithProvider() {
       return;
     }
     
+    // Collect filters from upstream nodes
+    const filters = getUpstreamFilters(selectedNode.id);
+    
     setPreviewLoading(true);
     try {
-      const response = await fetch(`/api/datasets/${datasetId}/preview?limit=${limit}`);
-      if (response.ok) {
-        const data = await response.json();
+      let data;
+      
+      if (filters.length > 0) {
+        // Use filtered-preview endpoint if there are filters
+        const response = await fetch(`/api/datasets/${datasetId}/filtered-preview?limit=${limit}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filters })
+        });
+        if (response.ok) {
+          data = await response.json();
+        }
+      } else {
+        // Use regular preview endpoint if no filters
+        const response = await fetch(`/api/datasets/${datasetId}/preview?limit=${limit}`);
+        if (response.ok) {
+          data = await response.json();
+        }
+      }
+      
+      if (data) {
         setPreviewData({
           columns: data.columns,
           rows: data.rows,
@@ -504,7 +554,7 @@ function FlowWithProvider() {
     } finally {
       setPreviewLoading(false);
     }
-  }, [selectedNode, getSourceDatasetId]);
+  }, [selectedNode, getSourceDatasetId, getUpstreamFilters]);
 
   // Effect to fetch column values when filter column changes
   useEffect(() => {
@@ -515,6 +565,60 @@ function FlowWithProvider() {
     }
   }, [selectedNode?.data.filterColumn, selectedNode?.data.type, fetchColumnValues]);
 
+  // Effect to update filter node metadata when filter config changes
+  useEffect(() => {
+    if (!selectedNode || selectedNode.data.type !== 'filter') return;
+    
+    const datasetId = getSourceDatasetId(selectedNode.id);
+    if (!datasetId) return;
+    
+    const { filterColumn, filterOperator, filterValue } = selectedNode.data;
+    
+    // Only fetch if we have valid filter configuration
+    if (!filterColumn || !filterOperator) return;
+    // For operators that need a value, check if value is provided
+    const needsValue = !['isnull', 'notnull'].includes(filterOperator);
+    if (needsValue && (filterValue === undefined || filterValue === null || filterValue === '')) return;
+    
+    // Fetch filtered count
+    const filters = [{ column: filterColumn, operator: filterOperator, value: filterValue }];
+    
+    fetch(`/api/datasets/${datasetId}/filtered-preview?limit=1`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filters })
+    })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && selectedNode) {
+          // Update the node's metadata
+          setNodes(nds => nds.map(n => {
+            if (n.id === selectedNode.id) {
+              return {
+                ...n,
+                data: {
+                  ...n.data,
+                  rows: data.totalRows,
+                  cols: data.columns?.length || 0,
+                  columns: data.columns || []
+                }
+              };
+            }
+            return n;
+          }));
+        }
+      })
+      .catch(err => console.error('Failed to fetch filter count:', err));
+  }, [
+    selectedNode?.id,
+    selectedNode?.data.type,
+    selectedNode?.data.filterColumn,
+    selectedNode?.data.filterOperator,
+    selectedNode?.data.filterValue,
+    getSourceDatasetId,
+    setNodes
+  ]);
+
   // Effect to fetch preview when preview node is selected
   useEffect(() => {
     if (selectedNode?.data.type === 'preview') {
@@ -524,6 +628,26 @@ function FlowWithProvider() {
       setPreviewData(null);
     }
   }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.previewRows, fetchPreviewData]);
+
+  // Update preview node metadata when preview data changes
+  useEffect(() => {
+    if (selectedNode?.data.type === 'preview' && previewData) {
+      setNodes(nds => nds.map(n => {
+        if (n.id === selectedNode.id) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              rows: previewData.totalRows,
+              cols: previewData.columns?.length || 0,
+              columns: previewData.columns || []
+            }
+          };
+        }
+        return n;
+      }));
+    }
+  }, [selectedNode?.id, selectedNode?.data.type, previewData, setNodes]);
   
   // Multi-select dropdown component for columns
   const ColumnMultiSelect = ({ 
