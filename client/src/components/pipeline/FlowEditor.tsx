@@ -36,6 +36,7 @@ import ConfigurationPanel from '@/components/configuration/ConfigurationPanel';
 import ForecastResultsDashboard from '@/components/dashboard/ForecastResultsDashboard';
 import NodePalette from './NodePalette';
 import { toast } from 'sonner';
+import DataExploration, { ChartType, ExplorationConfig } from '@/components/exploration/DataExploration';
 
 // Define custom node types
 const nodeTypes: NodeTypes = {
@@ -59,6 +60,251 @@ const initialEdges: any[] = [];
 
 
 const getId = () => `node_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+interface ExplorationPanelProps {
+  nodeId: string;
+  getSourceDatasetId: (nodeId: string) => string | null;
+  getUpstreamTransforms: (nodeId: string) => Array<{ type: 'filter' | 'python' | 'sql' | 'sampling'; data: any }>;
+  selectedNode: any;
+  updateNodeData: (key: string, value: any) => void;
+}
+
+function ExplorationPanel({ nodeId, getSourceDatasetId, getUpstreamTransforms, selectedNode, updateNodeData }: ExplorationPanelProps) {
+  const [explorationData, setExplorationData] = useState<{ columns: string[]; rows: any[]; totalRows: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const datasetId = getSourceDatasetId(nodeId);
+      if (!datasetId) {
+        setExplorationData(null);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const transforms = getUpstreamTransforms(nodeId);
+        const response = await fetch('/api/datasets/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ datasetId, transforms, limit: 1000 })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setExplorationData({
+            columns: data.columns || [],
+            rows: data.rows || [],
+            totalRows: data.totalRows || data.rows?.length || 0
+          });
+        }
+      } catch (err) {
+        console.error('Error fetching exploration data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [nodeId, getSourceDatasetId, getUpstreamTransforms]);
+
+  const config: ExplorationConfig = {
+    chartType: selectedNode.data.chartType || 'bar',
+    xColumn: selectedNode.data.xColumn,
+    yColumn: selectedNode.data.yColumn,
+    groupColumn: selectedNode.data.groupColumn,
+    aggregation: selectedNode.data.aggregation,
+    takeaway: selectedNode.data.takeaway
+  };
+
+  const handleConfigChange = (newConfig: ExplorationConfig) => {
+    if (newConfig.chartType !== config.chartType) updateNodeData('chartType', newConfig.chartType);
+    if (newConfig.xColumn !== config.xColumn) updateNodeData('xColumn', newConfig.xColumn);
+    if (newConfig.yColumn !== config.yColumn) updateNodeData('yColumn', newConfig.yColumn);
+    if (newConfig.groupColumn !== config.groupColumn) updateNodeData('groupColumn', newConfig.groupColumn);
+    if (newConfig.aggregation !== config.aggregation) updateNodeData('aggregation', newConfig.aggregation);
+    if (newConfig.takeaway !== config.takeaway) updateNodeData('takeaway', newConfig.takeaway);
+  };
+
+  return (
+    <div className="space-y-4 border rounded-md p-4 bg-orange-50/50 border-orange-100">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="bg-orange-100 p-2 rounded-full">
+          <BarChart3 className="w-4 h-4 text-orange-600" />
+        </div>
+        <div>
+          <h4 className="text-sm font-semibold text-orange-900">Data Exploration</h4>
+          <p className="text-xs text-orange-700">Create visualizations and insights</p>
+        </div>
+      </div>
+      <DataExploration
+        data={explorationData}
+        config={config}
+        onConfigChange={handleConfigChange}
+        loading={loading}
+        compact
+      />
+    </div>
+  );
+}
+
+interface ReportPanelProps {
+  nodeId: string;
+  nodes: any[];
+  edges: any[];
+  selectedNode: any;
+  updateNodeData: (key: string, value: any) => void;
+}
+
+function ReportPanel({ nodeId, nodes, edges, selectedNode, updateNodeData }: ReportPanelProps) {
+  const getUpstreamExplorationNodes = useCallback((targetNodeId: string, visited: Set<string> = new Set()): any[] => {
+    if (visited.has(targetNodeId)) return [];
+    visited.add(targetNodeId);
+
+    const explorationNodes: any[] = [];
+    const incomingEdges = edges.filter(e => e.target === targetNodeId);
+
+    for (const edge of incomingEdges) {
+      const sourceNode = nodes.find(n => n.id === edge.source);
+      if (sourceNode) {
+        if (sourceNode.data.type === 'exploration') {
+          explorationNodes.push(sourceNode);
+        }
+        explorationNodes.push(...getUpstreamExplorationNodes(sourceNode.id, visited));
+      }
+    }
+
+    return explorationNodes;
+  }, [nodes, edges]);
+
+  const upstreamExplorations = useMemo(() => getUpstreamExplorationNodes(nodeId), [nodeId, getUpstreamExplorationNodes]);
+  
+  const sectionOrder: string[] = selectedNode.data.sectionOrder || upstreamExplorations.map(n => n.id);
+
+  const orderedSections = useMemo(() => {
+    const nodeMap = new Map(upstreamExplorations.map(n => [n.id, n]));
+    return sectionOrder
+      .filter(id => nodeMap.has(id))
+      .map(id => nodeMap.get(id)!);
+  }, [sectionOrder, upstreamExplorations]);
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    e.dataTransfer.setData('text/plain', index.toString());
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    const dragIndex = parseInt(e.dataTransfer.getData('text/plain'));
+    if (dragIndex === dropIndex) return;
+
+    const newOrder = [...sectionOrder];
+    const [removed] = newOrder.splice(dragIndex, 1);
+    newOrder.splice(dropIndex, 0, removed);
+    updateNodeData('sectionOrder', newOrder);
+  };
+
+  const handleGenerateReport = async () => {
+    const sections = orderedSections.map(node => ({
+      nodeLabel: node.data.label || 'Visualization',
+      chartType: node.data.chartType || 'bar',
+      takeaway: node.data.takeaway || '',
+      xColumn: node.data.xColumn,
+      yColumn: node.data.yColumn,
+      groupColumn: node.data.groupColumn,
+      aggregation: node.data.aggregation
+    }));
+
+    try {
+      const response = await fetch('/api/reports/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: selectedNode.data.reportTitle || 'Data Exploration Report',
+          sections
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to generate report');
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(selectedNode.data.reportTitle || 'report').replace(/[^a-z0-9]/gi, '_')}.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      toast.success('Report generated successfully');
+    } catch (error) {
+      toast.error('Failed to generate report');
+    }
+  };
+
+  return (
+    <div className="space-y-4 border rounded-md p-4 bg-indigo-50/50 border-indigo-100">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="bg-indigo-100 p-2 rounded-full">
+          <FileText className="w-4 h-4 text-indigo-600" />
+        </div>
+        <div>
+          <h4 className="text-sm font-semibold text-indigo-900">Report Builder</h4>
+          <p className="text-xs text-indigo-700">Combine exploration insights into a report</p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs">Report Title</Label>
+        <Input
+          placeholder="Enter report title..."
+          value={selectedNode.data.reportTitle || ''}
+          onChange={(e) => updateNodeData('reportTitle', e.target.value)}
+          className="h-8 text-sm"
+          data-testid="input-report-title"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs">Exploration Sections ({orderedSections.length})</Label>
+        {orderedSections.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-2">No upstream exploration nodes found. Connect exploration nodes to this report.</p>
+        ) : (
+          <div className="space-y-1">
+            {orderedSections.map((node, index) => (
+              <div
+                key={node.id}
+                draggable
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, index)}
+                className="flex items-center gap-2 p-2 bg-white rounded border border-indigo-100 cursor-move hover:bg-indigo-50/50"
+                data-testid={`section-item-${node.id}`}
+              >
+                <MoreHorizontal className="w-3 h-3 text-muted-foreground" />
+                <span className="text-xs font-medium flex-1">{node.data.label || `Exploration ${index + 1}`}</span>
+                <span className="text-[10px] text-muted-foreground">{node.data.chartType || 'bar'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <Button 
+        className="w-full bg-indigo-600 hover:bg-indigo-700" 
+        disabled={orderedSections.length === 0}
+        onClick={handleGenerateReport}
+        data-testid="button-generate-report"
+      >
+        Generate Report
+      </Button>
+    </div>
+  );
+}
 
 function FlowWithProvider() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -1579,6 +1825,26 @@ function FlowWithProvider() {
                           </Button>
                        </div>
                     </div>
+                  )}
+
+                  {selectedNode.data.type === 'exploration' && (
+                    <ExplorationPanel
+                      nodeId={selectedNode.id}
+                      getSourceDatasetId={getSourceDatasetId}
+                      getUpstreamTransforms={getUpstreamTransforms}
+                      selectedNode={selectedNode}
+                      updateNodeData={updateNodeData}
+                    />
+                  )}
+
+                  {selectedNode.data.type === 'report' && (
+                    <ReportPanel
+                      nodeId={selectedNode.id}
+                      nodes={nodes}
+                      edges={edges}
+                      selectedNode={selectedNode}
+                      updateNodeData={updateNodeData}
+                    />
                   )}
 
                   {selectedNode.data.type === 'config' && (
