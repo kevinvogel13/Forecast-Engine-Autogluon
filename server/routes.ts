@@ -241,9 +241,10 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Dataset not found" });
       }
 
-      const { groupColumn, samplePercent, transforms } = req.body as {
+      const { groupColumn, samplePercent, seed, transforms } = req.body as {
         groupColumn: string;
         samplePercent: number; // 5-100
+        seed?: number;
         transforms?: Array<{ type: 'filter' | 'python' | 'sql'; data: any }>;
       };
 
@@ -252,6 +253,7 @@ export async function registerRoutes(
       }
 
       const percent = Math.max(5, Math.min(100, samplePercent || 100));
+      const sampSeed = seed ?? 42;
 
       const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
       let records = parse(fileContent, { 
@@ -449,8 +451,16 @@ except Exception as e:
       // Randomly sample X% of groups
       const numGroupsToSample = Math.max(1, Math.ceil((percent / 100) * totalGroups));
       
-      // Shuffle and take first N (random sampling)
-      const shuffled = allGroups.sort(() => Math.random() - 0.5);
+      // Seeded shuffle for reproducibility (simple mulberry32 PRNG)
+      const seededRandom = (s: number) => {
+        return () => {
+          s = Math.imul(s ^ s >>> 15, s | 1);
+          s ^= s + Math.imul(s ^ s >>> 7, s | 61);
+          return ((s ^ s >>> 14) >>> 0) / 4294967296;
+        };
+      };
+      const rng = seededRandom(sampSeed);
+      const shuffled = [...allGroups].sort(() => rng() - 0.5);
       const selectedGroups = new Set(shuffled.slice(0, numGroupsToSample));
 
       // Filter records to only include selected groups
@@ -756,10 +766,11 @@ except Exception as e:
           }
           records = sqlResult.data || records;
         } else if (transform.type === 'sampling') {
-          const { column, percent } = transform.data;
+          const { column, percent, seed } = transform.data;
           if (!column || records.length === 0) continue;
           
           const samplePercent = Math.max(5, Math.min(100, percent || 100));
+          const sampSeed = seed ?? 42;
           
           // Check if column exists
           if (!(column in records[0])) continue;
@@ -771,8 +782,16 @@ except Exception as e:
           // Randomly sample X% of groups
           const numGroupsToSample = Math.max(1, Math.ceil((samplePercent / 100) * totalGroups));
           
-          // Shuffle and take first N (random sampling)
-          const shuffled = allGroups.sort(() => Math.random() - 0.5);
+          // Seeded shuffle for reproducibility (simple mulberry32 PRNG)
+          const seededRandom = (s: number) => {
+            return () => {
+              s = Math.imul(s ^ s >>> 15, s | 1);
+              s ^= s + Math.imul(s ^ s >>> 7, s | 61);
+              return ((s ^ s >>> 14) >>> 0) / 4294967296;
+            };
+          };
+          const rng = seededRandom(sampSeed);
+          const shuffled = [...allGroups].sort(() => rng() - 0.5);
           const selectedGroups = new Set(shuffled.slice(0, numGroupsToSample));
           
           // Filter records to only include selected groups

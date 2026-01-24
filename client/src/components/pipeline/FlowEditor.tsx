@@ -523,7 +523,11 @@ function FlowWithProvider() {
     } else if (node.data.type === 'sampling' && node.data.samplingColumn) {
       transforms.push({ 
         type: 'sampling', 
-        data: { column: node.data.samplingColumn, percent: node.data.samplePercent || 100 }
+        data: { 
+          column: node.data.samplingColumn, 
+          percent: node.data.samplePercent || 100,
+          seed: node.data.samplingSeed ?? 42
+        }
       });
     }
     
@@ -806,7 +810,11 @@ function FlowWithProvider() {
       } else if (node.data.type === 'sampling' && node.data.samplingColumn) {
         transforms.push({ 
           type: 'sampling', 
-          data: { column: node.data.samplingColumn, percent: node.data.samplePercent || 100 }
+          data: { 
+            column: node.data.samplingColumn, 
+            percent: node.data.samplePercent || 100,
+            seed: node.data.samplingSeed ?? 42
+          }
         });
       }
       
@@ -1940,6 +1948,20 @@ function FlowWithProvider() {
                           <span>5%</span>
                           <span>100%</span>
                         </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Random Seed</Label>
+                        <Input
+                          type="number"
+                          placeholder="e.g. 42"
+                          className="h-8 text-xs font-mono"
+                          value={selectedNode.data.samplingSeed || ''}
+                          onChange={(e) => updateNodeData('samplingSeed', e.target.value ? parseInt(e.target.value) : null)}
+                          data-testid="input-sampling-seed"
+                        />
+                        <p className="text-[10px] text-muted-foreground">
+                          Set a seed for repeatable sampling. Same seed = same groups selected.
+                        </p>
                       </div>
                     </div>
                   )}

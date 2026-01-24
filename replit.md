@@ -57,9 +57,10 @@ Preferred communication style: Simple, everyday language.
 - **Sampling**: Stratified group sampling for meaningful time series analysis
   - Select a group column (e.g., DFU, SKU, Product)
   - Sample percentage slider (5-100% in 5% increments)
+  - Random seed input for repeatable sampling (same seed = same groups selected)
   - Randomly samples X% of unique groups and returns ALL rows for each sampled group
   - Ensures each sampled group has complete time series data for CV/ADI calculation
-  - Field names: `samplingColumn`, `samplePercent` (default: 100)
+  - Field names: `samplingColumn`, `samplePercent` (default: 100), `samplingSeed` (default: 42)
 - **Python Script**: Custom pandas transformations via Monaco editor
   - Shows input data preview when connected to upstream data source
   - Stats (rows/cols) update based on connected input
