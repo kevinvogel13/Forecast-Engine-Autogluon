@@ -478,6 +478,28 @@ function FlowWithProvider() {
     return filters;
   }, [nodes, edges]);
 
+  // Collect Python code from upstream nodes (including if current node is python)
+  const getUpstreamPythonCode = useCallback((nodeId: string, visited: Set<string> = new Set()): string | null => {
+    if (visited.has(nodeId)) return null;
+    visited.add(nodeId);
+    
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return null;
+    
+    // If this is a python node with code, return it
+    if (node.data.type === 'python' && node.data.code) {
+      return node.data.code;
+    }
+    
+    // Otherwise, check upstream nodes
+    const incomingEdges = edges.filter(e => e.target === nodeId);
+    for (const edge of incomingEdges) {
+      const code = getUpstreamPythonCode(edge.source, visited);
+      if (code) return code;
+    }
+    return null;
+  }, [nodes, edges]);
+
   // State for column values (for filter dropdowns)
   const [columnValues, setColumnValues] = useState<{
     column: string;
@@ -813,21 +835,31 @@ function FlowWithProvider() {
     }
   }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.stats?.rows, selectedNode?.data.stats?.cols, previewData, setNodes]);
 
-  // Update validation/EDA node stats from upstream data (with filters applied)
+  // Update validation/EDA node stats from upstream data (with filters and Python transforms applied)
   useEffect(() => {
     if (!selectedNode || selectedNode.data.type !== 'eda') return;
     
     const datasetId = getSourceDatasetId(selectedNode.id);
     if (!datasetId) return;
     
-    // Get upstream filters
+    // Get upstream filters and Python code
     const filters = getUpstreamFilters(selectedNode.id);
+    const pythonCode = getUpstreamPythonCode(selectedNode.id);
     
-    // Fetch stats with filters applied
-    fetch(`/api/datasets/${datasetId}/filtered-preview?limit=1`, {
+    // Use python-transform endpoint if there's Python code, otherwise use filtered-preview
+    const endpoint = pythonCode 
+      ? `/api/datasets/${datasetId}/python-transform?limit=1`
+      : `/api/datasets/${datasetId}/filtered-preview?limit=1`;
+    
+    const body = pythonCode 
+      ? JSON.stringify({ filters, pythonCode })
+      : JSON.stringify({ filters });
+    
+    // Fetch stats with filters and transforms applied
+    fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filters })
+      body: body
     })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
@@ -851,7 +883,7 @@ function FlowWithProvider() {
         }
       })
       .catch(err => console.error('Failed to fetch EDA stats:', err));
-  }, [selectedNode?.id, selectedNode?.data.type, getSourceDatasetId, getUpstreamFilters, setNodes, edges]);
+  }, [selectedNode?.id, selectedNode?.data.type, getSourceDatasetId, getUpstreamFilters, getUpstreamPythonCode, setNodes, edges]);
   
   // Multi-select dropdown component for columns
   const ColumnMultiSelect = ({ 
