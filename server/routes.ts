@@ -6,6 +6,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs/promises";
 import { parse } from "csv-parse/sync";
+import { spawn } from "child_process";
 
 const upload = multer({ dest: 'uploads/' });
 
@@ -301,6 +302,167 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching filtered preview:", error);
       res.status(500).json({ error: "Failed to fetch filtered preview" });
+    }
+  });
+
+  // Python script execution endpoint - transforms data using Python code
+  app.post("/api/datasets/:id/python-transform", async (req, res) => {
+    try {
+      const dataset = await storage.getDataset(req.params.id);
+      if (!dataset) {
+        return res.status(404).json({ error: "Dataset not found" });
+      }
+
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
+      const { filters, pythonCode } = req.body as { 
+        filters?: Array<{ column: string; operator: string; value: any }>;
+        pythonCode?: string;
+      };
+
+      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      let records = parse(fileContent, { 
+        columns: true, 
+        skip_empty_lines: true 
+      }) as any[];
+
+      // Apply filters first
+      if (filters && filters.length > 0) {
+        for (const filter of filters) {
+          const { column, operator, value } = filter;
+          if (!column || !operator) continue;
+
+          records = records.filter((row: any) => {
+            const cellValue = row[column];
+            
+            switch (operator) {
+              case 'eq':
+                return String(cellValue) === String(value);
+              case 'neq':
+                return String(cellValue) !== String(value);
+              case 'gt':
+                return parseFloat(cellValue) > parseFloat(value);
+              case 'gte':
+                return parseFloat(cellValue) >= parseFloat(value);
+              case 'lt':
+                return parseFloat(cellValue) < parseFloat(value);
+              case 'lte':
+                return parseFloat(cellValue) <= parseFloat(value);
+              case 'contains':
+                return String(cellValue).toLowerCase().includes(String(value).toLowerCase());
+              case 'isin':
+                const inValues = Array.isArray(value) ? value : [value];
+                return inValues.map(String).includes(String(cellValue));
+              case 'notin':
+                const notInValues = Array.isArray(value) ? value : [value];
+                return !notInValues.map(String).includes(String(cellValue));
+              case 'isnull':
+                return cellValue === null || cellValue === undefined || cellValue === '' || cellValue === 'null';
+              case 'notnull':
+                return cellValue !== null && cellValue !== undefined && cellValue !== '' && cellValue !== 'null';
+              default:
+                return true;
+            }
+          });
+        }
+      }
+
+      // If no Python code, just return filtered data
+      if (!pythonCode || pythonCode.trim() === '') {
+        const columns = records.length > 0 ? Object.keys(records[0]) : (dataset.columns || []);
+        const preview = records.slice(0, limit);
+        return res.json({
+          columns,
+          rows: preview,
+          totalRows: records.length,
+          previewRows: preview.length
+        });
+      }
+
+      // Execute Python transformation
+      const inputJson = JSON.stringify(records);
+      
+      // Create a Python script that runs the user's code
+      const pythonScript = `
+import sys
+import json
+import pandas as pd
+
+try:
+    input_data = json.loads(sys.stdin.read())
+    input_df = pd.DataFrame(input_data)
+    
+    # User's code
+${pythonCode.split('\n').map(line => '    ' + line).join('\n')}
+    
+    # If the code returns df, use that. Otherwise assume it modified input_df
+    if 'df' in dir() and isinstance(df, pd.DataFrame):
+        result_df = df
+    else:
+        result_df = input_df
+    
+    # Convert to JSON
+    result = result_df.to_dict('records')
+    print(json.dumps(result))
+except Exception as e:
+    print(json.dumps({"error": str(e)}), file=sys.stderr)
+    sys.exit(1)
+`;
+
+      const result = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
+        const python = spawn('python3', ['-c', pythonScript]);
+        let stdout = '';
+        let stderr = '';
+
+        python.stdin.write(inputJson);
+        python.stdin.end();
+
+        python.stdout.on('data', (data) => {
+          stdout += data.toString();
+        });
+
+        python.stderr.on('data', (data) => {
+          stderr += data.toString();
+        });
+
+        python.on('close', (code) => {
+          if (code !== 0) {
+            resolve({ error: stderr || 'Python script failed' });
+          } else {
+            try {
+              const parsed = JSON.parse(stdout);
+              if (parsed.error) {
+                resolve({ error: parsed.error });
+              } else {
+                resolve({ data: parsed });
+              }
+            } catch (e) {
+              resolve({ error: 'Failed to parse Python output' });
+            }
+          }
+        });
+
+        python.on('error', (err) => {
+          resolve({ error: `Failed to execute Python: ${err.message}` });
+        });
+      });
+
+      if (result.error) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      const transformedRecords = result.data || [];
+      const columns = transformedRecords.length > 0 ? Object.keys(transformedRecords[0]) : [];
+      const preview = transformedRecords.slice(0, limit);
+
+      res.json({
+        columns,
+        rows: preview,
+        totalRows: transformedRecords.length,
+        previewRows: preview.length
+      });
+    } catch (error) {
+      console.error("Error executing Python transform:", error);
+      res.status(500).json({ error: "Failed to execute Python transform" });
     }
   });
 

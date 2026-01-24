@@ -700,6 +700,27 @@ function FlowWithProvider() {
       return filters;
     };
 
+    // Collect Python code from upstream nodes (including current node if it's a python node)
+    const collectPythonCode = (nodeId: string, visitedNodes: Set<string> = new Set()): string | null => {
+      if (visitedNodes.has(nodeId)) return null;
+      visitedNodes.add(nodeId);
+      const node = currentNodes.find(n => n.id === nodeId);
+      if (!node) return null;
+      
+      // If this is a python node with code, return it
+      if (node.data.type === 'python' && node.data.code) {
+        return node.data.code;
+      }
+      
+      // Otherwise, check upstream nodes
+      const incomingEdges = currentEdges.filter(e => e.target === nodeId);
+      for (const edge of incomingEdges) {
+        const code = collectPythonCode(edge.source, visitedNodes);
+        if (code) return code;
+      }
+      return null;
+    };
+
     const datasetId = traceSourceDataset(selectedNode.id);
     if (!datasetId) {
       setPreviewData(null);
@@ -707,6 +728,7 @@ function FlowWithProvider() {
     }
 
     const filters = collectFilters(selectedNode.id);
+    const pythonCode = collectPythonCode(selectedNode.id);
     const limit = selectedNode.data.previewRows || 10;
     let isCancelled = false;
 
@@ -714,7 +736,20 @@ function FlowWithProvider() {
       setPreviewLoading(true);
       try {
         let data;
-        if (filters.length > 0) {
+        // If there's Python code, use the python-transform endpoint
+        if (pythonCode) {
+          const response = await fetch(`/api/datasets/${datasetId}/python-transform?limit=${limit}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filters, pythonCode })
+          });
+          if (response.ok) {
+            data = await response.json();
+          } else {
+            const errorData = await response.json();
+            console.error('Python transform error:', errorData.error);
+          }
+        } else if (filters.length > 0) {
           const response = await fetch(`/api/datasets/${datasetId}/filtered-preview?limit=${limit}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -740,7 +775,7 @@ function FlowWithProvider() {
 
     doFetch();
     return () => { isCancelled = true; };
-  }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.previewRows, previewKey]);
+  }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.previewRows, selectedNode?.data.code, previewKey]);
 
   // Update preview/python/sql node metadata when preview data changes
   useEffect(() => {
