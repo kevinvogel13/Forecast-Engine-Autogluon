@@ -170,7 +170,8 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Dataset not found" });
       }
 
-      const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
+      const requestedLimit = parseInt(req.query.limit as string);
+      const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
       
       const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
       const records = parse(fileContent, { 
@@ -240,7 +241,8 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Dataset not found" });
       }
 
-      const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
+      const requestedLimit = parseInt(req.query.limit as string);
+      const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
       const { filters } = req.body as { filters?: Array<{ column: string; operator: string; value: any }> };
       
       const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
@@ -313,7 +315,8 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Dataset not found" });
       }
 
-      const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
+      const requestedLimit = parseInt(req.query.limit as string);
+      const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
       const { transforms } = req.body as { 
         transforms: Array<{ type: 'filter' | 'python' | 'sql'; data: any }>
       };
@@ -537,7 +540,8 @@ except Exception as e:
         return res.status(404).json({ error: "Dataset not found" });
       }
 
-      const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
+      const requestedLimit = parseInt(req.query.limit as string);
+      const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
       const { filters, pythonCode } = req.body as { 
         filters?: Array<{ column: string; operator: string; value: any }>;
         pythonCode?: string;
@@ -717,7 +721,8 @@ except Exception as e:
         return res.status(404).json({ error: "Dataset not found" });
       }
 
-      const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
+      const requestedLimit = parseInt(req.query.limit as string);
+      const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
       const { filters, sqlQuery, pythonCode } = req.body as { 
         filters?: Array<{ column: string; operator: string; value: any }>;
         sqlQuery?: string;

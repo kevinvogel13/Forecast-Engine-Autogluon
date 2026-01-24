@@ -6,7 +6,9 @@ import { OutlierTable } from './widgets/OutlierTable';
 import { DataCompletenessChart } from './widgets/DataCompletenessChart';
 import { DemandPatternAnalysis } from './widgets/DemandPatternAnalysis';
 import { Button } from '@/components/ui/button';
-import { Settings2, Download, AlertCircle } from 'lucide-react';
+import { Settings2, Download, AlertCircle, Database } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -21,6 +23,8 @@ interface EDADashboardProps {
   transforms?: Array<{ type: 'filter' | 'python' | 'sql'; data: any }>;
 }
 
+type SampleSize = '1000' | '5000' | '10000' | '50000' | 'all';
+
 export default function EDADashboard({ datasetId, transforms = [] }: EDADashboardProps) {
   const [previewData, setPreviewData] = useState<{
     columns: string[];
@@ -28,6 +32,7 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
     totalRows: number;
   } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [sampleSize, setSampleSize] = useState<SampleSize>('10000');
 
   useEffect(() => {
     if (!datasetId) {
@@ -41,14 +46,17 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
     const fetchData = async () => {
       try {
         let response;
+        // For "all", use a very large limit; otherwise use the selected sample size
+        const limitValue = sampleSize === 'all' ? 1000000 : parseInt(sampleSize);
+        
         if (transforms.length > 0) {
-          response = await fetch(`/api/datasets/${datasetId}/transform?limit=500`, {
+          response = await fetch(`/api/datasets/${datasetId}/transform?limit=${limitValue}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ transforms })
           });
         } else {
-          response = await fetch(`/api/datasets/${datasetId}/preview?limit=500`);
+          response = await fetch(`/api/datasets/${datasetId}/preview?limit=${limitValue}`);
         }
         
         if (response.ok) {
@@ -69,7 +77,7 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
     };
     
     fetchData();
-  }, [datasetId, JSON.stringify(transforms)]);
+  }, [datasetId, JSON.stringify(transforms), sampleSize]);
   const [widgets, setWidgets] = useState({
     generalStats: true,
     demandPattern: true,
@@ -220,24 +228,48 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-end gap-2 mb-4">
-        {previewData && (
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="gap-2"
-            onClick={handleExportSummary}
-            data-testid="button-export-summary"
-          >
-            <Download className="w-4 h-4" /> Export Summary
-          </Button>
-        )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-2" data-testid="button-configure-dashboard">
-              <Settings2 className="w-4 h-4" /> Configure Dashboard
+      <div className="flex flex-wrap justify-between items-center gap-4 mb-4">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Database className="w-4 h-4 text-muted-foreground" />
+            <Label className="text-sm text-muted-foreground">Sample Size:</Label>
+            <Select value={sampleSize} onValueChange={(val) => setSampleSize(val as SampleSize)} data-testid="select-sample-size">
+              <SelectTrigger className="w-[130px] h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1000">1,000 rows</SelectItem>
+                <SelectItem value="5000">5,000 rows</SelectItem>
+                <SelectItem value="10000">10,000 rows</SelectItem>
+                <SelectItem value="50000">50,000 rows</SelectItem>
+                <SelectItem value="all">All data</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {previewData && (
+            <span className="text-xs text-muted-foreground">
+              ({previewData.rows.length.toLocaleString()} of {previewData.totalRows.toLocaleString()} rows loaded)
+            </span>
+          )}
+        </div>
+        <div className="flex gap-2">
+          {previewData && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="gap-2"
+              onClick={handleExportSummary}
+              data-testid="button-export-summary"
+            >
+              <Download className="w-4 h-4" /> Export Summary
             </Button>
-          </DropdownMenuTrigger>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2" data-testid="button-configure-dashboard">
+                <Settings2 className="w-4 h-4" /> Configure Dashboard
+              </Button>
+            </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>Visible Widgets</DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -279,6 +311,7 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
             </DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        </div>
       </div>
 
       {loading && (
