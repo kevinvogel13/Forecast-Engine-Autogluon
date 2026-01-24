@@ -500,6 +500,28 @@ function FlowWithProvider() {
     return null;
   }, [nodes, edges]);
 
+  // Collect SQL query from upstream nodes (including if current node is sql)
+  const getUpstreamSqlQuery = useCallback((nodeId: string, visited: Set<string> = new Set()): string | null => {
+    if (visited.has(nodeId)) return null;
+    visited.add(nodeId);
+    
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return null;
+    
+    // If this is a sql node with a query, return it
+    if (node.data.type === 'sql' && node.data.query) {
+      return node.data.query;
+    }
+    
+    // Otherwise, check upstream nodes
+    const incomingEdges = edges.filter(e => e.target === nodeId);
+    for (const edge of incomingEdges) {
+      const query = getUpstreamSqlQuery(edge.source, visited);
+      if (query) return query;
+    }
+    return null;
+  }, [nodes, edges]);
+
   // State for column values (for filter dropdowns)
   const [columnValues, setColumnValues] = useState<{
     column: string;
@@ -743,6 +765,27 @@ function FlowWithProvider() {
       return null;
     };
 
+    // Collect SQL query from upstream nodes (including current node if it's a sql node)
+    const collectSqlQuery = (nodeId: string, visitedNodes: Set<string> = new Set()): string | null => {
+      if (visitedNodes.has(nodeId)) return null;
+      visitedNodes.add(nodeId);
+      const node = currentNodes.find(n => n.id === nodeId);
+      if (!node) return null;
+      
+      // If this is a sql node with a query, return it
+      if (node.data.type === 'sql' && node.data.query) {
+        return node.data.query;
+      }
+      
+      // Otherwise, check upstream nodes
+      const incomingEdges = currentEdges.filter(e => e.target === nodeId);
+      for (const edge of incomingEdges) {
+        const query = collectSqlQuery(edge.source, visitedNodes);
+        if (query) return query;
+      }
+      return null;
+    };
+
     const datasetId = traceSourceDataset(selectedNode.id);
     if (!datasetId) {
       setPreviewData(null);
@@ -751,6 +794,7 @@ function FlowWithProvider() {
 
     const filters = collectFilters(selectedNode.id);
     const pythonCode = collectPythonCode(selectedNode.id);
+    const sqlQuery = collectSqlQuery(selectedNode.id);
     const limit = selectedNode.data.previewRows || 10;
     let isCancelled = false;
 
@@ -758,8 +802,21 @@ function FlowWithProvider() {
       setPreviewLoading(true);
       try {
         let data;
-        // If there's Python code, use the python-transform endpoint
-        if (pythonCode) {
+        // If there's SQL query, use the sql-transform endpoint (which can also apply Python first)
+        if (sqlQuery) {
+          const response = await fetch(`/api/datasets/${datasetId}/sql-transform?limit=${limit}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filters, pythonCode, sqlQuery })
+          });
+          if (response.ok) {
+            data = await response.json();
+          } else {
+            const errorData = await response.json();
+            console.error('SQL transform error:', errorData.error);
+          }
+        } else if (pythonCode) {
+          // If there's Python code but no SQL, use the python-transform endpoint
           const response = await fetch(`/api/datasets/${datasetId}/python-transform?limit=${limit}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -797,7 +854,7 @@ function FlowWithProvider() {
 
     doFetch();
     return () => { isCancelled = true; };
-  }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.previewRows, selectedNode?.data.code, previewKey]);
+  }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.previewRows, selectedNode?.data.code, selectedNode?.data.query, previewKey]);
 
   // Update preview/python/sql node metadata when preview data changes
   useEffect(() => {
@@ -835,25 +892,32 @@ function FlowWithProvider() {
     }
   }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.stats?.rows, selectedNode?.data.stats?.cols, previewData, setNodes]);
 
-  // Update validation/EDA node stats from upstream data (with filters and Python transforms applied)
+  // Update validation/EDA node stats from upstream data (with filters, Python, and SQL transforms applied)
   useEffect(() => {
     if (!selectedNode || selectedNode.data.type !== 'eda') return;
     
     const datasetId = getSourceDatasetId(selectedNode.id);
     if (!datasetId) return;
     
-    // Get upstream filters and Python code
+    // Get upstream filters, Python code, and SQL query
     const filters = getUpstreamFilters(selectedNode.id);
     const pythonCode = getUpstreamPythonCode(selectedNode.id);
+    const sqlQuery = getUpstreamSqlQuery(selectedNode.id);
     
-    // Use python-transform endpoint if there's Python code, otherwise use filtered-preview
-    const endpoint = pythonCode 
-      ? `/api/datasets/${datasetId}/python-transform?limit=1`
-      : `/api/datasets/${datasetId}/filtered-preview?limit=1`;
+    // Determine the right endpoint based on what transforms are upstream
+    let endpoint: string;
+    let body: string;
     
-    const body = pythonCode 
-      ? JSON.stringify({ filters, pythonCode })
-      : JSON.stringify({ filters });
+    if (sqlQuery) {
+      endpoint = `/api/datasets/${datasetId}/sql-transform?limit=1`;
+      body = JSON.stringify({ filters, pythonCode, sqlQuery });
+    } else if (pythonCode) {
+      endpoint = `/api/datasets/${datasetId}/python-transform?limit=1`;
+      body = JSON.stringify({ filters, pythonCode });
+    } else {
+      endpoint = `/api/datasets/${datasetId}/filtered-preview?limit=1`;
+      body = JSON.stringify({ filters });
+    }
     
     // Fetch stats with filters and transforms applied
     fetch(endpoint, {
@@ -883,7 +947,7 @@ function FlowWithProvider() {
         }
       })
       .catch(err => console.error('Failed to fetch EDA stats:', err));
-  }, [selectedNode?.id, selectedNode?.data.type, getSourceDatasetId, getUpstreamFilters, getUpstreamPythonCode, setNodes, edges]);
+  }, [selectedNode?.id, selectedNode?.data.type, getSourceDatasetId, getUpstreamFilters, getUpstreamPythonCode, getUpstreamSqlQuery, setNodes, edges]);
   
   // Multi-select dropdown component for columns
   const ColumnMultiSelect = ({ 
