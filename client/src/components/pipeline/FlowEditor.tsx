@@ -2064,26 +2064,6 @@ function FlowWithProvider() {
                     </div>
                   )}
 
-                  {selectedNode.data.stats && (
-                     <div className="space-y-2 pt-2">
-                        <Label>Metadata</Label>
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                           <div className="p-2 bg-muted/50 rounded border">
-                              <span className="text-muted-foreground block mb-0.5">Rows</span>
-                              <span className="font-mono font-medium">{selectedNode.data.stats.rows.toLocaleString()}</span>
-                           </div>
-                           <div className="p-2 bg-muted/50 rounded border">
-                              <span className="text-muted-foreground block mb-0.5">Columns</span>
-                              <span className="font-mono font-medium">{selectedNode.data.stats.cols}</span>
-                           </div>
-                           <div className="p-2 bg-muted/50 rounded border col-span-2">
-                              <span className="text-muted-foreground block mb-0.5">Total Volume</span>
-                              <span className="font-mono font-medium text-primary">{selectedNode.data.stats.volume || 'N/A'}</span>
-                           </div>
-                        </div>
-                     </div>
-                  )}
-
                   <Separator />
                   
                   {/* Delete Section - Prominent */}
@@ -2122,22 +2102,24 @@ function FlowWithProvider() {
                    <CardContent className="p-3 pt-0">
                       <div className="space-y-1 text-xs">
                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Source:</span>
+                            <span className="text-muted-foreground">From:</span>
                             <span className="font-mono">{selectedEdgeData.sourceNode?.data.label}</span>
                          </div>
                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Target:</span>
+                            <span className="text-muted-foreground">To:</span>
                             <span className="font-mono">{selectedEdgeData.targetNode?.data.label}</span>
                          </div>
-                         <Separator className="my-1 bg-blue-200" />
-                         <div className="flex justify-between font-semibold">
-                            <span>Row Count:</span>
-                            <span>{selectedEdgeData.sourceNode?.data.stats?.rows?.toLocaleString() || 'N/A'}</span>
-                         </div>
-                         <div className="flex justify-between text-muted-foreground">
-                            <span>Status:</span>
-                            <span className="capitalize">{selectedEdgeData.sourceNode?.data.status}</span>
-                         </div>
+                         {nodeOutputShapes[selectedEdgeData.sourceNode?.id] && (
+                           <>
+                             <Separator className="my-1 bg-blue-200" />
+                             <div className="flex justify-between font-semibold">
+                                <span>Data Shape:</span>
+                                <span className="font-mono">
+                                  {nodeOutputShapes[selectedEdgeData.sourceNode?.id]?.rows?.toLocaleString()} × {nodeOutputShapes[selectedEdgeData.sourceNode?.id]?.cols}
+                                </span>
+                             </div>
+                           </>
+                         )}
                       </div>
                       <div className="flex gap-2 mt-3">
                         <Button 
