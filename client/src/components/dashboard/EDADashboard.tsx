@@ -196,11 +196,11 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
         overallCompleteness: `${completeness}%`,
         missingValues: missingCount
       },
-      appliedFilters: filters,
+      appliedTransforms: transforms,
       columnStatistics: columnStats,
       outliers: outliers.slice(0, 50) // Limit to top 50 outliers
     };
-  }, [previewData, filters]);
+  }, [previewData, transforms]);
 
   const handleExportSummary = useCallback(() => {
     const summary = generateSummary();
