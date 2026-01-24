@@ -54,6 +54,12 @@ Preferred communication style: Simple, everyday language.
   - isin/notin support multi-select with auto-populated categorical values
   - Categorical columns (≤50 unique values) show dropdowns instead of text input
 - **Merge / Join**: Join datasets on key columns (inner, left, right, full outer)
+- **Sampling**: Stratified group sampling for meaningful time series analysis
+  - Select a group column (e.g., DFU, SKU, Product)
+  - Sample percentage slider (5-100% in 5% increments)
+  - Randomly samples X% of unique groups and returns ALL rows for each sampled group
+  - Ensures each sampled group has complete time series data for CV/ADI calculation
+  - Field names: `samplingColumn`, `samplePercent` (default: 100)
 - **Python Script**: Custom pandas transformations via Monaco editor
   - Shows input data preview when connected to upstream data source
   - Stats (rows/cols) update based on connected input
