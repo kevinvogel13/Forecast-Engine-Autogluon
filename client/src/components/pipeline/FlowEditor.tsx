@@ -82,6 +82,9 @@ function FlowWithProvider() {
   // Edge click popover state
   const [selectedEdgeData, setSelectedEdgeData] = useState<{ id: string, x: number, y: number, sourceNode: any, targetNode: any } | null>(null);
   
+  // Store output data shapes for each node (nodeId -> { rows, cols })
+  const [nodeOutputShapes, setNodeOutputShapes] = useState<Record<string, { rows: number; cols: number }>>({});
+  
   // Modal states for full views
   const [edaOpen, setEdaOpen] = useState(false);
   const [edaDatasetId, setEdaDatasetId] = useState<string | null>(null);
@@ -932,6 +935,92 @@ function FlowWithProvider() {
       })
       .catch(err => console.error('Failed to fetch EDA stats:', err));
   }, [selectedNode?.id, selectedNode?.data.type, getSourceDatasetId, getUpstreamTransforms, setNodes, edges]);
+
+  // Calculate output shapes for all nodes and update edges with labels
+  useEffect(() => {
+    const calculateShapes = async () => {
+      const shapes: Record<string, { rows: number; cols: number }> = {};
+      
+      for (const node of nodes) {
+        // Skip nodes that don't output data
+        if (!['input', 'filter', 'python', 'sql'].includes(node.data.type)) continue;
+        
+        // Get the source dataset for this node
+        const getDatasetId = (nodeId: string, visited: Set<string> = new Set()): string | null => {
+          if (visited.has(nodeId)) return null;
+          visited.add(nodeId);
+          const n = nodes.find(nd => nd.id === nodeId);
+          if (!n) return null;
+          if (n.data.type === 'input' && n.data.datasetId) return n.data.datasetId;
+          const incoming = edges.filter(e => e.target === nodeId);
+          for (const edge of incoming) {
+            const dsId = getDatasetId(edge.source, visited);
+            if (dsId) return dsId;
+          }
+          return null;
+        };
+        
+        const datasetId = getDatasetId(node.id);
+        if (!datasetId) continue;
+        
+        // Get transforms up to and including this node
+        const transforms = getUpstreamTransforms(node.id);
+        
+        try {
+          let response;
+          if (transforms.length > 0) {
+            response = await fetch(`/api/datasets/${datasetId}/transform?limit=1`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ transforms })
+            });
+          } else {
+            response = await fetch(`/api/datasets/${datasetId}/preview?limit=1`);
+          }
+          
+          if (response.ok) {
+            const data = await response.json();
+            shapes[node.id] = { rows: data.totalRows, cols: data.columns?.length || 0 };
+          }
+        } catch (err) {
+          // Ignore errors for shape calculation
+        }
+      }
+      
+      setNodeOutputShapes(shapes);
+    };
+    
+    // Debounce the calculation
+    const timeoutId = setTimeout(calculateShapes, 500);
+    return () => clearTimeout(timeoutId);
+  }, [nodes, edges, getUpstreamTransforms]);
+
+  // Update edges with shape labels
+  useEffect(() => {
+    setEdges(eds => eds.map(edge => {
+      const sourceShape = nodeOutputShapes[edge.source];
+      if (sourceShape) {
+        return {
+          ...edge,
+          label: `${sourceShape.rows.toLocaleString()} × ${sourceShape.cols}`,
+          labelStyle: { 
+            fontSize: 10, 
+            fontWeight: 500, 
+            fill: '#475569',
+            fontFamily: 'ui-monospace, monospace'
+          },
+          labelBgStyle: { 
+            fill: '#f1f5f9', 
+            fillOpacity: 0.9,
+            rx: 4,
+            ry: 4
+          },
+          labelBgPadding: [4, 6] as [number, number]
+        };
+      }
+      return edge;
+    }));
+  }, [nodeOutputShapes, setEdges]);
   
   // Multi-select dropdown component for columns
   const ColumnMultiSelect = ({ 
