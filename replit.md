@@ -67,8 +67,9 @@ Preferred communication style: Simple, everyday language.
 - **SQL Transform**: DuckDB SQL-based transformations
   - Shows input data preview when connected to upstream data source
   - Stats (rows/cols) update based on connected input
-- **Validation (EDA)**: Exploratory data analysis dashboard with filtered data support
-  - Uses upstream filters when connected downstream of Filter nodes
+- **Validation (EDA)**: Exploratory data analysis dashboard with full transform support
+  - Uses all upstream transforms (Filter, Sampling, Python, SQL) when connected downstream
+  - For sampled data analysis, connect a Sampling node before the Validation node
   - Real-time data analysis based on actual dataset columns
   - Export Summary button downloads JSON analysis file
   - Widgets: GeneralStats, TimeSeriesView, CategoryDistribution, DataCompletenessChart, DemandPatternAnalysis, OutlierTable

@@ -6,10 +6,7 @@ import { OutlierTable } from './widgets/OutlierTable';
 import { DataCompletenessChart } from './widgets/DataCompletenessChart';
 import { DemandPatternAnalysis } from './widgets/DemandPatternAnalysis';
 import { Button } from '@/components/ui/button';
-import { Slider } from '@/components/ui/slider';
-import { Settings2, Download, AlertCircle, Users } from 'lucide-react';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Settings2, Download, AlertCircle } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -24,12 +21,6 @@ interface EDADashboardProps {
   transforms?: Array<{ type: 'filter' | 'python' | 'sql' | 'sampling'; data: any }>;
 }
 
-interface SamplingInfo {
-  totalGroups: number;
-  sampledGroups: number;
-  sampledRows: number;
-}
-
 export default function EDADashboard({ datasetId, transforms = [] }: EDADashboardProps) {
   const [previewData, setPreviewData] = useState<{
     columns: string[];
@@ -37,64 +28,11 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
     totalRows: number;
   } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [groupColumn, setGroupColumn] = useState<string>('');
-  const [samplePercent, setSamplePercent] = useState<number>(100);
-  const [availableColumns, setAvailableColumns] = useState<string[]>([]);
-  const [samplingInfo, setSamplingInfo] = useState<SamplingInfo | null>(null);
 
-  // Fetch available columns when datasetId or transforms change
-  // Uses transformed data to get columns (including derived columns like DFU)
+  // Fetch data using transform endpoint (includes sampling if Sampling node is upstream)
   useEffect(() => {
     if (!datasetId) {
-      setAvailableColumns([]);
-      setGroupColumn('');
-      return;
-    }
-
-    const fetchColumns = async () => {
-      try {
-        let response;
-        // If there are transforms, use transform endpoint to get post-transform columns
-        if (transforms.length > 0) {
-          response = await fetch(`/api/datasets/${datasetId}/transform?limit=1`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transforms })
-          });
-        } else {
-          response = await fetch(`/api/datasets/${datasetId}/preview?limit=1`);
-        }
-        
-        if (response.ok) {
-          const data = await response.json();
-          const newColumns = data.columns || [];
-          setAvailableColumns(newColumns);
-          
-          // Auto-select best group column (prefer DFU, SKU, Product, or first column)
-          const defaultGroup = newColumns.find((col: string) => 
-            col.toLowerCase().includes('dfu') || 
-            col.toLowerCase().includes('sku') || 
-            col.toLowerCase().includes('product') ||
-            col.toLowerCase().includes('id')
-          ) || newColumns[0] || '';
-          
-          // Only update groupColumn if it's not already set or doesn't exist in new columns
-          if (!groupColumn || !newColumns.includes(groupColumn)) {
-            setGroupColumn(defaultGroup);
-          }
-        }
-      } catch {
-        setAvailableColumns([]);
-      }
-    };
-    fetchColumns();
-  }, [datasetId, JSON.stringify(transforms)]);
-
-  // Fetch data using stratified sampling
-  useEffect(() => {
-    if (!datasetId || !groupColumn) {
       setPreviewData(null);
-      setSamplingInfo(null);
       return;
     }
 
@@ -102,15 +40,16 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
     
     const fetchData = async () => {
       try {
-        const response = await fetch(`/api/datasets/${datasetId}/stratified-sample`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            groupColumn,
-            samplePercent,
-            transforms
-          })
-        });
+        let response;
+        if (transforms.length > 0) {
+          response = await fetch(`/api/datasets/${datasetId}/transform`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transforms })
+          });
+        } else {
+          response = await fetch(`/api/datasets/${datasetId}/preview`);
+        }
         
         if (response.ok) {
           const data = await response.json();
@@ -119,25 +58,19 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
             rows: data.rows,
             totalRows: data.totalRows
           });
-          setSamplingInfo({
-            totalGroups: data.totalGroups,
-            sampledGroups: data.sampledGroups,
-            sampledRows: data.sampledRows
-          });
         } else {
           setPreviewData(null);
-          setSamplingInfo(null);
         }
       } catch {
         setPreviewData(null);
-        setSamplingInfo(null);
       } finally {
         setLoading(false);
       }
     };
     
     fetchData();
-  }, [datasetId, groupColumn, samplePercent, JSON.stringify(transforms)]);
+  }, [datasetId, JSON.stringify(transforms)]);
+
   const [widgets, setWidgets] = useState({
     generalStats: true,
     demandPattern: true,
@@ -289,38 +222,10 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap justify-between items-center gap-4 mb-4">
-        <div className="flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Users className="w-4 h-4 text-muted-foreground" />
-            <Label className="text-sm text-muted-foreground">Group By:</Label>
-            <Select value={groupColumn} onValueChange={setGroupColumn} data-testid="select-group-column">
-              <SelectTrigger className="w-[140px] h-8 text-xs">
-                <SelectValue placeholder="Select column" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableColumns.map(col => (
-                  <SelectItem key={col} value={col}>{col}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2">
-            <Label className="text-sm text-muted-foreground">Sample:</Label>
-            <div className="w-32">
-              <Slider 
-                value={[samplePercent]} 
-                onValueChange={(val) => setSamplePercent(val[0])}
-                min={5} 
-                max={100} 
-                step={5}
-                data-testid="slider-sample-percent"
-              />
-            </div>
-            <span className="text-xs font-medium w-12">{samplePercent}%</span>
-          </div>
-          {samplingInfo && (
-            <span className="text-xs text-muted-foreground">
-              ({samplingInfo.sampledGroups.toLocaleString()} of {samplingInfo.totalGroups.toLocaleString()} groups, {samplingInfo.sampledRows.toLocaleString()} rows)
+        <div className="flex items-center gap-2">
+          {previewData && (
+            <span className="text-sm text-muted-foreground">
+              {previewData.rows.length.toLocaleString()} rows, {previewData.columns.length} columns
             </span>
           )}
         </div>
