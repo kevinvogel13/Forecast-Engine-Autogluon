@@ -101,17 +101,20 @@ export function DemandPatternAnalysis({ data }: DemandPatternAnalysisProps) {
     const result: DFUData[] = [];
 
     Object.entries(groupedData).forEach(([id, values]) => {
-      if (values.length < 2) return;
+      // Allow single observations - they will have CV=0 (no variation measurable)
+      if (values.length === 0) return;
 
       const nonZeroValues = values.filter(v => v > 0);
-      const zeroCount = values.length - nonZeroValues.length;
       
+      // ADI = Average Demand Interval = total periods / demand periods
       const adi = values.length / (nonZeroValues.length || 1);
       
       const mean = nonZeroValues.length > 0 
         ? nonZeroValues.reduce((a, b) => a + b, 0) / nonZeroValues.length 
         : 0;
       
+      // CV = Coefficient of Variation = std dev / mean
+      // For single observation, CV = 0 (no variation can be measured)
       let cv = 0;
       if (mean > 0 && nonZeroValues.length > 1) {
         const variance = nonZeroValues.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / nonZeroValues.length;
@@ -324,8 +327,8 @@ export function DemandPatternAnalysis({ data }: DemandPatternAnalysisProps) {
           <div className="h-[400px] flex items-center justify-center text-muted-foreground">
             <div className="text-center">
               <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p>Not enough data points per group</p>
-              <p className="text-sm mt-1">Each group needs at least 2 observations</p>
+              <p>No groups found in the data</p>
+              <p className="text-sm mt-1">Check that the selected columns contain valid data</p>
             </div>
           </div>
         </CardContent>

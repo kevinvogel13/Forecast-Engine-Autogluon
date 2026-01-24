@@ -42,13 +42,13 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
       try {
         let response;
         if (transforms.length > 0) {
-          response = await fetch(`/api/datasets/${datasetId}/transform?limit=100`, {
+          response = await fetch(`/api/datasets/${datasetId}/transform?limit=500`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ transforms })
           });
         } else {
-          response = await fetch(`/api/datasets/${datasetId}/preview?limit=100`);
+          response = await fetch(`/api/datasets/${datasetId}/preview?limit=500`);
         }
         
         if (response.ok) {

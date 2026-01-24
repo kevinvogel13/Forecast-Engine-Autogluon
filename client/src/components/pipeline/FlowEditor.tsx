@@ -1351,6 +1351,9 @@ function FlowWithProvider() {
           nodeTypes={nodeTypes}
           fitView
           attributionPosition="bottom-left"
+          deleteKeyCode={null}
+          selectionKeyCode={null}
+          multiSelectionKeyCode={null}
         >
           <Controls className="bg-white border-border shadow-sm" />
           <MiniMap className="border border-border shadow-sm rounded-lg overflow-hidden" zoomable pannable />
@@ -1505,7 +1508,12 @@ function FlowWithProvider() {
                                     <span>SQL Query</span>
                                     <span className="text-[10px] text-muted-foreground font-mono">PostgreSQL</span>
                                  </Label>
-                                 <div className="h-32 border rounded-md overflow-hidden">
+                                 <div 
+                                    className="h-32 border rounded-md overflow-hidden"
+                                    onKeyDown={(e) => e.stopPropagation()}
+                                    onKeyUp={(e) => e.stopPropagation()}
+                                    onKeyPress={(e) => e.stopPropagation()}
+                                 >
                                     <Editor
                                        height="100%"
                                        defaultLanguage="sql"
@@ -1885,7 +1893,12 @@ function FlowWithProvider() {
                             <span>Python Code</span>
                             <span className="text-[10px] text-muted-foreground font-mono">pandas available as pd</span>
                          </Label>
-                         <div className="h-48 border rounded-md overflow-hidden">
+                         <div 
+                            className="h-48 border rounded-md overflow-hidden"
+                            onKeyDown={(e) => e.stopPropagation()}
+                            onKeyUp={(e) => e.stopPropagation()}
+                            onKeyPress={(e) => e.stopPropagation()}
+                         >
                             <Editor
                                height="100%"
                                defaultLanguage="python"
@@ -1953,7 +1966,12 @@ function FlowWithProvider() {
                             <span>SQL Query</span>
                             <span className="text-[10px] text-muted-foreground font-mono">DuckDB Dialect</span>
                          </Label>
-                         <div className="h-48 border rounded-md overflow-hidden">
+                         <div 
+                            className="h-48 border rounded-md overflow-hidden"
+                            onKeyDown={(e) => e.stopPropagation()}
+                            onKeyUp={(e) => e.stopPropagation()}
+                            onKeyPress={(e) => e.stopPropagation()}
+                         >
                             <Editor
                                height="100%"
                                defaultLanguage="sql"
