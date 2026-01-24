@@ -961,7 +961,7 @@ function FlowWithProvider() {
       
       for (const node of nodes) {
         // Skip nodes that don't output data
-        if (!['input', 'filter', 'python', 'sql'].includes(node.data.type)) continue;
+        if (!['input', 'filter', 'python', 'sql', 'sampling'].includes(node.data.type)) continue;
         
         // Get the source dataset for this node
         const getDatasetId = (nodeId: string, visited: Set<string> = new Set()): string | null => {

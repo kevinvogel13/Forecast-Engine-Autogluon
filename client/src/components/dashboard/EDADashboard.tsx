@@ -41,14 +41,16 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
     const fetchData = async () => {
       try {
         let response;
+        // Limit to 10000 rows for EDA analysis performance
+        const limit = 10000;
         if (transforms.length > 0) {
-          response = await fetch(`/api/datasets/${datasetId}/transform`, {
+          response = await fetch(`/api/datasets/${datasetId}/transform?limit=${limit}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ transforms })
           });
         } else {
-          response = await fetch(`/api/datasets/${datasetId}/preview`);
+          response = await fetch(`/api/datasets/${datasetId}/preview?limit=${limit}`);
         }
         
         if (response.ok) {
