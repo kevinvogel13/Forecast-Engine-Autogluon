@@ -233,6 +233,247 @@ export async function registerRoutes(
     }
   });
 
+  // Stratified sampling - sample X% of groups, return all rows for selected groups
+  app.post("/api/datasets/:id/stratified-sample", async (req, res) => {
+    try {
+      const dataset = await storage.getDataset(req.params.id);
+      if (!dataset) {
+        return res.status(404).json({ error: "Dataset not found" });
+      }
+
+      const { groupColumn, samplePercent, transforms } = req.body as {
+        groupColumn: string;
+        samplePercent: number; // 5-100
+        transforms?: Array<{ type: 'filter' | 'python' | 'sql'; data: any }>;
+      };
+
+      if (!groupColumn) {
+        return res.status(400).json({ error: "groupColumn is required" });
+      }
+
+      const percent = Math.max(5, Math.min(100, samplePercent || 100));
+
+      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      let records = parse(fileContent, { 
+        columns: true, 
+        skip_empty_lines: true 
+      }) as any[];
+
+      // Apply any transforms first (filters, python, sql)
+      for (const transform of transforms || []) {
+        if (transform.type === 'filter') {
+          const { column, operator, value } = transform.data;
+          if (!column || !operator) continue;
+
+          records = records.filter((row: any) => {
+            const cellValue = row[column];
+            switch (operator) {
+              case 'eq': return String(cellValue) === String(value);
+              case 'neq': return String(cellValue) !== String(value);
+              case 'gt': return parseFloat(cellValue) > parseFloat(value);
+              case 'gte': return parseFloat(cellValue) >= parseFloat(value);
+              case 'lt': return parseFloat(cellValue) < parseFloat(value);
+              case 'lte': return parseFloat(cellValue) <= parseFloat(value);
+              case 'contains': return String(cellValue).toLowerCase().includes(String(value).toLowerCase());
+              case 'isin':
+                const inValues = Array.isArray(value) ? value : [value];
+                return inValues.map(String).includes(String(cellValue));
+              case 'notin':
+                const notInValues = Array.isArray(value) ? value : [value];
+                return !notInValues.map(String).includes(String(cellValue));
+              case 'isnull': return cellValue === null || cellValue === undefined || cellValue === '' || cellValue === 'null';
+              case 'notnull': return cellValue !== null && cellValue !== undefined && cellValue !== '' && cellValue !== 'null';
+              default: return true;
+            }
+          });
+        } else if (transform.type === 'python') {
+          const pythonCode = transform.data;
+          if (!pythonCode || pythonCode.trim() === '') continue;
+          
+          const cleanedCode = pythonCode
+            .split('\n')
+            .map((line: string) => {
+              if (line.trim().startsWith('return ')) {
+                const returnValue = line.trim().substring(7).trim();
+                return line.replace(/return\s+.+/, `result_df = ${returnValue}`);
+              }
+              return line;
+            })
+            .join('\n');
+
+          const pythonScript = `
+import sys
+import json
+import pandas as pd
+
+try:
+    input_data = json.loads(sys.stdin.read())
+    input_df = pd.DataFrame(input_data)
+    result_df = None
+    
+${cleanedCode.split('\n').map((line: string) => '    ' + line).join('\n')}
+    
+    if result_df is None:
+        if 'df' in dir() and isinstance(df, pd.DataFrame):
+            result_df = df
+        else:
+            result_df = input_df
+    
+    result = result_df.to_dict('records')
+    print(json.dumps(result))
+except Exception as e:
+    print(json.dumps({"error": str(e)}), file=sys.stderr)
+    sys.exit(1)
+`;
+
+          const inputJson = JSON.stringify(records);
+          const pythonResult = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
+            const python = spawn('python3', ['-c', pythonScript]);
+            let stdout = '';
+            let stderr = '';
+
+            python.stdin.on('error', () => {});
+            python.stdin.write(inputJson);
+            python.stdin.end();
+
+            python.stdout.on('data', (data) => { stdout += data.toString(); });
+            python.stderr.on('data', (data) => { stderr += data.toString(); });
+
+            python.on('close', (code) => {
+              if (code !== 0) {
+                resolve({ error: stderr || 'Python script failed' });
+              } else {
+                try {
+                  const parsed = JSON.parse(stdout);
+                  resolve({ data: parsed.error ? undefined : parsed, error: parsed.error });
+                } catch (e) {
+                  resolve({ error: 'Failed to parse Python output' });
+                }
+              }
+            });
+
+            python.on('error', (err) => {
+              resolve({ error: `Failed to execute Python: ${err.message}` });
+            });
+          });
+
+          if (pythonResult.error) {
+            return res.status(400).json({ error: pythonResult.error });
+          }
+          records = pythonResult.data || records;
+        } else if (transform.type === 'sql') {
+          const sqlQuery = transform.data;
+          if (!sqlQuery || sqlQuery.trim() === '') continue;
+          
+          const inputJson = JSON.stringify(records);
+          
+          const sqlScript = `
+import sys
+import json
+import pandas as pd
+import duckdb
+
+try:
+    input_data = json.loads(sys.stdin.read())
+    input_table = pd.DataFrame(input_data)
+    
+    for col in input_table.columns:
+        dtype_str = str(input_table[col].dtype)
+        if dtype_str == 'object' or dtype_str == 'str' or dtype_str.startswith('string'):
+            input_table[col] = input_table[col].astype(object)
+    
+    con = duckdb.connect()
+    con.register('input_table', input_table)
+    
+    result_df = con.execute("""${sqlQuery.replace(/"/g, '\\"')}""").fetchdf()
+    
+    result = result_df.to_dict('records')
+    print(json.dumps(result, default=str))
+except Exception as e:
+    print(json.dumps({"error": str(e)}), file=sys.stderr)
+    sys.exit(1)
+`;
+
+          const sqlResult = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
+            const python = spawn('python3', ['-c', sqlScript]);
+            let stdout = '';
+            let stderr = '';
+
+            python.stdin.on('error', () => {});
+            python.stdin.write(inputJson);
+            python.stdin.end();
+
+            python.stdout.on('data', (data) => { stdout += data.toString(); });
+            python.stderr.on('data', (data) => { stderr += data.toString(); });
+
+            python.on('close', (code) => {
+              if (code !== 0) {
+                resolve({ error: stderr || 'SQL query failed' });
+              } else {
+                try {
+                  const parsed = JSON.parse(stdout);
+                  if (parsed.error) {
+                    resolve({ error: parsed.error });
+                  } else {
+                    resolve({ data: parsed });
+                  }
+                } catch (e) {
+                  resolve({ error: 'Failed to parse SQL output' });
+                }
+              }
+            });
+
+            python.on('error', (err) => {
+              resolve({ error: `Failed to execute SQL: ${err.message}` });
+            });
+          });
+
+          if (sqlResult.error) {
+            return res.status(400).json({ error: sqlResult.error });
+          }
+          records = sqlResult.data || records;
+        }
+      }
+
+      const totalRowsAfterTransforms = records.length;
+
+      // Check if groupColumn exists
+      if (records.length === 0 || !(groupColumn in records[0])) {
+        return res.status(400).json({ error: `Column '${groupColumn}' not found in dataset` });
+      }
+
+      // Get unique group values
+      const allGroups = [...new Set(records.map((r: any) => r[groupColumn]))] as string[];
+      const totalGroups = allGroups.length;
+
+      // Randomly sample X% of groups
+      const numGroupsToSample = Math.max(1, Math.ceil((percent / 100) * totalGroups));
+      
+      // Shuffle and take first N (random sampling)
+      const shuffled = allGroups.sort(() => Math.random() - 0.5);
+      const selectedGroups = new Set(shuffled.slice(0, numGroupsToSample));
+
+      // Filter records to only include selected groups
+      const sampledRecords = records.filter((row: any) => selectedGroups.has(row[groupColumn]));
+
+      const columns = sampledRecords.length > 0 ? Object.keys(sampledRecords[0]) : (records.length > 0 ? Object.keys(records[0]) : []);
+
+      res.json({
+        columns,
+        rows: sampledRecords,
+        totalRows: totalRowsAfterTransforms,
+        sampledRows: sampledRecords.length,
+        totalGroups,
+        sampledGroups: numGroupsToSample,
+        samplePercent: percent,
+        groupColumn
+      });
+    } catch (error) {
+      console.error("Error performing stratified sampling:", error);
+      res.status(500).json({ error: "Failed to perform stratified sampling" });
+    }
+  });
+
   // Filtered data preview - applies filter transformations
   app.post("/api/datasets/:id/filtered-preview", async (req, res) => {
     try {

@@ -6,7 +6,8 @@ import { OutlierTable } from './widgets/OutlierTable';
 import { DataCompletenessChart } from './widgets/DataCompletenessChart';
 import { DemandPatternAnalysis } from './widgets/DemandPatternAnalysis';
 import { Button } from '@/components/ui/button';
-import { Settings2, Download, AlertCircle, Database } from 'lucide-react';
+import { Slider } from '@/components/ui/slider';
+import { Settings2, Download, AlertCircle, Users } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
@@ -23,7 +24,11 @@ interface EDADashboardProps {
   transforms?: Array<{ type: 'filter' | 'python' | 'sql'; data: any }>;
 }
 
-type SampleSize = '1000' | '5000' | '10000' | '50000' | 'all';
+interface SamplingInfo {
+  totalGroups: number;
+  sampledGroups: number;
+  sampledRows: number;
+}
 
 export default function EDADashboard({ datasetId, transforms = [] }: EDADashboardProps) {
   const [previewData, setPreviewData] = useState<{
@@ -32,32 +37,80 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
     totalRows: number;
   } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [sampleSize, setSampleSize] = useState<SampleSize>('10000');
+  const [groupColumn, setGroupColumn] = useState<string>('');
+  const [samplePercent, setSamplePercent] = useState<number>(100);
+  const [availableColumns, setAvailableColumns] = useState<string[]>([]);
+  const [samplingInfo, setSamplingInfo] = useState<SamplingInfo | null>(null);
 
+  // Fetch available columns when datasetId or transforms change
+  // Uses transformed data to get columns (including derived columns like DFU)
   useEffect(() => {
     if (!datasetId) {
-      setPreviewData(null);
+      setAvailableColumns([]);
+      setGroupColumn('');
       return;
     }
 
-    setLoading(true);
-    
-    // Use unified transform endpoint if there are transforms, otherwise use preview
-    const fetchData = async () => {
+    const fetchColumns = async () => {
       try {
         let response;
-        // For "all", use a very large limit; otherwise use the selected sample size
-        const limitValue = sampleSize === 'all' ? 1000000 : parseInt(sampleSize);
-        
+        // If there are transforms, use transform endpoint to get post-transform columns
         if (transforms.length > 0) {
-          response = await fetch(`/api/datasets/${datasetId}/transform?limit=${limitValue}`, {
+          response = await fetch(`/api/datasets/${datasetId}/transform?limit=1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ transforms })
           });
         } else {
-          response = await fetch(`/api/datasets/${datasetId}/preview?limit=${limitValue}`);
+          response = await fetch(`/api/datasets/${datasetId}/preview?limit=1`);
         }
+        
+        if (response.ok) {
+          const data = await response.json();
+          const newColumns = data.columns || [];
+          setAvailableColumns(newColumns);
+          
+          // Auto-select best group column (prefer DFU, SKU, Product, or first column)
+          const defaultGroup = newColumns.find((col: string) => 
+            col.toLowerCase().includes('dfu') || 
+            col.toLowerCase().includes('sku') || 
+            col.toLowerCase().includes('product') ||
+            col.toLowerCase().includes('id')
+          ) || newColumns[0] || '';
+          
+          // Only update groupColumn if it's not already set or doesn't exist in new columns
+          if (!groupColumn || !newColumns.includes(groupColumn)) {
+            setGroupColumn(defaultGroup);
+          }
+        }
+      } catch {
+        setAvailableColumns([]);
+      }
+    };
+    fetchColumns();
+  }, [datasetId, JSON.stringify(transforms)]);
+
+  // Fetch data using stratified sampling
+  useEffect(() => {
+    if (!datasetId || !groupColumn) {
+      setPreviewData(null);
+      setSamplingInfo(null);
+      return;
+    }
+
+    setLoading(true);
+    
+    const fetchData = async () => {
+      try {
+        const response = await fetch(`/api/datasets/${datasetId}/stratified-sample`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            groupColumn,
+            samplePercent,
+            transforms
+          })
+        });
         
         if (response.ok) {
           const data = await response.json();
@@ -66,18 +119,25 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
             rows: data.rows,
             totalRows: data.totalRows
           });
+          setSamplingInfo({
+            totalGroups: data.totalGroups,
+            sampledGroups: data.sampledGroups,
+            sampledRows: data.sampledRows
+          });
         } else {
           setPreviewData(null);
+          setSamplingInfo(null);
         }
       } catch {
         setPreviewData(null);
+        setSamplingInfo(null);
       } finally {
         setLoading(false);
       }
     };
     
     fetchData();
-  }, [datasetId, JSON.stringify(transforms), sampleSize]);
+  }, [datasetId, groupColumn, samplePercent, JSON.stringify(transforms)]);
   const [widgets, setWidgets] = useState({
     generalStats: true,
     demandPattern: true,
@@ -229,26 +289,38 @@ export default function EDADashboard({ datasetId, transforms = [] }: EDADashboar
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap justify-between items-center gap-4 mb-4">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
-            <Database className="w-4 h-4 text-muted-foreground" />
-            <Label className="text-sm text-muted-foreground">Sample Size:</Label>
-            <Select value={sampleSize} onValueChange={(val) => setSampleSize(val as SampleSize)} data-testid="select-sample-size">
-              <SelectTrigger className="w-[130px] h-8 text-xs">
-                <SelectValue />
+            <Users className="w-4 h-4 text-muted-foreground" />
+            <Label className="text-sm text-muted-foreground">Group By:</Label>
+            <Select value={groupColumn} onValueChange={setGroupColumn} data-testid="select-group-column">
+              <SelectTrigger className="w-[140px] h-8 text-xs">
+                <SelectValue placeholder="Select column" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="1000">1,000 rows</SelectItem>
-                <SelectItem value="5000">5,000 rows</SelectItem>
-                <SelectItem value="10000">10,000 rows</SelectItem>
-                <SelectItem value="50000">50,000 rows</SelectItem>
-                <SelectItem value="all">All data</SelectItem>
+                {availableColumns.map(col => (
+                  <SelectItem key={col} value={col}>{col}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
-          {previewData && (
+          <div className="flex items-center gap-2">
+            <Label className="text-sm text-muted-foreground">Sample:</Label>
+            <div className="w-32">
+              <Slider 
+                value={[samplePercent]} 
+                onValueChange={(val) => setSamplePercent(val[0])}
+                min={5} 
+                max={100} 
+                step={5}
+                data-testid="slider-sample-percent"
+              />
+            </div>
+            <span className="text-xs font-medium w-12">{samplePercent}%</span>
+          </div>
+          {samplingInfo && (
             <span className="text-xs text-muted-foreground">
-              ({previewData.rows.length.toLocaleString()} of {previewData.totalRows.toLocaleString()} rows loaded)
+              ({samplingInfo.sampledGroups.toLocaleString()} of {samplingInfo.totalGroups.toLocaleString()} groups, {samplingInfo.sampledRows.toLocaleString()} rows)
             </span>
           )}
         </div>
