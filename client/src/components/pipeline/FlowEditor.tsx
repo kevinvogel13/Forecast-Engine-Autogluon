@@ -478,49 +478,62 @@ function FlowWithProvider() {
     return filters;
   }, [nodes, edges]);
 
-  // Collect Python code from upstream nodes (including if current node is python)
-  const getUpstreamPythonCode = useCallback((nodeId: string, visited: Set<string> = new Set()): string | null => {
-    if (visited.has(nodeId)) return null;
+  // Collect ALL transforms from upstream nodes in topological order (from source to current node)
+  // Returns an array of transform steps: { type: 'filter' | 'python' | 'sql', data: any }
+  const getUpstreamTransforms = useCallback((nodeId: string, visited: Set<string> = new Set()): Array<{ type: 'filter' | 'python' | 'sql'; data: any }> => {
+    if (visited.has(nodeId)) return [];
     visited.add(nodeId);
     
     const node = nodes.find(n => n.id === nodeId);
-    if (!node) return null;
+    if (!node) return [];
     
-    // If this is a python node with code, return it
-    if (node.data.type === 'python' && node.data.code) {
-      return node.data.code;
-    }
-    
-    // Otherwise, check upstream nodes
+    // First, get transforms from upstream nodes
     const incomingEdges = edges.filter(e => e.target === nodeId);
+    let transforms: Array<{ type: 'filter' | 'python' | 'sql'; data: any }> = [];
+    
     for (const edge of incomingEdges) {
-      const code = getUpstreamPythonCode(edge.source, visited);
-      if (code) return code;
+      const upstreamTransforms = getUpstreamTransforms(edge.source, visited);
+      transforms = [...transforms, ...upstreamTransforms];
     }
-    return null;
+    
+    // Then add this node's transform (if any)
+    if (node.data.type === 'filter' && node.data.filterColumn) {
+      const multiSelectOps = ['isin', 'notin'];
+      const noValueOps = ['isnull', 'notnull'];
+      const op = node.data.filterOp || 'eq'; // Default to 'eq' if not set
+      
+      let value = node.data.filterValue;
+      if (multiSelectOps.includes(op)) {
+        value = node.data.filterValues || [];
+      } else if (noValueOps.includes(op)) {
+        value = null;
+      }
+      
+      transforms.push({
+        type: 'filter',
+        data: { column: node.data.filterColumn, operator: op, value }
+      });
+    } else if (node.data.type === 'python' && node.data.code) {
+      transforms.push({ type: 'python', data: node.data.code });
+    } else if (node.data.type === 'sql' && node.data.query) {
+      transforms.push({ type: 'sql', data: node.data.query });
+    }
+    
+    return transforms;
   }, [nodes, edges]);
 
-  // Collect SQL query from upstream nodes (including if current node is sql)
-  const getUpstreamSqlQuery = useCallback((nodeId: string, visited: Set<string> = new Set()): string | null => {
-    if (visited.has(nodeId)) return null;
-    visited.add(nodeId);
-    
-    const node = nodes.find(n => n.id === nodeId);
-    if (!node) return null;
-    
-    // If this is a sql node with a query, return it
-    if (node.data.type === 'sql' && node.data.query) {
-      return node.data.query;
-    }
-    
-    // Otherwise, check upstream nodes
-    const incomingEdges = edges.filter(e => e.target === nodeId);
-    for (const edge of incomingEdges) {
-      const query = getUpstreamSqlQuery(edge.source, visited);
-      if (query) return query;
-    }
-    return null;
-  }, [nodes, edges]);
+  // Legacy helpers for backward compatibility
+  const getUpstreamPythonCode = useCallback((nodeId: string): string | null => {
+    const transforms = getUpstreamTransforms(nodeId);
+    const pythonTransforms = transforms.filter(t => t.type === 'python');
+    return pythonTransforms.length > 0 ? pythonTransforms.map(t => t.data).join('\n\n') : null;
+  }, [getUpstreamTransforms]);
+
+  const getUpstreamSqlQuery = useCallback((nodeId: string): string | null => {
+    const transforms = getUpstreamTransforms(nodeId);
+    const sqlTransforms = transforms.filter(t => t.type === 'sql');
+    return sqlTransforms.length > 0 ? sqlTransforms[sqlTransforms.length - 1].data : null;
+  }, [getUpstreamTransforms]);
 
   // State for column values (for filter dropdowns)
   const [columnValues, setColumnValues] = useState<{
@@ -744,46 +757,47 @@ function FlowWithProvider() {
       return filters;
     };
 
-    // Collect Python code from upstream nodes (including current node if it's a python node)
-    const collectPythonCode = (nodeId: string, visitedNodes: Set<string> = new Set()): string | null => {
-      if (visitedNodes.has(nodeId)) return null;
+    // Collect ALL transforms from upstream nodes in topological order
+    const collectTransforms = (nodeId: string, visitedNodes: Set<string> = new Set()): Array<{ type: 'filter' | 'python' | 'sql'; data: any }> => {
+      if (visitedNodes.has(nodeId)) return [];
       visitedNodes.add(nodeId);
+      
       const node = currentNodes.find(n => n.id === nodeId);
-      if (!node) return null;
+      if (!node) return [];
       
-      // If this is a python node with code, return it
-      if (node.data.type === 'python' && node.data.code) {
-        return node.data.code;
-      }
-      
-      // Otherwise, check upstream nodes
+      // First, get transforms from upstream nodes
       const incomingEdges = currentEdges.filter(e => e.target === nodeId);
-      for (const edge of incomingEdges) {
-        const code = collectPythonCode(edge.source, visitedNodes);
-        if (code) return code;
-      }
-      return null;
-    };
-
-    // Collect SQL query from upstream nodes (including current node if it's a sql node)
-    const collectSqlQuery = (nodeId: string, visitedNodes: Set<string> = new Set()): string | null => {
-      if (visitedNodes.has(nodeId)) return null;
-      visitedNodes.add(nodeId);
-      const node = currentNodes.find(n => n.id === nodeId);
-      if (!node) return null;
+      let transforms: Array<{ type: 'filter' | 'python' | 'sql'; data: any }> = [];
       
-      // If this is a sql node with a query, return it
-      if (node.data.type === 'sql' && node.data.query) {
-        return node.data.query;
+      for (const edge of incomingEdges) {
+        const upstreamTransforms = collectTransforms(edge.source, visitedNodes);
+        transforms = [...transforms, ...upstreamTransforms];
       }
       
-      // Otherwise, check upstream nodes
-      const incomingEdges = currentEdges.filter(e => e.target === nodeId);
-      for (const edge of incomingEdges) {
-        const query = collectSqlQuery(edge.source, visitedNodes);
-        if (query) return query;
+      // Then add this node's transform (if any)
+      if (node.data.type === 'filter' && node.data.filterColumn) {
+        const multiSelectOps = ['isin', 'notin'];
+        const noValueOps = ['isnull', 'notnull'];
+        const op = node.data.filterOp || 'eq'; // Default to 'eq' if not set
+        
+        let value = node.data.filterValue;
+        if (multiSelectOps.includes(op)) {
+          value = node.data.filterValues || [];
+        } else if (noValueOps.includes(op)) {
+          value = null;
+        }
+        
+        transforms.push({
+          type: 'filter',
+          data: { column: node.data.filterColumn, operator: op, value }
+        });
+      } else if (node.data.type === 'python' && node.data.code) {
+        transforms.push({ type: 'python', data: node.data.code });
+      } else if (node.data.type === 'sql' && node.data.query) {
+        transforms.push({ type: 'sql', data: node.data.query });
       }
-      return null;
+      
+      return transforms;
     };
 
     const datasetId = traceSourceDataset(selectedNode.id);
@@ -792,9 +806,7 @@ function FlowWithProvider() {
       return;
     }
 
-    const filters = collectFilters(selectedNode.id);
-    const pythonCode = collectPythonCode(selectedNode.id);
-    const sqlQuery = collectSqlQuery(selectedNode.id);
+    const transforms = collectTransforms(selectedNode.id);
     const limit = selectedNode.data.previewRows || 10;
     let isCancelled = false;
 
@@ -802,39 +814,19 @@ function FlowWithProvider() {
       setPreviewLoading(true);
       try {
         let data;
-        // If there's SQL query, use the sql-transform endpoint (which can also apply Python first)
-        if (sqlQuery) {
-          const response = await fetch(`/api/datasets/${datasetId}/sql-transform?limit=${limit}`, {
+        // Use the unified transform endpoint if there are any transforms
+        if (transforms.length > 0) {
+          const response = await fetch(`/api/datasets/${datasetId}/transform?limit=${limit}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filters, pythonCode, sqlQuery })
+            body: JSON.stringify({ transforms })
           });
           if (response.ok) {
             data = await response.json();
           } else {
             const errorData = await response.json();
-            console.error('SQL transform error:', errorData.error);
+            console.error('Transform error:', errorData.error);
           }
-        } else if (pythonCode) {
-          // If there's Python code but no SQL, use the python-transform endpoint
-          const response = await fetch(`/api/datasets/${datasetId}/python-transform?limit=${limit}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filters, pythonCode })
-          });
-          if (response.ok) {
-            data = await response.json();
-          } else {
-            const errorData = await response.json();
-            console.error('Python transform error:', errorData.error);
-          }
-        } else if (filters.length > 0) {
-          const response = await fetch(`/api/datasets/${datasetId}/filtered-preview?limit=${limit}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filters })
-          });
-          if (response.ok) data = await response.json();
         } else {
           const response = await fetch(`/api/datasets/${datasetId}/preview?limit=${limit}`);
           if (response.ok) data = await response.json();
@@ -892,39 +884,31 @@ function FlowWithProvider() {
     }
   }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.stats?.rows, selectedNode?.data.stats?.cols, previewData, setNodes]);
 
-  // Update validation/EDA node stats from upstream data (with filters, Python, and SQL transforms applied)
+  // Update validation/EDA node stats from upstream data (with all transforms applied)
   useEffect(() => {
     if (!selectedNode || selectedNode.data.type !== 'eda') return;
     
     const datasetId = getSourceDatasetId(selectedNode.id);
     if (!datasetId) return;
     
-    // Get upstream filters, Python code, and SQL query
-    const filters = getUpstreamFilters(selectedNode.id);
-    const pythonCode = getUpstreamPythonCode(selectedNode.id);
-    const sqlQuery = getUpstreamSqlQuery(selectedNode.id);
+    // Get all upstream transforms
+    const transforms = getUpstreamTransforms(selectedNode.id);
     
-    // Determine the right endpoint based on what transforms are upstream
-    let endpoint: string;
-    let body: string;
+    // Use unified transform endpoint
+    const endpoint = transforms.length > 0 
+      ? `/api/datasets/${datasetId}/transform?limit=1`
+      : `/api/datasets/${datasetId}/preview?limit=1`;
     
-    if (sqlQuery) {
-      endpoint = `/api/datasets/${datasetId}/sql-transform?limit=1`;
-      body = JSON.stringify({ filters, pythonCode, sqlQuery });
-    } else if (pythonCode) {
-      endpoint = `/api/datasets/${datasetId}/python-transform?limit=1`;
-      body = JSON.stringify({ filters, pythonCode });
-    } else {
-      endpoint = `/api/datasets/${datasetId}/filtered-preview?limit=1`;
-      body = JSON.stringify({ filters });
-    }
+    const fetchOptions = transforms.length > 0 
+      ? {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transforms })
+        }
+      : { method: 'GET' };
     
-    // Fetch stats with filters and transforms applied
-    fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: body
-    })
+    // Fetch stats with all transforms applied
+    fetch(endpoint, fetchOptions)
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data && selectedNode) {
@@ -947,7 +931,7 @@ function FlowWithProvider() {
         }
       })
       .catch(err => console.error('Failed to fetch EDA stats:', err));
-  }, [selectedNode?.id, selectedNode?.data.type, getSourceDatasetId, getUpstreamFilters, getUpstreamPythonCode, getUpstreamSqlQuery, setNodes, edges]);
+  }, [selectedNode?.id, selectedNode?.data.type, getSourceDatasetId, getUpstreamTransforms, setNodes, edges]);
   
   // Multi-select dropdown component for columns
   const ColumnMultiSelect = ({ 
