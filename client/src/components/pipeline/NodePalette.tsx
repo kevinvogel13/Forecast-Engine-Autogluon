@@ -11,7 +11,8 @@ import {
   FileOutput,
   Plus,
   X,
-  Table2
+  Table2,
+  Layers
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +29,7 @@ export default function NodePalette({ onDragStart, onAddNode, isOpen, onToggle }
     { type: 'preview', label: 'Data Preview', icon: Table2, color: 'bg-indigo-100 text-indigo-600', description: 'View head of dataframe' },
     { type: 'merge', label: 'Merge / Join', icon: GitMerge, color: 'bg-orange-100 text-orange-600', description: 'Combine multiple datasets' },
     { type: 'filter', label: 'Filter', icon: Filter, color: 'bg-purple-100 text-purple-600', description: 'Filter rows by condition' },
+    { type: 'sampling', label: 'Sampling', icon: Layers, color: 'bg-pink-100 text-pink-600', description: 'Stratified group sampling' },
     { type: 'eda', label: 'Validation', icon: BarChart3, color: 'bg-green-100 text-green-600', description: 'Validate and explore data' },
     { type: 'python', label: 'Python Script', icon: Code2, color: 'bg-yellow-100 text-yellow-600', description: 'Custom Python transform' },
     { type: 'sql', label: 'SQL Transform', icon: Binary, color: 'bg-cyan-100 text-cyan-600', description: 'SQL-based transformation' },

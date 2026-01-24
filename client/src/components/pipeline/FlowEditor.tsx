@@ -88,7 +88,7 @@ function FlowWithProvider() {
   // Modal states for full views
   const [edaOpen, setEdaOpen] = useState(false);
   const [edaDatasetId, setEdaDatasetId] = useState<string | null>(null);
-  const [edaTransforms, setEdaTransforms] = useState<Array<{ type: 'filter' | 'python' | 'sql'; data: any }>>([]);
+  const [edaTransforms, setEdaTransforms] = useState<Array<{ type: 'filter' | 'python' | 'sql' | 'sampling'; data: any }>>([]);
   const [configOpen, setConfigOpen] = useState(false);
   const [resultsOpen, setResultsOpen] = useState(false);
   
@@ -482,8 +482,8 @@ function FlowWithProvider() {
   }, [nodes, edges]);
 
   // Collect ALL transforms from upstream nodes in topological order (from source to current node)
-  // Returns an array of transform steps: { type: 'filter' | 'python' | 'sql', data: any }
-  const getUpstreamTransforms = useCallback((nodeId: string, visited: Set<string> = new Set()): Array<{ type: 'filter' | 'python' | 'sql'; data: any }> => {
+  // Returns an array of transform steps: { type: 'filter' | 'python' | 'sql' | 'sampling', data: any }
+  const getUpstreamTransforms = useCallback((nodeId: string, visited: Set<string> = new Set()): Array<{ type: 'filter' | 'python' | 'sql' | 'sampling'; data: any }> => {
     if (visited.has(nodeId)) return [];
     visited.add(nodeId);
     
@@ -492,7 +492,7 @@ function FlowWithProvider() {
     
     // First, get transforms from upstream nodes
     const incomingEdges = edges.filter(e => e.target === nodeId);
-    let transforms: Array<{ type: 'filter' | 'python' | 'sql'; data: any }> = [];
+    let transforms: Array<{ type: 'filter' | 'python' | 'sql' | 'sampling'; data: any }> = [];
     
     for (const edge of incomingEdges) {
       const upstreamTransforms = getUpstreamTransforms(edge.source, visited);
@@ -520,6 +520,11 @@ function FlowWithProvider() {
       transforms.push({ type: 'python', data: node.data.code });
     } else if (node.data.type === 'sql' && node.data.query) {
       transforms.push({ type: 'sql', data: node.data.query });
+    } else if (node.data.type === 'sampling' && node.data.samplingColumn) {
+      transforms.push({ 
+        type: 'sampling', 
+        data: { column: node.data.samplingColumn, percent: node.data.samplePercent || 100 }
+      });
     }
     
     return transforms;
@@ -761,7 +766,7 @@ function FlowWithProvider() {
     };
 
     // Collect ALL transforms from upstream nodes in topological order
-    const collectTransforms = (nodeId: string, visitedNodes: Set<string> = new Set()): Array<{ type: 'filter' | 'python' | 'sql'; data: any }> => {
+    const collectTransforms = (nodeId: string, visitedNodes: Set<string> = new Set()): Array<{ type: 'filter' | 'python' | 'sql' | 'sampling'; data: any }> => {
       if (visitedNodes.has(nodeId)) return [];
       visitedNodes.add(nodeId);
       
@@ -770,7 +775,7 @@ function FlowWithProvider() {
       
       // First, get transforms from upstream nodes
       const incomingEdges = currentEdges.filter(e => e.target === nodeId);
-      let transforms: Array<{ type: 'filter' | 'python' | 'sql'; data: any }> = [];
+      let transforms: Array<{ type: 'filter' | 'python' | 'sql' | 'sampling'; data: any }> = [];
       
       for (const edge of incomingEdges) {
         const upstreamTransforms = collectTransforms(edge.source, visitedNodes);
@@ -798,6 +803,11 @@ function FlowWithProvider() {
         transforms.push({ type: 'python', data: node.data.code });
       } else if (node.data.type === 'sql' && node.data.query) {
         transforms.push({ type: 'sql', data: node.data.query });
+      } else if (node.data.type === 'sampling' && node.data.samplingColumn) {
+        transforms.push({ 
+          type: 'sampling', 
+          data: { column: node.data.samplingColumn, percent: node.data.samplePercent || 100 }
+        });
       }
       
       return transforms;
@@ -1883,6 +1893,54 @@ function FlowWithProvider() {
                           )}
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'sampling' && (
+                    <div className="space-y-4 border rounded-md p-3 bg-muted/20">
+                      <div className="space-y-2">
+                        <Label>Group Column</Label>
+                        <Select 
+                           value={selectedNode.data.samplingColumn || ''} 
+                           onValueChange={(val) => updateNodeData('samplingColumn', val)}
+                        >
+                          <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-sampling-column">
+                            <SelectValue placeholder="Select group column..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {getSourceColumns(selectedNode.id).length === 0 ? (
+                              <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
+                            ) : (
+                              getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[10px] text-muted-foreground">
+                          Sample a percentage of unique groups (e.g. DFU, SKU) and include all rows for each sampled group
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="flex justify-between">
+                          <span>Sample Percentage</span>
+                          <span className="text-xs font-mono">{selectedNode.data.samplePercent || 100}%</span>
+                        </Label>
+                        <input
+                          type="range"
+                          min="5"
+                          max="100"
+                          step="5"
+                          value={selectedNode.data.samplePercent || 100}
+                          onChange={(e) => updateNodeData('samplePercent', parseInt(e.target.value))}
+                          className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer"
+                          data-testid="slider-sample-percent"
+                        />
+                        <div className="flex justify-between text-[10px] text-muted-foreground">
+                          <span>5%</span>
+                          <span>100%</span>
+                        </div>
+                      </div>
                     </div>
                   )}
 

@@ -21,7 +21,7 @@ import {
 
 interface EDADashboardProps {
   datasetId?: string | null;
-  transforms?: Array<{ type: 'filter' | 'python' | 'sql'; data: any }>;
+  transforms?: Array<{ type: 'filter' | 'python' | 'sql' | 'sampling'; data: any }>;
 }
 
 interface SamplingInfo {

@@ -26,6 +26,7 @@ const getIcon = (type: string) => {
     case 'merge': return GitMerge;
     case 'union': return Layers;
     case 'filter': return Filter;
+    case 'sampling': return Layers;
     case 'transform': return Calculator;
     case 'groupby': return ListTree;
     case 'pivot': return TableProperties;
@@ -44,6 +45,7 @@ const getTypeColor = (type: string) => {
     case 'preview': return { bg: 'bg-indigo-50', border: 'border-indigo-200', icon: 'bg-indigo-100 text-indigo-600', handle: 'bg-indigo-500' };
     case 'merge': return { bg: 'bg-orange-50', border: 'border-orange-200', icon: 'bg-orange-100 text-orange-600', handle: 'bg-orange-500' };
     case 'filter': return { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'bg-purple-100 text-purple-600', handle: 'bg-purple-500' };
+    case 'sampling': return { bg: 'bg-pink-50', border: 'border-pink-200', icon: 'bg-pink-100 text-pink-600', handle: 'bg-pink-500' };
     case 'eda': return { bg: 'bg-green-50', border: 'border-green-200', icon: 'bg-green-100 text-green-600', handle: 'bg-green-500' };
     case 'python': return { bg: 'bg-yellow-50', border: 'border-yellow-200', icon: 'bg-yellow-100 text-yellow-600', handle: 'bg-yellow-500' };
     case 'sql': return { bg: 'bg-cyan-50', border: 'border-cyan-200', icon: 'bg-cyan-100 text-cyan-600', handle: 'bg-cyan-500' };

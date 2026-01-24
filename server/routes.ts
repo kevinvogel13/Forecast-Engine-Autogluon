@@ -755,6 +755,28 @@ except Exception as e:
             return res.status(400).json({ error: sqlResult.error });
           }
           records = sqlResult.data || records;
+        } else if (transform.type === 'sampling') {
+          const { column, percent } = transform.data;
+          if (!column || records.length === 0) continue;
+          
+          const samplePercent = Math.max(5, Math.min(100, percent || 100));
+          
+          // Check if column exists
+          if (!(column in records[0])) continue;
+          
+          // Get unique group values
+          const allGroups = [...new Set(records.map((r: any) => r[column]))] as string[];
+          const totalGroups = allGroups.length;
+          
+          // Randomly sample X% of groups
+          const numGroupsToSample = Math.max(1, Math.ceil((samplePercent / 100) * totalGroups));
+          
+          // Shuffle and take first N (random sampling)
+          const shuffled = allGroups.sort(() => Math.random() - 0.5);
+          const selectedGroups = new Set(shuffled.slice(0, numGroupsToSample));
+          
+          // Filter records to only include selected groups
+          records = records.filter((row: any) => selectedGroups.has(row[column]));
         }
       }
 
