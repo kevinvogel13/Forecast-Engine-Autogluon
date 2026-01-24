@@ -1,11 +1,42 @@
+import { useState, useEffect } from 'react';
 import Shell from '@/components/layout/Shell';
 import EDADashboard from '@/components/dashboard/EDADashboard';
 import { Button } from '@/components/ui/button';
-import { FileCheck, ArrowRight, Download } from 'lucide-react';
+import { FileCheck, ArrowRight, Download, Database } from 'lucide-react';
 import { useLocation } from "wouter";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+interface Dataset {
+  id: string;
+  filename: string;
+  rows: number;
+  cols: number;
+}
 
 export default function Validate() {
   const [, setLocation] = useLocation();
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/datasets')
+      .then(res => res.json())
+      .then(data => {
+        setDatasets(data);
+        if (data.length > 0) {
+          setSelectedDatasetId(data[0].id);
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
     <Shell>
@@ -16,17 +47,28 @@ export default function Validate() {
             <p className="text-muted-foreground">Exploratory analysis and quality checks for your forecasting dataset.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2">
+              <Database className="w-4 h-4 text-muted-foreground" />
+              <Select 
+                value={selectedDatasetId || ''} 
+                onValueChange={setSelectedDatasetId}
+                disabled={loading || datasets.length === 0}
+              >
+                <SelectTrigger className="w-[200px]" data-testid="select-dataset">
+                  <SelectValue placeholder={loading ? "Loading..." : "Select dataset"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {datasets.map((ds) => (
+                    <SelectItem key={ds.id} value={ds.id}>
+                      {ds.filename} ({ds.rows.toLocaleString()} rows)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <Button variant="outline" className="gap-2">
               <Download className="w-4 h-4" /> Export Report
             </Button>
-            <div className="flex items-center border rounded-md overflow-hidden bg-muted/20">
-               <button className="px-3 py-2 text-sm font-medium bg-background text-foreground shadow-sm hover:bg-muted/50 transition-all border-r">
-                  Historic Actuals
-               </button>
-               <button className="px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-all">
-                  Historic Forecast
-               </button>
-            </div>
             <Button 
               className="gap-2 bg-green-600 hover:bg-green-700"
               onClick={() => setLocation('/settings')}
@@ -36,7 +78,7 @@ export default function Validate() {
           </div>
         </div>
 
-        <EDADashboard />
+        <EDADashboard datasetId={selectedDatasetId} />
       </div>
     </Shell>
   );
