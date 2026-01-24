@@ -18,10 +18,10 @@ import {
 
 interface EDADashboardProps {
   datasetId?: string | null;
-  filters?: Array<{ column: string; operator: string; value: any }>;
+  transforms?: Array<{ type: 'filter' | 'python' | 'sql'; data: any }>;
 }
 
-export default function EDADashboard({ datasetId, filters = [] }: EDADashboardProps) {
+export default function EDADashboard({ datasetId, transforms = [] }: EDADashboardProps) {
   const [previewData, setPreviewData] = useState<{
     columns: string[];
     rows: any[];
@@ -36,14 +36,23 @@ export default function EDADashboard({ datasetId, filters = [] }: EDADashboardPr
     }
 
     setLoading(true);
-    fetch(`/api/datasets/${datasetId}/filtered-preview?limit=100`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filters })
-    })
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (data) {
+    
+    // Use unified transform endpoint if there are transforms, otherwise use preview
+    const fetchData = async () => {
+      try {
+        let response;
+        if (transforms.length > 0) {
+          response = await fetch(`/api/datasets/${datasetId}/transform?limit=100`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transforms })
+          });
+        } else {
+          response = await fetch(`/api/datasets/${datasetId}/preview?limit=100`);
+        }
+        
+        if (response.ok) {
+          const data = await response.json();
           setPreviewData({
             columns: data.columns,
             rows: data.rows,
@@ -52,10 +61,15 @@ export default function EDADashboard({ datasetId, filters = [] }: EDADashboardPr
         } else {
           setPreviewData(null);
         }
-      })
-      .catch(() => setPreviewData(null))
-      .finally(() => setLoading(false));
-  }, [datasetId, filters]);
+      } catch {
+        setPreviewData(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchData();
+  }, [datasetId, JSON.stringify(transforms)]);
   const [widgets, setWidgets] = useState({
     generalStats: true,
     demandPattern: true,
