@@ -119,19 +119,6 @@ export default function PipelineNode({ data, selected }: PipelineNodeProps) {
           )}
         </div>
 
-        {/* Stats */}
-        {data.stats && (
-          <div className="grid grid-cols-2 gap-1.5 mt-3">
-            <div className="bg-white/70 rounded-md px-2 py-1.5 border border-white/50">
-              <p className="text-[9px] text-muted-foreground uppercase font-medium">Rows</p>
-              <p className="text-xs font-mono font-semibold text-slate-700">{data.stats.rows.toLocaleString()}</p>
-            </div>
-            <div className="bg-white/70 rounded-md px-2 py-1.5 border border-white/50">
-              <p className="text-[9px] text-muted-foreground uppercase font-medium">Cols</p>
-              <p className="text-xs font-mono font-semibold text-slate-700">{data.stats.cols}</p>
-            </div>
-          </div>
-        )}
 
         {/* Error State */}
         {data.status === 'error' && (
