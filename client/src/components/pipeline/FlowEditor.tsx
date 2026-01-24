@@ -84,10 +84,11 @@ function ExplorationPanel({ nodeId, getSourceDatasetId, getUpstreamTransforms, s
       setLoading(true);
       try {
         const transforms = getUpstreamTransforms(nodeId);
-        const response = await fetch('/api/datasets/preview', {
+        
+        const response = await fetch(`/api/datasets/${datasetId}/transform`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ datasetId, transforms, limit: 1000 })
+          body: JSON.stringify({ transforms, limit: 1000 })
         });
         
         if (response.ok) {
