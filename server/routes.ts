@@ -382,6 +382,19 @@ export async function registerRoutes(
       const inputJson = JSON.stringify(records);
       
       // Create a Python script that runs the user's code
+      // Remove 'return' statements from user code since we'll execute in module context
+      const cleanedCode = pythonCode
+        .split('\n')
+        .map(line => {
+          // Replace 'return df' or 'return input_df' with assignment to result_df
+          if (line.trim().startsWith('return ')) {
+            const returnValue = line.trim().substring(7).trim();
+            return line.replace(/return\s+.+/, `result_df = ${returnValue}`);
+          }
+          return line;
+        })
+        .join('\n');
+
       const pythonScript = `
 import sys
 import json
@@ -390,15 +403,17 @@ import pandas as pd
 try:
     input_data = json.loads(sys.stdin.read())
     input_df = pd.DataFrame(input_data)
+    result_df = None
     
     # User's code
-${pythonCode.split('\n').map(line => '    ' + line).join('\n')}
+${cleanedCode.split('\n').map(line => '    ' + line).join('\n')}
     
-    # If the code returns df, use that. Otherwise assume it modified input_df
-    if 'df' in dir() and isinstance(df, pd.DataFrame):
-        result_df = df
-    else:
-        result_df = input_df
+    # If result_df was set, use that. Otherwise check for df, then input_df
+    if result_df is None:
+        if 'df' in dir() and isinstance(df, pd.DataFrame):
+            result_df = df
+        else:
+            result_df = input_df
     
     # Convert to JSON
     result = result_df.to_dict('records')
@@ -413,6 +428,10 @@ except Exception as e:
         let stdout = '';
         let stderr = '';
 
+        python.stdin.on('error', () => {
+          // Ignore EPIPE errors - they happen when Python exits early
+        });
+        
         python.stdin.write(inputJson);
         python.stdin.end();
 
