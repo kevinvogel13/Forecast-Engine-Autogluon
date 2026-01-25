@@ -67,28 +67,14 @@ Preferred communication style: Simple, everyday language.
 - **SQL Transform**: DuckDB SQL-based transformations
   - Shows input data preview when connected to upstream data source
   - Stats (rows/cols) update based on connected input
-- **Validation (EDA)**: Legacy exploratory data analysis dashboard (deprecated - use Data Exploration nodes instead)
-- **Data Exploration**: Modular visualization node with configurable chart types
-  - Chart types: Time Series, Bar Chart, Histogram, Scatter Plot, Data Table, Summary Statistics, ADI/COV Analysis
-  - Each node stores: chartType, xColumn, yColumn, groupColumn, aggregation, takeaway
-  - Takeaway text field for user insights/annotations per chart
-  - Fetches data through upstream transforms (Filter, Sampling, Python, SQL)
-  - Component: `client/src/components/exploration/DataExploration.tsx`
-- **Report**: Combines multiple Data Exploration nodes into downloadable HTML report
-  - Collects upstream exploration nodes via edge traversal
-  - Drag-and-drop section reordering via sectionOrder array
-  - Stores: reportTitle, sectionOrder (array of exploration node IDs)
-  - Generate Report button triggers `/api/reports/generate` endpoint
-  - Downloads styled HTML file with all visualizations and takeaways
+- **Validation (EDA)**: Exploratory data analysis dashboard with full transform support
+  - Uses all upstream transforms (Filter, Sampling, Python, SQL) when connected downstream
+  - For sampled data analysis, connect a Sampling node before the Validation node
+  - Real-time data analysis based on actual dataset columns
+  - Export Summary button downloads JSON analysis file
+  - Widgets: GeneralStats, TimeSeriesView, CategoryDistribution, DataCompletenessChart, DemandPatternAnalysis, OutlierTable
 - **Model Config**: AutoGluon forecast model configuration
 - **Output**: View forecast results
-
-### Modular Visualization Architecture (January 2026)
-- Replaced monolithic EDA Dashboard with modular Data Exploration nodes
-- Users add 1-30+ exploration chart nodes after sampling/transforms
-- Each exploration node renders a specific chart type with takeaway annotations
-- Report node collects exploration nodes and generates combined HTML report
-- Benefits: Flexibility, reusability, customizable report ordering
 
 ### Data Flow & Preview
 - Nodes trace back through edges to find source dataset ID using recursive edge traversal
