@@ -12,7 +12,9 @@ import {
   Plus,
   X,
   Table2,
-  Layers
+  Layers,
+  LineChart,
+  FileText
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +32,8 @@ export default function NodePalette({ onDragStart, onAddNode, isOpen, onToggle }
     { type: 'merge', label: 'Merge / Join', icon: GitMerge, color: 'bg-orange-100 text-orange-600', description: 'Combine multiple datasets' },
     { type: 'filter', label: 'Filter', icon: Filter, color: 'bg-purple-100 text-purple-600', description: 'Filter rows by condition' },
     { type: 'sampling', label: 'Sampling', icon: Layers, color: 'bg-pink-100 text-pink-600', description: 'Stratified group sampling' },
-    { type: 'eda', label: 'Validation', icon: BarChart3, color: 'bg-green-100 text-green-600', description: 'Validate and explore data' },
+    { type: 'exploration', label: 'Exploration', icon: LineChart, color: 'bg-emerald-100 text-emerald-600', description: 'Single chart/analysis component' },
+    { type: 'report', label: 'Report', icon: FileText, color: 'bg-violet-100 text-violet-600', description: 'Combine charts into HTML report' },
     { type: 'python', label: 'Python Script', icon: Code2, color: 'bg-yellow-100 text-yellow-600', description: 'Custom Python transform' },
     { type: 'sql', label: 'SQL Transform', icon: Binary, color: 'bg-cyan-100 text-cyan-600', description: 'SQL-based transformation' },
     { type: 'config', label: 'Model Config', icon: Settings2, color: 'bg-slate-100 text-slate-600', description: 'Configure forecast model' },

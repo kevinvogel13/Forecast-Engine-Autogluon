@@ -47,6 +47,7 @@ import { Textarea } from '@/components/ui/textarea';
 import Editor from '@monaco-editor/react';
 import { usePipelines, useCreatePipeline, useUpdatePipeline, useExecutePipeline } from '@/hooks/usePipelines';
 import { useDatasets } from '@/hooks/useDatasets';
+import { CHART_TYPES, renderChart } from '@/components/exploration/ExplorationCharts';
 
 const initialNodes: any[] = [];
 
@@ -708,9 +709,9 @@ function FlowWithProvider() {
 
   const previewKey = getPreviewKey();
 
-  // Effect to fetch preview when preview/python/sql node is selected or upstream state changes
+  // Effect to fetch preview when preview/python/sql/exploration node is selected or upstream state changes
   useEffect(() => {
-    const previewNodeTypes = ['preview', 'python', 'sql'];
+    const previewNodeTypes = ['preview', 'python', 'sql', 'exploration'];
     if (!selectedNode || !previewNodeTypes.includes(selectedNode.data.type)) {
       setPreviewData(null);
       return;
@@ -1962,6 +1963,322 @@ function FlowWithProvider() {
                         <p className="text-[10px] text-muted-foreground">
                           Set a seed for repeatable sampling. Same seed = same groups selected.
                         </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'exploration' && (
+                    <div className="space-y-4 border rounded-md p-3 bg-muted/20">
+                      <div className="space-y-2">
+                        <Label>Chart Type</Label>
+                        <Select 
+                           value={selectedNode.data.chartType || ''} 
+                           onValueChange={(val) => {
+                             updateNodeData('chartType', val);
+                             updateNodeData('chartConfig', {});
+                           }}
+                        >
+                          <SelectTrigger className="h-8" data-testid="select-chart-type">
+                            <SelectValue placeholder="Select chart type..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CHART_TYPES.map(ct => (
+                              <SelectItem key={ct.value} value={ct.value}>
+                                <div className="flex flex-col">
+                                  <span>{ct.label}</span>
+                                  <span className="text-[10px] text-muted-foreground">{ct.description}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {['table', 'summary', 'completeness', 'outliers'].includes(selectedNode.data.chartType) && (
+                        <div className="bg-muted/30 rounded p-3 text-center">
+                          <p className="text-xs text-muted-foreground">
+                            This chart type uses all columns automatically. Connect to a data source to see the preview.
+                          </p>
+                        </div>
+                      )}
+
+                      {(selectedNode.data.chartType === 'timeseries' || selectedNode.data.chartType === 'seasonal') && (
+                        <>
+                          <div className="space-y-2">
+                            <Label>Date Column</Label>
+                            <Select 
+                              value={selectedNode.data.chartConfig?.dateColumn || ''} 
+                              onValueChange={(val) => updateNodeData('chartConfig', { ...(selectedNode.data.chartConfig || {}), dateColumn: val })}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid="select-date-column">
+                                <SelectValue placeholder="Select date column..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getSourceColumns(selectedNode.id).length === 0 ? (
+                                  <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
+                                ) : (
+                                  getSourceColumns(selectedNode.id).map(col => (
+                                    <SelectItem key={col} value={col} className="text-xs">{col}</SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Value Column</Label>
+                            <Select 
+                              value={selectedNode.data.chartConfig?.valueColumn || ''} 
+                              onValueChange={(val) => updateNodeData('chartConfig', { ...(selectedNode.data.chartConfig || {}), valueColumn: val })}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid="select-value-column">
+                                <SelectValue placeholder="Select value column..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getSourceColumns(selectedNode.id).length === 0 ? (
+                                  <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
+                                ) : (
+                                  getSourceColumns(selectedNode.id).map(col => (
+                                    <SelectItem key={col} value={col} className="text-xs">{col}</SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </>
+                      )}
+
+                      {selectedNode.data.chartType === 'histogram' && (
+                        <div className="space-y-2">
+                          <Label>Value Column</Label>
+                          <Select 
+                            value={selectedNode.data.chartConfig?.valueColumn || ''} 
+                            onValueChange={(val) => updateNodeData('chartConfig', { ...(selectedNode.data.chartConfig || {}), valueColumn: val })}
+                          >
+                            <SelectTrigger className="h-8 text-xs" data-testid="select-histogram-column">
+                              <SelectValue placeholder="Select column..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getSourceColumns(selectedNode.id).length === 0 ? (
+                                <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
+                              ) : (
+                                getSourceColumns(selectedNode.id).map(col => (
+                                  <SelectItem key={col} value={col} className="text-xs">{col}</SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {(selectedNode.data.chartType === 'boxplot' || selectedNode.data.chartType === 'bar' || selectedNode.data.chartType === 'pareto') && (
+                        <>
+                          <div className="space-y-2">
+                            <Label>Group Column</Label>
+                            <Select 
+                              value={selectedNode.data.chartConfig?.groupColumn || ''} 
+                              onValueChange={(val) => updateNodeData('chartConfig', { ...(selectedNode.data.chartConfig || {}), groupColumn: val })}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid="select-group-column">
+                                <SelectValue placeholder="Select group column..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getSourceColumns(selectedNode.id).length === 0 ? (
+                                  <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
+                                ) : (
+                                  getSourceColumns(selectedNode.id).map(col => (
+                                    <SelectItem key={col} value={col} className="text-xs">{col}</SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Value Column</Label>
+                            <Select 
+                              value={selectedNode.data.chartConfig?.valueColumn || ''} 
+                              onValueChange={(val) => updateNodeData('chartConfig', { ...(selectedNode.data.chartConfig || {}), valueColumn: val })}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid="select-value-column">
+                                <SelectValue placeholder="Select value column..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getSourceColumns(selectedNode.id).length === 0 ? (
+                                  <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
+                                ) : (
+                                  getSourceColumns(selectedNode.id).map(col => (
+                                    <SelectItem key={col} value={col} className="text-xs">{col}</SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </>
+                      )}
+
+                      {selectedNode.data.chartType === 'scatter' && (
+                        <>
+                          <div className="space-y-2">
+                            <Label>X Column</Label>
+                            <Select 
+                              value={selectedNode.data.chartConfig?.xColumn || ''} 
+                              onValueChange={(val) => updateNodeData('chartConfig', { ...(selectedNode.data.chartConfig || {}), xColumn: val })}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid="select-x-column">
+                                <SelectValue placeholder="Select X column..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getSourceColumns(selectedNode.id).length === 0 ? (
+                                  <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
+                                ) : (
+                                  getSourceColumns(selectedNode.id).map(col => (
+                                    <SelectItem key={col} value={col} className="text-xs">{col}</SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Y Column</Label>
+                            <Select 
+                              value={selectedNode.data.chartConfig?.yColumn || ''} 
+                              onValueChange={(val) => updateNodeData('chartConfig', { ...(selectedNode.data.chartConfig || {}), yColumn: val })}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid="select-y-column">
+                                <SelectValue placeholder="Select Y column..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getSourceColumns(selectedNode.id).length === 0 ? (
+                                  <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
+                                ) : (
+                                  getSourceColumns(selectedNode.id).map(col => (
+                                    <SelectItem key={col} value={col} className="text-xs">{col}</SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </>
+                      )}
+
+                      {selectedNode.data.chartType === 'adicv' && (
+                        <>
+                          <div className="space-y-2">
+                            <Label>ID Column (e.g. DFU, SKU)</Label>
+                            <Select 
+                              value={selectedNode.data.chartConfig?.idColumn || ''} 
+                              onValueChange={(val) => updateNodeData('chartConfig', { ...(selectedNode.data.chartConfig || {}), idColumn: val })}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid="select-id-column">
+                                <SelectValue placeholder="Select ID column..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getSourceColumns(selectedNode.id).length === 0 ? (
+                                  <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
+                                ) : (
+                                  getSourceColumns(selectedNode.id).map(col => (
+                                    <SelectItem key={col} value={col} className="text-xs">{col}</SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Date Column</Label>
+                            <Select 
+                              value={selectedNode.data.chartConfig?.dateColumn || ''} 
+                              onValueChange={(val) => updateNodeData('chartConfig', { ...(selectedNode.data.chartConfig || {}), dateColumn: val })}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid="select-date-column">
+                                <SelectValue placeholder="Select date column..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getSourceColumns(selectedNode.id).length === 0 ? (
+                                  <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
+                                ) : (
+                                  getSourceColumns(selectedNode.id).map(col => (
+                                    <SelectItem key={col} value={col} className="text-xs">{col}</SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Demand Column</Label>
+                            <Select 
+                              value={selectedNode.data.chartConfig?.demandColumn || ''} 
+                              onValueChange={(val) => updateNodeData('chartConfig', { ...(selectedNode.data.chartConfig || {}), demandColumn: val })}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid="select-demand-column">
+                                <SelectValue placeholder="Select demand column..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getSourceColumns(selectedNode.id).length === 0 ? (
+                                  <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
+                                ) : (
+                                  getSourceColumns(selectedNode.id).map(col => (
+                                    <SelectItem key={col} value={col} className="text-xs">{col}</SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </>
+                      )}
+
+                      <div className="space-y-2">
+                        <Label>Takeaway / Notes</Label>
+                        <Textarea
+                          placeholder="Enter your key takeaway or insight from this chart..."
+                          className="text-xs h-20"
+                          value={selectedNode.data.takeaway || ''}
+                          onChange={(e) => updateNodeData('takeaway', e.target.value)}
+                          data-testid="textarea-takeaway"
+                        />
+                        <p className="text-[10px] text-muted-foreground">
+                          This note will appear with the chart in the final report
+                        </p>
+                      </div>
+
+                      {selectedNode.data.chartType && previewData && (
+                        <div className="border rounded-md p-2 bg-white">
+                          <p className="text-xs font-medium mb-2">Chart Preview</p>
+                          {renderChart(selectedNode.data.chartType, previewData, selectedNode.data.chartConfig || {})}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'report' && (
+                    <div className="space-y-4 border rounded-md p-3 bg-violet-50/50 border-violet-100">
+                      <div className="flex flex-col items-center justify-center text-center space-y-3 py-2">
+                        <div className="bg-violet-100 p-3 rounded-full">
+                          <FileText className="w-6 h-6 text-violet-600" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-semibold text-violet-900">Report Builder</h4>
+                          <p className="text-xs text-violet-700 mt-1">
+                            Connect Exploration nodes to this Report node. Each connected chart becomes a section in your final HTML report.
+                          </p>
+                        </div>
+                        <div className="w-full space-y-2">
+                          <Label>Report Title</Label>
+                          <Input
+                            placeholder="e.g. Demand Analysis Report"
+                            className="h-8 text-sm"
+                            value={selectedNode.data.reportTitle || ''}
+                            onChange={(e) => updateNodeData('reportTitle', e.target.value)}
+                            data-testid="input-report-title"
+                          />
+                        </div>
+                        <Button 
+                          className="w-full bg-violet-600 hover:bg-violet-700" 
+                          onClick={() => {
+                            toast.info('Report export coming soon - connect Exploration nodes first');
+                          }}
+                          data-testid="button-export-report"
+                        >
+                          Export HTML Report
+                        </Button>
                       </div>
                     </div>
                   )}

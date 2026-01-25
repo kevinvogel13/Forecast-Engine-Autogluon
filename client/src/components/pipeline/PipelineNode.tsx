@@ -1,6 +1,6 @@
 import { Handle, Position } from '@xyflow/react';
 import { Badge } from '@/components/ui/badge';
-import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, AlertCircle, Layers, ListTree, TableProperties, Code, HardDrive, History, Trash2, Settings2, BarChart3, CheckCircle2, Table2 } from 'lucide-react';
+import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, AlertCircle, Layers, ListTree, TableProperties, Code, HardDrive, History, Trash2, Settings2, BarChart3, CheckCircle2, Table2, LineChart, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface PipelineNodeProps {
@@ -34,6 +34,8 @@ const getIcon = (type: string) => {
     case 'output': return HardDrive;
     case 'history': return History;
     case 'eda': return BarChart3;
+    case 'exploration': return LineChart;
+    case 'report': return FileText;
     case 'config': return Settings2;
     default: return FileSpreadsheet;
   }
@@ -47,6 +49,8 @@ const getTypeColor = (type: string) => {
     case 'filter': return { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'bg-purple-100 text-purple-600', handle: 'bg-purple-500' };
     case 'sampling': return { bg: 'bg-pink-50', border: 'border-pink-200', icon: 'bg-pink-100 text-pink-600', handle: 'bg-pink-500' };
     case 'eda': return { bg: 'bg-green-50', border: 'border-green-200', icon: 'bg-green-100 text-green-600', handle: 'bg-green-500' };
+    case 'exploration': return { bg: 'bg-emerald-50', border: 'border-emerald-200', icon: 'bg-emerald-100 text-emerald-600', handle: 'bg-emerald-500' };
+    case 'report': return { bg: 'bg-violet-50', border: 'border-violet-200', icon: 'bg-violet-100 text-violet-600', handle: 'bg-violet-500' };
     case 'python': return { bg: 'bg-yellow-50', border: 'border-yellow-200', icon: 'bg-yellow-100 text-yellow-600', handle: 'bg-yellow-500' };
     case 'sql': return { bg: 'bg-cyan-50', border: 'border-cyan-200', icon: 'bg-cyan-100 text-cyan-600', handle: 'bg-cyan-500' };
     case 'config': return { bg: 'bg-slate-50', border: 'border-slate-200', icon: 'bg-slate-100 text-slate-600', handle: 'bg-slate-500' };

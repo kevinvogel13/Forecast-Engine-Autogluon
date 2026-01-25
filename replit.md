@@ -73,6 +73,17 @@ Preferred communication style: Simple, everyday language.
   - Real-time data analysis based on actual dataset columns
   - Export Summary button downloads JSON analysis file
   - Widgets: GeneralStats, TimeSeriesView, CategoryDistribution, DataCompletenessChart, DemandPatternAnalysis, OutlierTable
+- **Exploration**: Modular chart components for data exploration
+  - Individual chart type selection with conditional column configuration
+  - 12 chart types: Time Series, Histogram, Box Plot, Bar Chart, Scatter, ADI/CV Analysis, Pareto, Data Table, Summary Stats, Seasonal Plot, Completeness, Outlier Detection
+  - Each exploration node has a takeaway/notes textarea for user annotations
+  - Chart preview rendered in the configuration panel when columns are selected
+  - Emerald color theme
+- **Report**: Combines multiple exploration charts into an HTML report
+  - Connect Exploration nodes to aggregate charts into report sections
+  - Report title configuration
+  - Export HTML Report button (pending implementation)
+  - Violet color theme
 - **Model Config**: AutoGluon forecast model configuration
 - **Output**: View forecast results
 
