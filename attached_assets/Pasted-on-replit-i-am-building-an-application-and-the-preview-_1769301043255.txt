@@ -1,0 +1,35 @@
+on replit i am building an application and the preview functionality is broken. it just says this
+
+Based on the screenshot, you are seeing a "The connection was reset" error in the Replit Preview pane. This usually means the browser tried to connect to your app, but the server dropped the connection, crashed, or isn't running where Replit expects it to be.
+
+Here are the most common causes and how to fix them:
+
+1. The Agent is "Blocking" the Port
+In the left panel, the Replit AI agent is currently running an e2e (End-to-End) test ("Pipeline Editor: Node Creation and Configuration").
+
+The Issue: E2E tests often spin up their own instance of the app or take control of the browser driver. While the test is running, the main development server might be paused, stopped, or blocked by the test process.
+
+The Fix: Wait for the test to finish. If it's stuck, you may need to stop the agent's current action or cancel the run in the console so the normal web server can restart.
+
+2. Server Crash (Check the Console)
+The "Connection Reset" error often happens if your backend crashes immediately after receiving a request.
+
+Action: Click on the Console or Shell tab (usually at the bottom or right of the screen).
+
+Look for: Error messages like Process exited with code 1, segmentation faults, or syntax errors that appear the moment you try to refresh the preview.
+
+3. Wrong Port or Address Binding
+Replit needs your server to listen on 0.0.0.0 (not just localhost or 127.0.0.1) to map it to the external URL.
+
+The Fix: Check your code (e.g., in index.ts, server.js, or vite.config.ts).
+
+Ensure the host is set to '0.0.0.0'.
+
+Ensure the port matches what Replit expects (commonly 3000, 5000, 8080).
+
+4. Infinite Loop
+If you have a synchronous loop in your code that never ends, the server will accept the connection but never send data back, eventually causing the browser or proxy to reset the connection.
+
+The Fix: Check any while loops or recursive functions you may have recently edited.
+
+Recommended Next Step: Try clicking the Restart (Stop/Run) button at the top of the IDE to force the server to reboot, which clears temporary glitches with the preview proxy.
