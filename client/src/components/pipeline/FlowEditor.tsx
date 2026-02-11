@@ -45,6 +45,7 @@ const nodeTypes: NodeTypes = {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import Editor from '@monaco-editor/react';
+import { CHART_TYPES, renderChart } from '@/components/exploration/ExplorationCharts';
 import { usePipelines, useCreatePipeline, useUpdatePipeline, useExecutePipeline } from '@/hooks/usePipelines';
 import { useDatasets } from '@/hooks/useDatasets';
 
@@ -99,6 +100,9 @@ function FlowWithProvider() {
   const [saveAsNew, setSaveAsNew] = useState(false);
   const [stashedPipelineName, setStashedPipelineName] = useState('');
   const [stashedPipelineDescription, setStashedPipelineDescription] = useState('');
+
+  const [explorationPreview, setExplorationPreview] = useState<{ columns: string[], rows: any[], totalRows: number } | null>(null);
+  const [explorationPreviewLoading, setExplorationPreviewLoading] = useState(false);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge({
@@ -673,6 +677,116 @@ function FlowWithProvider() {
     getSourceDatasetId,
     setNodes
   ]);
+
+  const fetchExplorationPreview = useCallback(async () => {
+    if (!selectedNode) return;
+    const datasetId = getSourceDatasetId(selectedNode.id);
+    if (!datasetId) {
+      toast.error('No data source connected');
+      return;
+    }
+    setExplorationPreviewLoading(true);
+    try {
+      const transforms = getUpstreamTransforms(selectedNode.id);
+      const response = await fetch(`/api/datasets/${datasetId}/filtered-preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transforms, limit: 500 })
+      });
+      if (!response.ok) throw new Error('Failed to fetch preview');
+      const data = await response.json();
+      setExplorationPreview(data);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load preview');
+    } finally {
+      setExplorationPreviewLoading(false);
+    }
+  }, [selectedNode, getSourceDatasetId, getUpstreamTransforms]);
+
+  useEffect(() => {
+    setExplorationPreview(null);
+  }, [selectedNode?.id]);
+
+  const exportReportHTML = useCallback(async () => {
+    if (!selectedNode) return;
+    const reportTitle = selectedNode.data.reportTitle || 'Untitled Report';
+    const incomingEdges = edges.filter(e => e.target === selectedNode.id);
+    const explorationNodes = incomingEdges
+      .map(e => nodes.find(n => n.id === e.source))
+      .filter(n => n && n.data.type === 'exploration');
+
+    if (explorationNodes.length === 0) {
+      toast.error('No exploration nodes connected to this report');
+      return;
+    }
+
+    let sectionsHTML = '';
+    for (const expNode of explorationNodes) {
+      if (!expNode) continue;
+      const chartType = expNode.data.chartType || 'Not configured';
+      const chartConfig = expNode.data.chartConfig || {};
+      const takeaway = expNode.data.takeaway || '';
+      const chartLabel = CHART_TYPES.find(ct => ct.value === chartType)?.label || chartType;
+
+      let dataHTML = '';
+      try {
+        const datasetId = getSourceDatasetId(expNode.id);
+        if (datasetId) {
+          const transforms = getUpstreamTransforms(expNode.id);
+          const response = await fetch(`/api/datasets/${datasetId}/filtered-preview`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transforms, limit: 100 })
+          });
+          if (response.ok) {
+            const previewData = await response.json();
+            const cols = previewData.columns || [];
+            const rows = (previewData.rows || []).slice(0, 50);
+            dataHTML = `<table style="width:100%;border-collapse:collapse;margin-top:12px;font-size:12px;">
+              <thead><tr>${cols.map((c: string) => `<th style="border:1px solid #e2e8f0;padding:6px 8px;background:#f8fafc;text-align:left;">${c}</th>`).join('')}</tr></thead>
+              <tbody>${rows.map((row: any) => `<tr>${cols.map((c: string) => `<td style="border:1px solid #e2e8f0;padding:4px 8px;">${row[c] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>
+            </table>
+            <p style="color:#94a3b8;font-size:11px;margin-top:4px;">Showing ${rows.length} of ${previewData.totalRows?.toLocaleString() || '?'} rows</p>`;
+          }
+        }
+      } catch {}
+
+      const configEntries = Object.entries(chartConfig).filter(([, v]) => v);
+      sectionsHTML += `
+        <div style="margin-bottom:32px;padding:20px;border:1px solid #e2e8f0;border-radius:8px;background:#fafafa;">
+          <h2 style="margin:0 0 4px 0;font-size:18px;color:#1e293b;">${expNode.data.label || 'Exploration'}</h2>
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <span style="background:#d1fae5;color:#065f46;padding:2px 10px;border-radius:12px;font-size:12px;">${chartLabel}</span>
+          </div>
+          ${configEntries.length > 0 ? `<p style="font-size:13px;color:#64748b;">Columns: ${configEntries.map(([k, v]) => `${k}=${v}`).join(', ')}</p>` : ''}
+          ${takeaway ? `<div style="margin-top:12px;padding:12px;background:#f0fdf4;border-left:3px solid #22c55e;border-radius:4px;"><p style="margin:0;font-size:13px;color:#166534;"><strong>Key Takeaway:</strong> ${takeaway}</p></div>` : ''}
+          ${dataHTML}
+        </div>`;
+    }
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${reportTitle}</title></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:900px;margin:0 auto;padding:40px 20px;color:#334155;">
+  <h1 style="font-size:28px;margin-bottom:8px;color:#0f172a;">${reportTitle}</h1>
+  <p style="color:#94a3b8;font-size:13px;margin-bottom:32px;">Generated on ${new Date().toLocaleString()} &bull; ${explorationNodes.length} exploration(s)</p>
+  ${sectionsHTML}
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin-top:40px;">
+  <p style="text-align:center;color:#94a3b8;font-size:11px;margin-top:16px;">Report generated by Pipeline Editor</p>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${reportTitle.replace(/[^a-zA-Z0-9]/g, '_')}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Report exported successfully');
+  }, [selectedNode, edges, nodes, getSourceDatasetId, getUpstreamTransforms]);
 
   // Keep refs for nodes/edges to avoid dependency issues
   const nodesRef = useRef(nodes);
@@ -2159,6 +2273,305 @@ function FlowWithProvider() {
                            </SelectContent>
                          </Select>
                       </div>
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'exploration' && (
+                    <div className="space-y-4 border border-emerald-100 rounded-md p-3 bg-emerald-50/50">
+                      <div className="space-y-2">
+                        <Label className="text-emerald-800 font-semibold">Chart Type</Label>
+                        <Select
+                          value={selectedNode.data.chartType || ''}
+                          onValueChange={(val) => {
+                            updateNodeData('chartType', val);
+                            updateNodeData('chartConfig', {});
+                          }}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid="select-chart-type">
+                            <SelectValue placeholder="Select chart type..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CHART_TYPES.map(ct => (
+                              <SelectItem key={ct.value} value={ct.value} className="text-xs">
+                                <div>
+                                  <span className="font-medium">{ct.label}</span>
+                                  <span className="text-muted-foreground ml-2">— {ct.description}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {selectedNode.data.chartType && ['timeseries', 'seasonal'].includes(selectedNode.data.chartType) && (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-emerald-700">Date Column</Label>
+                          <Select
+                            value={selectedNode.data.chartConfig?.dateColumn || ''}
+                            onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, dateColumn: val })}
+                          >
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-date-column">
+                              <SelectValue placeholder="Select column..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Value Column</Label>
+                          <Select
+                            value={selectedNode.data.chartConfig?.valueColumn || ''}
+                            onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, valueColumn: val })}
+                          >
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-value-column">
+                              <SelectValue placeholder="Select column..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {selectedNode.data.chartType === 'histogram' && (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-emerald-700">Value Column</Label>
+                          <Select
+                            value={selectedNode.data.chartConfig?.valueColumn || ''}
+                            onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, valueColumn: val })}
+                          >
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-histogram-value">
+                              <SelectValue placeholder="Select column..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {selectedNode.data.chartType && ['boxplot', 'bar', 'pareto'].includes(selectedNode.data.chartType) && (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-emerald-700">Group Column</Label>
+                          <Select
+                            value={selectedNode.data.chartConfig?.groupColumn || ''}
+                            onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, groupColumn: val })}
+                          >
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-group-column-chart">
+                              <SelectValue placeholder="Select column..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Value Column</Label>
+                          <Select
+                            value={selectedNode.data.chartConfig?.valueColumn || ''}
+                            onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, valueColumn: val })}
+                          >
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-value-column-chart">
+                              <SelectValue placeholder="Select column..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {selectedNode.data.chartType === 'scatter' && (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-emerald-700">X Column</Label>
+                          <Select
+                            value={selectedNode.data.chartConfig?.xColumn || ''}
+                            onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, xColumn: val })}
+                          >
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-x-column">
+                              <SelectValue placeholder="Select column..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Y Column</Label>
+                          <Select
+                            value={selectedNode.data.chartConfig?.yColumn || ''}
+                            onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, yColumn: val })}
+                          >
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-y-column">
+                              <SelectValue placeholder="Select column..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {selectedNode.data.chartType === 'adicv' && (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-emerald-700">ID Column</Label>
+                          <Select
+                            value={selectedNode.data.chartConfig?.idColumn || ''}
+                            onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, idColumn: val })}
+                          >
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-id-column">
+                              <SelectValue placeholder="Select column..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Date Column</Label>
+                          <Select
+                            value={selectedNode.data.chartConfig?.dateColumn || ''}
+                            onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, dateColumn: val })}
+                          >
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-adicv-date">
+                              <SelectValue placeholder="Select column..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Demand Column</Label>
+                          <Select
+                            value={selectedNode.data.chartConfig?.demandColumn || ''}
+                            onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, demandColumn: val })}
+                          >
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-demand-column">
+                              <SelectValue placeholder="Select column..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <Label className="text-xs text-emerald-700">Takeaway / Notes</Label>
+                        <Textarea
+                          value={selectedNode.data.takeaway || ''}
+                          onChange={(e) => updateNodeData('takeaway', e.target.value)}
+                          placeholder="Key findings or notes about this chart..."
+                          className="text-xs min-h-[60px] bg-white"
+                          data-testid="textarea-takeaway"
+                        />
+                      </div>
+
+                      {selectedNode.data.chartType && (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs text-emerald-700 font-semibold">Chart Preview</Label>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+                              onClick={fetchExplorationPreview}
+                              disabled={explorationPreviewLoading}
+                              data-testid="button-load-preview"
+                            >
+                              {explorationPreviewLoading ? (
+                                <div className="w-3 h-3 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mr-1" />
+                              ) : null}
+                              {explorationPreviewLoading ? 'Loading...' : 'Load Preview'}
+                            </Button>
+                          </div>
+                          {explorationPreview && (
+                            <div className="border border-emerald-200 rounded-md bg-white p-2 overflow-hidden" data-testid="chart-preview-container">
+                              {renderChart(selectedNode.data.chartType, explorationPreview, selectedNode.data.chartConfig || {})}
+                            </div>
+                          )}
+                          {!explorationPreview && !explorationPreviewLoading && (
+                            <p className="text-[11px] text-emerald-600">Click "Load Preview" to see the chart</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'report' && (
+                    <div className="space-y-4 border border-violet-100 rounded-md p-3 bg-violet-50/50">
+                      <div className="space-y-2">
+                        <Label className="text-violet-800 font-semibold">Report Title</Label>
+                        <Input
+                          value={selectedNode.data.reportTitle || ''}
+                          onChange={(e) => updateNodeData('reportTitle', e.target.value)}
+                          placeholder="Enter report title..."
+                          className="h-8 text-sm bg-white"
+                          data-testid="input-report-title"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-xs text-violet-700 font-semibold">Connected Explorations</Label>
+                        {(() => {
+                          const incomingEdges = edges.filter(e => e.target === selectedNode.id);
+                          const connectedExplorations = incomingEdges
+                            .map(e => nodes.find(n => n.id === e.source))
+                            .filter(n => n && n.data.type === 'exploration');
+                          
+                          if (connectedExplorations.length === 0) {
+                            return (
+                              <div className="text-center py-3 text-muted-foreground text-xs border border-violet-200 rounded-md bg-white" data-testid="text-no-explorations">
+                                No exploration nodes connected. Connect exploration nodes to include them in the report.
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="space-y-1.5" data-testid="list-connected-explorations">
+                              {connectedExplorations.map((expNode, idx) => {
+                                if (!expNode) return null;
+                                const chartLabel = CHART_TYPES.find(ct => ct.value === expNode.data.chartType)?.label;
+                                return (
+                                  <div key={expNode.id} className="flex items-center gap-2 p-2 rounded-md bg-white border border-violet-200 text-xs" data-testid={`exploration-item-${idx}`}>
+                                    <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                                    <span className="font-medium text-slate-700 flex-1 truncate">{expNode.data.label}</span>
+                                    {chartLabel && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 shrink-0">{chartLabel}</span>
+                                    )}
+                                    {!chartLabel && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 shrink-0">Not configured</span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      <Separator className="bg-violet-200" />
+
+                      <Button
+                        className="w-full bg-violet-600 hover:bg-violet-700 text-white"
+                        onClick={exportReportHTML}
+                        data-testid="button-export-report"
+                      >
+                        <FileText className="w-4 h-4 mr-2" />
+                        Export HTML Report
+                      </Button>
                     </div>
                   )}
 
