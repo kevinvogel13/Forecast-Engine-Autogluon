@@ -698,7 +698,10 @@ function FlowWithProvider() {
     setExplorationPreviewLoading(true);
     try {
       const transforms = getUpstreamTransforms(selectedNode.id);
-      const response = await fetch(`/api/datasets/${datasetId}/transform?limit=500`, {
+      const chartType = selectedNode.data.chartType;
+      const needsAllRows = ['adicv', 'pareto', 'boxplot', 'histogram', 'scatter', 'seasonal', 'outlier'].includes(chartType);
+      const rowLimit = needsAllRows ? 200000 : 500;
+      const response = await fetch(`/api/datasets/${datasetId}/transform?limit=${rowLimit}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transforms })
@@ -820,7 +823,10 @@ function FlowWithProvider() {
         const datasetId = getSourceDatasetId(expNode.id);
         if (datasetId) {
           const transforms = getUpstreamTransforms(expNode.id);
-          const response = await fetch(`/api/datasets/${datasetId}/transform?limit=500`, {
+          const expChartType = expNode.data.chartType || '';
+          const expNeedsAllRows = ['adicv', 'pareto', 'boxplot', 'histogram', 'scatter', 'seasonal', 'outlier'].includes(expChartType);
+          const expRowLimit = expNeedsAllRows ? 200000 : 500;
+          const response = await fetch(`/api/datasets/${datasetId}/transform?limit=${expRowLimit}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ transforms })

@@ -578,37 +578,33 @@ except Exception as e:
         skip_empty_lines: true 
       }) as any[];
 
-      // Optimization: Apply sampling FIRST if present (before expensive Python/SQL transforms)
-      // This significantly reduces data volume for downstream transforms
-      const samplingTransform = (transforms || []).find((t: any) => t.type === 'sampling');
-      if (samplingTransform) {
-        const { column, percent, seed } = samplingTransform.data;
-        if (column && records.length > 0 && column in records[0]) {
-          const samplePercent = Math.max(5, Math.min(100, percent || 100));
-          const sampSeed = seed ?? 42;
-          
-          const allGroups = [...new Set(records.map((r: any) => r[column]))] as string[];
-          const totalGroups = allGroups.length;
-          const numGroupsToSample = Math.max(1, Math.ceil((samplePercent / 100) * totalGroups));
-          
-          // Seeded shuffle (mulberry32 PRNG)
-          const seededRandom = (s: number) => {
-            return () => {
-              s = Math.imul(s ^ s >>> 15, s | 1);
-              s ^= s + Math.imul(s ^ s >>> 7, s | 61);
-              return ((s ^ s >>> 14) >>> 0) / 4294967296;
-            };
-          };
-          const rng = seededRandom(sampSeed);
-          const shuffled = [...allGroups].sort(() => rng() - 0.5);
-          const sampledGroups = new Set(shuffled.slice(0, numGroupsToSample));
-          records = records.filter((r: any) => sampledGroups.has(r[column]));
-        }
-      }
-
-      // Apply each transform in order (skip sampling since we applied it first)
+      // Apply each transform in pipeline order - order matters because
+      // upstream transforms may create columns used by downstream transforms
       for (const transform of transforms || []) {
-        if (transform.type === 'sampling') continue; // Already applied above
+        if (transform.type === 'sampling') {
+          const { column, percent, seed } = transform.data;
+          if (column && records.length > 0 && column in records[0]) {
+            const samplePercent = Math.max(5, Math.min(100, percent || 100));
+            const sampSeed = seed ?? 42;
+            
+            const allGroups = [...new Set(records.map((r: any) => r[column]))] as string[];
+            const totalGroups = allGroups.length;
+            const numGroupsToSample = Math.max(1, Math.ceil((samplePercent / 100) * totalGroups));
+            
+            const seededRandom = (s: number) => {
+              return () => {
+                s = Math.imul(s ^ s >>> 15, s | 1);
+                s ^= s + Math.imul(s ^ s >>> 7, s | 61);
+                return ((s ^ s >>> 14) >>> 0) / 4294967296;
+              };
+            };
+            const rng = seededRandom(sampSeed);
+            const shuffled = [...allGroups].sort(() => rng() - 0.5);
+            const sampledGroups = new Set(shuffled.slice(0, numGroupsToSample));
+            records = records.filter((r: any) => sampledGroups.has(r[column]));
+          }
+          continue;
+        }
         if (transform.type === 'filter') {
           const { column, operator, value } = transform.data;
           if (!column || !operator) continue;
