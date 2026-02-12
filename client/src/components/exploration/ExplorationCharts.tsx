@@ -677,17 +677,6 @@ export function ADICVChart({ data, config }: ChartProps) {
         </div>
       )}
 
-      <div className="flex gap-3 justify-center text-[10px]">
-        {Object.entries(scatterColors).map(([cls, color]) => {
-          const count = classifiedData.filter(d => d.classification === cls).length;
-          return (
-            <div key={cls} className="flex items-center gap-1">
-              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
-              <span>{cls} ({count})</span>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
