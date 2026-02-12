@@ -449,9 +449,9 @@ export function ADICVChart({ data, config }: ChartProps) {
 
   const HARDCODED_PATTERNS: Record<string, number[]> = {
     Smooth: [48, 52, 50, 47, 53, 49, 51, 48, 50, 52, 49, 51, 50, 48, 53, 50, 47, 52, 50, 49],
-    Intermittent: [12, 0, 0, 0, 15, 0, 0, 10, 0, 0, 0, 0, 14, 0, 0, 0, 11, 0, 0, 13],
+    Intermittent: [14, 0, 0, 0, 13, 0, 0, 15, 0, 0, 0, 0, 14, 0, 0, 0, 13, 0, 0, 14],
     Erratic: [15, 82, 5, 95, 40, 10, 88, 3, 72, 20, 90, 8, 60, 95, 12, 78, 5, 85, 30, 92],
-    Lumpy: [0, 0, 85, 0, 0, 0, 0, 0, 92, 0, 0, 0, 0, 78, 0, 0, 0, 0, 0, 88],
+    Lumpy: [0, 0, 95, 0, 0, 0, 0, 0, 30, 0, 0, 0, 0, 80, 0, 0, 0, 0, 0, 15],
   };
 
   const stableAxisDomain = useMemo(() => {
