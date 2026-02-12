@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import {
   LineChart, Line, BarChart, Bar, ScatterChart, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -401,11 +401,11 @@ export function ADICVChart({ data, config }: ChartProps) {
     const totalItems = classifiedData.length;
     const totalVolume = classifiedData.reduce((a, b) => a + b.volume, 0);
 
-    const quads: Record<string, { count: number; volume: number; mapes: number[]; representative: number[] }> = {
-      Smooth: { count: 0, volume: 0, mapes: [], representative: [] },
-      Intermittent: { count: 0, volume: 0, mapes: [], representative: [] },
-      Erratic: { count: 0, volume: 0, mapes: [], representative: [] },
-      Lumpy: { count: 0, volume: 0, mapes: [], representative: [] },
+    const quads: Record<string, { count: number; volume: number; mapes: number[] }> = {
+      Smooth: { count: 0, volume: 0, mapes: [] },
+      Intermittent: { count: 0, volume: 0, mapes: [] },
+      Erratic: { count: 0, volume: 0, mapes: [] },
+      Lumpy: { count: 0, volume: 0, mapes: [] },
     };
 
     classifiedData.forEach(item => {
@@ -413,16 +413,14 @@ export function ADICVChart({ data, config }: ChartProps) {
       q.count++;
       q.volume += item.volume;
       if (item.mape !== null) q.mapes.push(item.mape);
-      if (q.representative.length === 0) q.representative = item.demands.slice(0, 12);
     });
 
-    const result: Record<string, { pctDFUs: number; pctVolume: number; avgMape: number | null; representative: number[] }> = {};
+    const result: Record<string, { pctDFUs: number; pctVolume: number; avgMape: number | null }> = {};
     for (const [key, val] of Object.entries(quads)) {
       result[key] = {
         pctDFUs: totalItems > 0 ? (val.count / totalItems) * 100 : 0,
         pctVolume: totalVolume > 0 ? (val.volume / totalVolume) * 100 : 0,
         avgMape: val.mapes.length > 0 ? val.mapes.reduce((a, b) => a + b, 0) / val.mapes.length : null,
-        representative: val.representative,
       };
     }
     return result;
@@ -433,6 +431,49 @@ export function ADICVChart({ data, config }: ChartProps) {
     const step = Math.ceil(classifiedData.length / 500);
     return classifiedData.filter((_, i) => i % step === 0);
   }, [classifiedData]);
+
+  const [showScatter, setShowScatter] = useState(true);
+  const [hoveredDot, setHoveredDot] = useState<{ x: number; y: number; item: any } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const ro = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect;
+      setContainerSize({ width, height });
+    });
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const HARDCODED_PATTERNS: Record<string, number[]> = {
+    Smooth: [70, 75, 72, 68, 74, 71, 73, 69, 76, 72, 74, 70],
+    Intermittent: [0, 0, 45, 0, 0, 0, 52, 0, 0, 38, 0, 0],
+    Erratic: [20, 85, 10, 95, 30, 78, 5, 90, 15, 88, 25, 65],
+    Lumpy: [0, 0, 90, 0, 0, 0, 0, 75, 0, 0, 0, 95],
+  };
+
+  const stableAxisDomain = useMemo(() => {
+    if (!classifiedData.length) return { maxAdi: 5, maxCv2: 2 };
+    const dataMaxAdi = Math.max(...classifiedData.map(d => d.adi));
+    const dataMaxCv2 = Math.max(...classifiedData.map(d => d.cv2));
+    const rawMaxAdi = Math.max(dataMaxAdi * 1.1, 5);
+    const rawMaxCv2 = Math.max(dataMaxCv2 * 1.1, 2);
+    return {
+      maxAdi: Math.ceil(rawMaxAdi),
+      maxCv2: Math.ceil(rawMaxCv2 * 2) / 2,
+    };
+  }, [classifiedData]);
+
+  const axisDomain = useMemo(() => ({
+    maxAdi: Math.max(stableAxisDomain.maxAdi, adiThreshold * 1.2),
+    maxCv2: Math.max(stableAxisDomain.maxCv2, cvThreshold * 1.2),
+  }), [stableAxisDomain, adiThreshold, cvThreshold]);
+
+  const leftPct = (adiThreshold / axisDomain.maxAdi) * 100;
+  const bottomPct = (cvThreshold / axisDomain.maxCv2) * 100;
+  const topPct = 100 - bottomPct;
 
   if (!idColumn || !dateColumn || !demandColumn) {
     return <div className="text-sm text-muted-foreground p-4">Select ID, Date, and Demand columns for ADI/CV² analysis</div>;
@@ -445,169 +486,207 @@ export function ADICVChart({ data, config }: ChartProps) {
     Lumpy: QUADRANT_COLORS.Lumpy.text,
   };
 
-  const quadrantOrder: [string, string][] = [
-    ['Intermittent', 'Lumpy'],
-    ['Smooth', 'Erratic'],
-  ];
+  const renderQuadrantCard = (quadrant: string, position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right') => {
+    const qc = QUADRANT_COLORS[quadrant];
+    const agg = quadrantAggregates[quadrant];
+    const bars = HARDCODED_PATTERNS[quadrant];
+    const mv = Math.max(...bars, 1);
 
-  const maxBarVal = (arr: number[]) => {
-    const m = Math.max(...arr, 1);
-    return m;
+    return (
+      <div
+        key={quadrant}
+        className="relative overflow-hidden flex flex-col justify-between"
+        style={{
+          backgroundColor: `${qc.bg}cc`,
+          borderRight: position === 'top-left' || position === 'bottom-left' ? '1px dashed #94a3b8' : 'none',
+          borderBottom: position === 'top-left' || position === 'top-right' ? '1px dashed #94a3b8' : 'none',
+          borderTopLeftRadius: position === 'top-left' ? '8px' : 0,
+          borderTopRightRadius: position === 'top-right' ? '8px' : 0,
+          borderBottomLeftRadius: position === 'bottom-left' ? '8px' : 0,
+          borderBottomRightRadius: position === 'bottom-right' ? '8px' : 0,
+        }}
+        data-testid={`quadrant-card-${quadrant.toLowerCase()}`}
+      >
+        <div className="absolute inset-x-0 bottom-0 h-12 flex items-end justify-around px-1.5 pb-0.5 opacity-20">
+          {bars.map((v, bi) => (
+            <div
+              key={bi}
+              style={{
+                width: `${Math.max(100 / bars.length - 2, 3)}%`,
+                height: `${(v / mv) * 100}%`,
+                backgroundColor: qc.bar,
+                minHeight: v > 0 ? '2px' : '0px',
+              }}
+              className="rounded-t-sm"
+            />
+          ))}
+        </div>
+
+        <div className="relative z-10 p-3">
+          <h4 className="text-xs font-bold mb-1" style={{ color: qc.text }}>{quadrant}</h4>
+          <p className="text-base font-bold leading-tight" style={{ color: qc.text }}>{agg ? agg.pctDFUs.toFixed(1) : '0.0'}%<span className="text-[10px] font-medium ml-0.5">DFUs</span></p>
+          <p className="text-xs font-semibold" style={{ color: qc.text }}>{agg ? agg.pctVolume.toFixed(1) : '0.0'}%<span className="text-[10px] font-normal ml-0.5">vol</span></p>
+          {agg && agg.avgMape !== null && (
+            <p className="text-[10px] font-medium mt-0.5" style={{ color: agg.avgMape <= 30 ? '#16a34a' : '#dc2626' }}>
+              MAPE: {agg.avgMape.toFixed(1)}%
+            </p>
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4 p-3 bg-slate-50 rounded-lg border">
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-medium text-slate-700">ADI Threshold</label>
-            <span className="text-xs font-mono font-semibold" style={{ color: PALETTE.primary }}>{adiThreshold.toFixed(2)}</span>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-slate-700">ADI</label>
+            <input
+              type="range"
+              min="1.0"
+              max="5.0"
+              step="0.01"
+              value={adiThreshold}
+              onChange={(e) => setAdiThreshold(parseFloat(e.target.value))}
+              className="w-24 h-1.5 accent-teal-600"
+              data-testid="slider-adi-threshold"
+            />
+            <span className="text-xs font-mono font-semibold w-8" style={{ color: PALETTE.primary }}>{adiThreshold.toFixed(2)}</span>
           </div>
-          <input
-            type="range"
-            min="1.0"
-            max="5.0"
-            step="0.01"
-            value={adiThreshold}
-            onChange={(e) => setAdiThreshold(parseFloat(e.target.value))}
-            className="w-full h-1.5 accent-teal-600"
-            data-testid="slider-adi-threshold"
-          />
-          <div className="flex justify-between text-[10px] text-slate-400">
-            <span>1.0</span>
-            <span>5.0</span>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-slate-700">CV²</label>
+            <input
+              type="range"
+              min="0.1"
+              max="2.0"
+              step="0.01"
+              value={cvThreshold}
+              onChange={(e) => setCvThreshold(parseFloat(e.target.value))}
+              className="w-24 h-1.5 accent-teal-600"
+              data-testid="slider-cv-threshold"
+            />
+            <span className="text-xs font-mono font-semibold w-8" style={{ color: PALETTE.primary }}>{cvThreshold.toFixed(2)}</span>
           </div>
         </div>
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-medium text-slate-700">CV² Threshold</label>
-            <span className="text-xs font-mono font-semibold" style={{ color: PALETTE.primary }}>{cvThreshold.toFixed(2)}</span>
-          </div>
-          <input
-            type="range"
-            min="0.1"
-            max="2.0"
-            step="0.01"
-            value={cvThreshold}
-            onChange={(e) => setCvThreshold(parseFloat(e.target.value))}
-            className="w-full h-1.5 accent-teal-600"
-            data-testid="slider-cv-threshold"
-          />
-          <div className="flex justify-between text-[10px] text-slate-400">
-            <span>0.1</span>
-            <span>2.0</span>
-          </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-[10px] py-0" style={{ borderColor: PALETTE.primary, color: PALETTE.primary }}>
+            {classifiedData.length} DFUs
+          </Badge>
+          <button
+            onClick={() => setShowScatter(s => !s)}
+            className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${showScatter ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-500 border-slate-300'}`}
+            data-testid="toggle-scatter"
+          >
+            Scatter {showScatter ? 'ON' : 'OFF'}
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        {quadrantOrder.map((row, ri) =>
-          row.map((quadrant) => {
-            const qc = QUADRANT_COLORS[quadrant];
-            const agg = quadrantAggregates[quadrant];
-            const bars = agg?.representative || [];
-            const mv = maxBarVal(bars);
-            return (
-              <div
-                key={quadrant}
-                className="relative rounded-lg p-4 overflow-hidden border"
-                style={{ backgroundColor: qc.bg, borderColor: `${qc.text}33` }}
-                data-testid={`quadrant-card-${quadrant.toLowerCase()}`}
-              >
-                <div className="absolute inset-x-0 bottom-0 h-16 flex items-end justify-around px-2 pb-1 opacity-30">
-                  {bars.map((v, bi) => (
-                    <div
-                      key={bi}
-                      style={{
-                        width: `${Math.max(100 / Math.max(bars.length, 1) - 2, 3)}%`,
-                        height: `${mv > 0 ? (v / mv) * 100 : 0}%`,
-                        backgroundColor: qc.bar,
-                        minHeight: '1px',
-                      }}
-                      className="rounded-t-sm"
-                    />
-                  ))}
-                </div>
-
-                <div className="relative z-10">
-                  <h4 className="text-sm font-bold mb-2" style={{ color: qc.text }}>{quadrant}</h4>
-                  <p className="text-lg font-bold" style={{ color: qc.text }}>{agg ? agg.pctDFUs.toFixed(1) : '0.0'}% of DFUs</p>
-                  <p className="text-sm font-semibold" style={{ color: qc.text }}>{agg ? agg.pctVolume.toFixed(1) : '0.0'}% of volume</p>
-                  {agg && agg.avgMape !== null && (
-                    <p className="text-xs font-medium mt-1" style={{ color: agg.avgMape <= 30 ? '#16a34a' : '#dc2626' }}>
-                      Avg MAPE: {agg.avgMape.toFixed(1)}%
-                    </p>
-                  )}
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      <ResponsiveContainer width="100%" height={320}>
-        <ScatterChart margin={{ top: 10, right: 20, bottom: 30, left: 10 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.gridStroke} />
-          <XAxis
-            type="number"
-            dataKey="adi"
-            name="ADI"
-            domain={[0, 'auto']}
-            tick={{ fontSize: 10 }}
-            label={{ value: 'ADI (Avg Demand Interval)', position: 'bottom', offset: 15, fontSize: 10 }}
-          />
-          <YAxis
-            type="number"
-            dataKey="cv2"
-            name="CV²"
-            domain={[0, 'auto']}
-            tick={{ fontSize: 10 }}
-            label={{ value: 'CV² (Squared Coeff of Variation)', angle: -90, position: 'insideLeft', offset: 0, fontSize: 10 }}
-          />
-          <ReferenceLine x={adiThreshold} stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={1.5} label={{ value: `ADI=${adiThreshold.toFixed(2)}`, position: 'top', fontSize: 9, fill: PALETTE.textSecondary }} />
-          <ReferenceLine y={cvThreshold} stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={1.5} label={{ value: `CV²=${cvThreshold.toFixed(2)}`, position: 'right', fontSize: 9, fill: PALETTE.textSecondary }} />
-          <Tooltip
-            content={({ payload }) => {
-              if (!payload?.length) return null;
-              const d = payload[0].payload;
+      <div
+        ref={containerRef}
+        className="relative rounded-lg border border-slate-200 overflow-hidden"
+        style={{ height: 360 }}
+      >
+        {showScatter && containerSize.width > 0 && (
+          <svg
+            className="absolute inset-0 z-0"
+            width={containerSize.width}
+            height={containerSize.height}
+            viewBox={`0 0 ${containerSize.width} ${containerSize.height}`}
+          >
+            {scatterDisplayData.map((item, i) => {
+              const x = (item.adi / axisDomain.maxAdi) * containerSize.width;
+              const y = containerSize.height - (item.cv2 / axisDomain.maxCv2) * containerSize.height;
               return (
-                <div className="bg-white p-2 border rounded shadow text-xs">
-                  <p className="font-semibold">{d.id}</p>
-                  <p>ADI: {d.adi.toFixed(2)}</p>
-                  <p>CV²: {d.cv2.toFixed(2)}</p>
-                  <p>Volume: {d.volume.toLocaleString()}</p>
-                  <p className="font-medium" style={{ color: scatterColors[d.classification] }}>{d.classification}</p>
-                </div>
+                <circle
+                  key={i}
+                  cx={Math.min(Math.max(x, 2), containerSize.width - 2)}
+                  cy={Math.min(Math.max(y, 2), containerSize.height - 2)}
+                  r={3}
+                  fill={scatterColors[item.classification]}
+                  fillOpacity={0.35}
+                  stroke={scatterColors[item.classification]}
+                  strokeOpacity={0.15}
+                  strokeWidth={0.5}
+                  onMouseEnter={(e) => setHoveredDot({ x: e.clientX, y: e.clientY, item })}
+                  onMouseLeave={() => setHoveredDot(null)}
+                  style={{ cursor: 'pointer' }}
+                />
               );
-            }}
-          />
-          <Scatter name="Items" data={scatterDisplayData} shape="circle">
-            {scatterDisplayData.map((entry, index) => (
-              <Cell key={index} fill={scatterColors[entry.classification]} fillOpacity={0.7} />
-            ))}
-          </Scatter>
-          <Legend
-            content={() => (
-              <div className="flex gap-3 justify-center mt-2 text-[10px]">
-                {Object.entries(scatterColors).map(([cls, color]) => {
-                  const count = classifiedData.filter(d => d.classification === cls).length;
-                  return (
-                    <div key={cls} className="flex items-center gap-1">
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
-                      <span>{cls} ({count})</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          />
-        </ScatterChart>
-      </ResponsiveContainer>
+            })}
+            <line
+              x1={(adiThreshold / axisDomain.maxAdi) * containerSize.width}
+              y1={0}
+              x2={(adiThreshold / axisDomain.maxAdi) * containerSize.width}
+              y2={containerSize.height}
+              stroke="#94a3b8"
+              strokeWidth={1}
+              strokeDasharray="4 3"
+              strokeOpacity={0.6}
+            />
+            <line
+              x1={0}
+              y1={containerSize.height - (cvThreshold / axisDomain.maxCv2) * containerSize.height}
+              x2={containerSize.width}
+              y2={containerSize.height - (cvThreshold / axisDomain.maxCv2) * containerSize.height}
+              stroke="#94a3b8"
+              strokeWidth={1}
+              strokeDasharray="4 3"
+              strokeOpacity={0.6}
+            />
+          </svg>
+        )}
 
-      <div className="flex items-center justify-center gap-2">
-        <Badge variant="outline" className="text-xs" style={{ borderColor: PALETTE.primary, color: PALETTE.primary }}>
-          Total DFUs Analyzed: {classifiedData.length}
-        </Badge>
+        <div
+          className="absolute inset-0 z-10"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: `${leftPct}% ${100 - leftPct}%`,
+            gridTemplateRows: `${topPct}% ${bottomPct}%`,
+          }}
+        >
+          {renderQuadrantCard('Intermittent', 'top-left')}
+          {renderQuadrantCard('Lumpy', 'top-right')}
+          {renderQuadrantCard('Smooth', 'bottom-left')}
+          {renderQuadrantCard('Erratic', 'bottom-right')}
+        </div>
+
+        <div className="absolute bottom-0.5 left-0 right-0 z-20 flex justify-between px-1 pointer-events-none">
+          <span className="text-[8px] text-slate-400 font-mono">0</span>
+          <span className="text-[8px] text-slate-500 font-mono font-semibold" style={{ position: 'absolute', left: `${leftPct}%`, transform: 'translateX(-50%)' }}>ADI={adiThreshold.toFixed(2)}</span>
+          <span className="text-[8px] text-slate-400 font-mono">{axisDomain.maxAdi.toFixed(0)}</span>
+        </div>
+        <div className="absolute top-0 bottom-0 right-1 z-20 flex flex-col justify-between py-1 pointer-events-none">
+          <span className="text-[8px] text-slate-400 font-mono">{axisDomain.maxCv2.toFixed(1)}</span>
+          <span className="text-[8px] text-slate-500 font-mono font-semibold" style={{ position: 'absolute', bottom: `${bottomPct}%`, transform: 'translateY(50%)' }}>CV²={cvThreshold.toFixed(2)}</span>
+          <span className="text-[8px] text-slate-400 font-mono">0</span>
+        </div>
+      </div>
+
+      {hoveredDot && (
+        <div
+          className="fixed z-50 bg-white p-2 border rounded shadow text-xs pointer-events-none"
+          style={{ left: hoveredDot.x + 12, top: hoveredDot.y - 40 }}
+        >
+          <p className="font-semibold">{hoveredDot.item.id}</p>
+          <p>ADI: {hoveredDot.item.adi.toFixed(2)}</p>
+          <p>CV²: {hoveredDot.item.cv2.toFixed(2)}</p>
+          <p>Volume: {hoveredDot.item.volume.toLocaleString()}</p>
+          <p className="font-medium" style={{ color: scatterColors[hoveredDot.item.classification] }}>{hoveredDot.item.classification}</p>
+        </div>
+      )}
+
+      <div className="flex gap-3 justify-center text-[10px]">
+        {Object.entries(scatterColors).map(([cls, color]) => {
+          const count = classifiedData.filter(d => d.classification === cls).length;
+          return (
+            <div key={cls} className="flex items-center gap-1">
+              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
+              <span>{cls} ({count})</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
