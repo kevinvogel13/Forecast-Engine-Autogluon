@@ -75,10 +75,18 @@ Preferred communication style: Simple, everyday language.
   - Widgets: GeneralStats, TimeSeriesView, CategoryDistribution, DataCompletenessChart, DemandPatternAnalysis, OutlierTable
 - **Exploration**: Modular chart components for data exploration
   - Individual chart type selection with conditional column configuration
-  - 12 chart types: Time Series, Histogram, Box Plot, Bar Chart, Scatter, ADI/CV Analysis, Pareto, Data Table, Summary Stats, Seasonal Plot, Completeness, Outlier Detection
+  - 12 chart types: Time Series, Histogram, Boxplot, Bar Chart, Scatter, Demand Classification (ADI×CV²), Pareto Analysis, Data Table, Summary Statistics, Seasonality, Data Quality, Outlier Detection
+  - Consistent teal/indigo color palette (PALETTE object in ExplorationCharts.tsx)
   - Each exploration node has a takeaway/notes textarea for user annotations
   - Chart preview rendered in the configuration panel when columns are selected
   - Emerald color theme
+  - **Demand Classification (ADI×CV²)**: Rich quadrant dashboard
+    - 4 quadrant cards (Smooth, Intermittent, Erratic, Lumpy) with muted background bar charts
+    - Shows % of DFUs (count) and % of volume per quadrant
+    - MAPE computation when forecast column is provided (optional)
+    - Interactive ADI/CV² threshold sliders (drag to reclassify in real-time)
+    - Scatter plot with dynamic reference lines
+    - Config: idColumn, dateColumn, demandColumn, forecastColumn (optional)
 - **Report**: Combines multiple exploration charts into an HTML report
   - Connect Exploration nodes to aggregate charts into report sections
   - Report title configuration

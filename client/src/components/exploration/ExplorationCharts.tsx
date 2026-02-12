@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
   LineChart, Line, BarChart, Bar, ScatterChart, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -7,6 +7,30 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+
+const PALETTE = {
+  primary: '#0d9488',
+  primaryLight: '#99f6e4',
+  primaryMuted: '#ccfbf1',
+  secondary: '#6366f1',
+  secondaryLight: '#c7d2fe',
+  accent: '#f59e0b',
+  accentLight: '#fef3c7',
+  danger: '#ef4444',
+  dangerLight: '#fee2e2',
+  neutral: '#64748b',
+  gridStroke: '#e2e8f0',
+  textPrimary: '#1e293b',
+  textSecondary: '#64748b',
+};
+const SERIES_COLORS = ['#0d9488', '#6366f1', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16'];
+
+const QUADRANT_COLORS: Record<string, { bg: string; text: string; bar: string }> = {
+  Smooth: { bg: '#dcfce7', text: '#166534', bar: '#86efac' },
+  Intermittent: { bg: '#fef9c3', text: '#854d0e', bar: '#d4d4d4' },
+  Lumpy: { bg: '#fce7f3', text: '#9d174d', bar: '#d4d4d4' },
+  Erratic: { bg: '#dbeafe', text: '#1e40af', bar: '#93c5fd' },
+};
 
 interface ChartProps {
   data: {
@@ -22,24 +46,26 @@ interface ChartProps {
     dateColumn?: string;
     demandColumn?: string;
     idColumn?: string;
+    forecastColumn?: string;
+    actualColumn?: string;
+    adiThreshold?: number;
+    cvThreshold?: number;
   };
 }
 
-const COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16'];
-
 export function TimeSeriesChart({ data, config }: ChartProps) {
   const { dateColumn, valueColumn } = config;
-  
+
   const chartData = useMemo(() => {
     if (!dateColumn || !valueColumn || !data.rows.length) return [];
-    
+
     const grouped = data.rows.reduce((acc: any, row) => {
       const date = row[dateColumn];
       if (!acc[date]) acc[date] = { date, values: [] };
       acc[date].values.push(parseFloat(row[valueColumn]) || 0);
       return acc;
     }, {});
-    
+
     return Object.values(grouped)
       .map((g: any) => ({
         date: g.date,
@@ -56,11 +82,11 @@ export function TimeSeriesChart({ data, config }: ChartProps) {
   return (
     <ResponsiveContainer width="100%" height={300}>
       <AreaChart data={chartData}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+        <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.gridStroke} />
         <XAxis dataKey="date" tick={{ fontSize: 10 }} />
         <YAxis tick={{ fontSize: 10 }} />
         <Tooltip />
-        <Area type="monotone" dataKey="value" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} />
+        <Area type="monotone" dataKey="value" stroke={PALETTE.primary} fill={PALETTE.primary} fillOpacity={0.2} />
       </AreaChart>
     </ResponsiveContainer>
   );
@@ -68,19 +94,19 @@ export function TimeSeriesChart({ data, config }: ChartProps) {
 
 export function HistogramChart({ data, config }: ChartProps) {
   const { valueColumn } = config;
-  
+
   const chartData = useMemo(() => {
     if (!valueColumn || !data.rows.length) return [];
-    
+
     const values = data.rows.map(r => parseFloat(r[valueColumn])).filter(v => !isNaN(v));
     if (values.length === 0) return [];
-    
+
     const min = Math.min(...values);
     const max = Math.max(...values);
     const range = max - min || 1;
     const binCount = Math.min(20, Math.ceil(Math.sqrt(values.length)));
     const binSize = range / binCount;
-    
+
     const bins: { range: string; count: number }[] = [];
     for (let i = 0; i < binCount; i++) {
       const binMin = min + i * binSize;
@@ -101,11 +127,11 @@ export function HistogramChart({ data, config }: ChartProps) {
   return (
     <ResponsiveContainer width="100%" height={300}>
       <BarChart data={chartData}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+        <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.gridStroke} />
         <XAxis dataKey="range" tick={{ fontSize: 9 }} angle={-45} textAnchor="end" height={60} />
         <YAxis tick={{ fontSize: 10 }} />
         <Tooltip />
-        <Bar dataKey="count" fill="#8b5cf6" />
+        <Bar dataKey="count" fill={PALETTE.secondary} />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -113,10 +139,10 @@ export function HistogramChart({ data, config }: ChartProps) {
 
 export function BoxPlotChart({ data, config }: ChartProps) {
   const { groupColumn, valueColumn } = config;
-  
+
   const stats = useMemo(() => {
     if (!groupColumn || !valueColumn || !data.rows.length) return [];
-    
+
     const grouped: Record<string, number[]> = {};
     data.rows.forEach(row => {
       const group = String(row[groupColumn]);
@@ -126,7 +152,7 @@ export function BoxPlotChart({ data, config }: ChartProps) {
         grouped[group].push(value);
       }
     });
-    
+
     return Object.entries(grouped).slice(0, 15).map(([name, values]) => {
       const sorted = values.sort((a, b) => a - b);
       const n = sorted.length;
@@ -136,7 +162,7 @@ export function BoxPlotChart({ data, config }: ChartProps) {
       const min = sorted[0] || 0;
       const max = sorted[n - 1] || 0;
       const mean = values.reduce((a, b) => a + b, 0) / n;
-      
+
       return { name, min, q1, median, q3, max, mean, count: n };
     });
   }, [data.rows, groupColumn, valueColumn]);
@@ -152,79 +178,76 @@ export function BoxPlotChart({ data, config }: ChartProps) {
   const globalMin = Math.min(...stats.map(s => s.min));
   const globalMax = Math.max(...stats.map(s => s.max));
   const range = globalMax - globalMin || 1;
-  
+
   const rowHeight = 40;
   const padding = { left: 100, right: 40, top: 10, bottom: 30 };
   const chartWidth = 340;
   const plotWidth = chartWidth - padding.left - padding.right;
   const totalHeight = stats.length * rowHeight + padding.top + padding.bottom;
-  
+
   const scale = (val: number) => padding.left + ((val - globalMin) / range) * plotWidth;
 
   return (
     <div className="space-y-2">
       <svg width="100%" viewBox={`0 0 ${chartWidth} ${totalHeight}`} className="text-xs">
-        <line x1={padding.left} y1={totalHeight - padding.bottom} x2={chartWidth - padding.right} y2={totalHeight - padding.bottom} stroke="#e2e8f0" strokeWidth="1" />
-        
+        <line x1={padding.left} y1={totalHeight - padding.bottom} x2={chartWidth - padding.right} y2={totalHeight - padding.bottom} stroke={PALETTE.gridStroke} strokeWidth="1" />
+
         {Array.from({ length: 5 }, (_, i) => {
           const val = globalMin + (range * i) / 4;
           const x = scale(val);
           return (
             <g key={i}>
               <line x1={x} y1={totalHeight - padding.bottom} x2={x} y2={totalHeight - padding.bottom + 4} stroke="#94a3b8" strokeWidth="1" />
-              <text x={x} y={totalHeight - padding.bottom + 16} textAnchor="middle" fill="#64748b" fontSize="9">{val.toFixed(0)}</text>
+              <text x={x} y={totalHeight - padding.bottom + 16} textAnchor="middle" fill={PALETTE.textSecondary} fontSize="9">{val.toFixed(0)}</text>
               <line x1={x} y1={padding.top} x2={x} y2={totalHeight - padding.bottom} stroke="#f1f5f9" strokeWidth="1" />
             </g>
           );
         })}
-        
+
         {stats.map((s, i) => {
           const y = padding.top + i * rowHeight + rowHeight / 2;
           const boxHeight = 18;
-          
+
           return (
             <g key={i}>
-              <text x={padding.left - 8} y={y + 4} textAnchor="end" fill="#334155" fontSize="10" fontWeight="500">
+              <text x={padding.left - 8} y={y + 4} textAnchor="end" fill={PALETTE.textPrimary} fontSize="10" fontWeight="500">
                 {s.name.length > 12 ? s.name.slice(0, 12) + '\u2026' : s.name}
               </text>
-              
-              <line x1={scale(s.min)} y1={y} x2={scale(s.max)} y2={y} stroke="#64748b" strokeWidth="1" />
-              
-              <line x1={scale(s.min)} y1={y - 6} x2={scale(s.min)} y2={y + 6} stroke="#64748b" strokeWidth="1" />
-              
-              <line x1={scale(s.max)} y1={y - 6} x2={scale(s.max)} y2={y + 6} stroke="#64748b" strokeWidth="1" />
-              
+
+              <line x1={scale(s.min)} y1={y} x2={scale(s.max)} y2={y} stroke={PALETTE.neutral} strokeWidth="1" />
+              <line x1={scale(s.min)} y1={y - 6} x2={scale(s.min)} y2={y + 6} stroke={PALETTE.neutral} strokeWidth="1" />
+              <line x1={scale(s.max)} y1={y - 6} x2={scale(s.max)} y2={y + 6} stroke={PALETTE.neutral} strokeWidth="1" />
+
               <rect
                 x={scale(s.q1)}
                 y={y - boxHeight / 2}
                 width={Math.max(scale(s.q3) - scale(s.q1), 2)}
                 height={boxHeight}
-                fill="#3b82f6"
+                fill={PALETTE.primary}
                 fillOpacity={0.3}
-                stroke="#3b82f6"
+                stroke={PALETTE.primary}
                 strokeWidth="1.5"
                 rx="2"
               />
-              
-              <line x1={scale(s.median)} y1={y - boxHeight / 2} x2={scale(s.median)} y2={y + boxHeight / 2} stroke="#ef4444" strokeWidth="2" />
-              
-              <circle cx={scale(s.mean)} cy={y} r="2.5" fill="#f59e0b" stroke="#f59e0b" />
+
+              <line x1={scale(s.median)} y1={y - boxHeight / 2} x2={scale(s.median)} y2={y + boxHeight / 2} stroke={PALETTE.danger} strokeWidth="2" />
+              <circle cx={scale(s.mean)} cy={y} r="2.5" fill={PALETTE.accent} stroke={PALETTE.accent} />
             </g>
           );
         })}
       </svg>
-      
+
       <div className="flex items-center gap-4 text-[10px] text-muted-foreground px-2">
         <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded-sm bg-blue-500/30 border border-blue-500" />
+          <div className="w-3 h-3 rounded-sm" style={{ background: `${PALETTE.primary}4D`, border: `1px solid ${PALETTE.primary}` }} />
           <span>IQR (Q1-Q3)</span>
         </div>
         <div className="flex items-center gap-1">
-          <div className="w-3 h-0.5 bg-red-500" />
+          <div className="w-3 h-0.5" style={{ background: PALETTE.danger }} />
           <span>Median</span>
         </div>
         <div className="flex items-center gap-1">
-          <div className="w-2 h-2 rounded-full bg-amber-500" />
+          <div className="w-2 h-2 rounded-full" style={{ background: PALETTE.accent }} />
           <span>Mean</span>
         </div>
       </div>
@@ -234,17 +257,17 @@ export function BoxPlotChart({ data, config }: ChartProps) {
 
 export function BarChartComponent({ data, config }: ChartProps) {
   const { groupColumn, valueColumn } = config;
-  
+
   const chartData = useMemo(() => {
     if (!groupColumn || !valueColumn || !data.rows.length) return [];
-    
+
     const grouped: Record<string, number> = {};
     data.rows.forEach(row => {
       const group = String(row[groupColumn]);
       const value = parseFloat(row[valueColumn]) || 0;
       grouped[group] = (grouped[group] || 0) + value;
     });
-    
+
     return Object.entries(grouped)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
@@ -258,13 +281,13 @@ export function BarChartComponent({ data, config }: ChartProps) {
   return (
     <ResponsiveContainer width="100%" height={300}>
       <BarChart data={chartData} layout="vertical">
-        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+        <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.gridStroke} />
         <XAxis type="number" tick={{ fontSize: 10 }} />
         <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={80} />
         <Tooltip />
-        <Bar dataKey="value" fill="#22c55e">
+        <Bar dataKey="value" fill={SERIES_COLORS[0]}>
           {chartData.map((_, index) => (
-            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+            <Cell key={`cell-${index}`} fill={SERIES_COLORS[index % SERIES_COLORS.length]} />
           ))}
         </Bar>
       </BarChart>
@@ -274,10 +297,10 @@ export function BarChartComponent({ data, config }: ChartProps) {
 
 export function ScatterPlotChart({ data, config }: ChartProps) {
   const { xColumn, yColumn } = config;
-  
+
   const chartData = useMemo(() => {
     if (!xColumn || !yColumn || !data.rows.length) return [];
-    
+
     return data.rows
       .map(row => ({
         x: parseFloat(row[xColumn]),
@@ -294,101 +317,256 @@ export function ScatterPlotChart({ data, config }: ChartProps) {
   return (
     <ResponsiveContainer width="100%" height={300}>
       <ScatterChart>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+        <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.gridStroke} />
         <XAxis type="number" dataKey="x" name={xColumn} tick={{ fontSize: 10 }} />
         <YAxis type="number" dataKey="y" name={yColumn} tick={{ fontSize: 10 }} />
         <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-        <Scatter data={chartData} fill="#f59e0b" />
+        <Scatter data={chartData} fill={PALETTE.primary} />
       </ScatterChart>
     </ResponsiveContainer>
   );
 }
 
 export function ADICVChart({ data, config }: ChartProps) {
-  const { idColumn, dateColumn, demandColumn } = config;
-  
+  const { idColumn, dateColumn, demandColumn, forecastColumn } = config;
+
+  const [adiThreshold, setAdiThreshold] = useState(config.adiThreshold ?? 1.32);
+  const [cvThreshold, setCvThreshold] = useState(config.cvThreshold ?? 0.49);
+
   const analysisData = useMemo(() => {
     if (!idColumn || !dateColumn || !demandColumn || !data.rows.length) return [];
-    
-    const grouped: Record<string, { dates: string[]; demands: number[] }> = {};
+
+    const grouped: Record<string, { dates: string[]; demands: number[]; forecasts: number[] }> = {};
     data.rows.forEach(row => {
       const id = String(row[idColumn]);
-      if (!grouped[id]) grouped[id] = { dates: [], demands: [] };
-      grouped[id].dates.push(row[dateColumn]);
+      if (!grouped[id]) grouped[id] = { dates: [], demands: [], forecasts: [] };
+      grouped[id].dates.push(String(row[dateColumn] || ''));
       grouped[id].demands.push(parseFloat(row[demandColumn]) || 0);
+      if (forecastColumn && forecastColumn !== '__none__' && row[forecastColumn] !== undefined) {
+        grouped[id].forecasts.push(parseFloat(row[forecastColumn]) || 0);
+      }
     });
-    
-    return Object.entries(grouped).map(([id, { demands }]) => {
-      const nonZeroDemands = demands.filter(d => d > 0);
-      const zeroCount = demands.length - nonZeroDemands.length;
-      
-      const adi = demands.length > 0 ? demands.length / Math.max(1, nonZeroDemands.length) : 0;
-      
-      const mean = nonZeroDemands.length > 0 
-        ? nonZeroDemands.reduce((a, b) => a + b, 0) / nonZeroDemands.length 
+
+    return Object.entries(grouped).map(([id, { dates, demands, forecasts }]) => {
+      const indices = dates.map((_, i) => i).sort((a, b) => dates[a].localeCompare(dates[b]));
+      const sortedDemands = indices.map(i => demands[i]);
+      const sortedForecasts = indices.map(i => forecasts[i] ?? 0);
+
+      const nonZeroDemands = sortedDemands.filter(d => d > 0);
+      const totalPeriods = sortedDemands.length;
+      const nonZeroCount = nonZeroDemands.length;
+
+      const adi = nonZeroCount > 0 ? totalPeriods / nonZeroCount : totalPeriods;
+
+      const mean = nonZeroCount > 0
+        ? nonZeroDemands.reduce((a, b) => a + b, 0) / nonZeroCount
         : 0;
-      const variance = nonZeroDemands.length > 1
-        ? nonZeroDemands.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / nonZeroDemands.length
+      const variance = nonZeroCount > 1
+        ? nonZeroDemands.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / nonZeroCount
         : 0;
-      const cv = mean > 0 ? Math.sqrt(variance) / mean : 0;
-      
+      const cv2 = mean > 0 ? variance / (mean * mean) : 0;
+
+      const volume = sortedDemands.reduce((a, b) => a + b, 0);
+
+      let mape: number | null = null;
+      if (forecastColumn && forecastColumn !== '__none__' && sortedForecasts.length === sortedDemands.length) {
+        const mapeValues: number[] = [];
+        for (let i = 0; i < sortedDemands.length; i++) {
+          const actual = sortedDemands[i];
+          const forecast = sortedForecasts[i];
+          if (actual !== 0) {
+            mapeValues.push(Math.abs(actual - forecast) / Math.abs(actual));
+          }
+        }
+        if (mapeValues.length > 0) {
+          mape = (mapeValues.reduce((a, b) => a + b, 0) / mapeValues.length) * 100;
+        }
+      }
+
+      return { id, adi, cv2, volume, mape, demands: sortedDemands };
+    });
+  }, [data.rows, idColumn, dateColumn, demandColumn, forecastColumn]);
+
+  const classifiedData = useMemo(() => {
+    return analysisData.map(item => {
       let classification = 'Smooth';
-      if (adi >= 1.32 && cv >= 0.49) classification = 'Lumpy';
-      else if (adi >= 1.32) classification = 'Intermittent';
-      else if (cv >= 0.49) classification = 'Erratic';
-      
-      return { id, adi: Math.min(adi, 10), cv: Math.min(cv, 3), classification, mean: mean.toFixed(1), zeroCount };
-    }).slice(0, 200);
-  }, [data.rows, idColumn, dateColumn, demandColumn]);
+      if (item.adi >= adiThreshold && item.cv2 >= cvThreshold) classification = 'Lumpy';
+      else if (item.adi >= adiThreshold) classification = 'Intermittent';
+      else if (item.cv2 >= cvThreshold) classification = 'Erratic';
+      return { ...item, classification };
+    });
+  }, [analysisData, adiThreshold, cvThreshold]);
 
-  const classificationColors: Record<string, string> = {
-    'Smooth': '#22c55e',
-    'Erratic': '#f59e0b',
-    'Intermittent': '#3b82f6',
-    'Lumpy': '#ef4444'
-  };
+  const quadrantAggregates = useMemo(() => {
+    const totalItems = classifiedData.length;
+    const totalVolume = classifiedData.reduce((a, b) => a + b.volume, 0);
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { Smooth: 0, Erratic: 0, Intermittent: 0, Lumpy: 0 };
-    analysisData.forEach(d => c[d.classification]++);
-    return c;
-  }, [analysisData]);
+    const quads: Record<string, { count: number; volume: number; mapes: number[]; representative: number[] }> = {
+      Smooth: { count: 0, volume: 0, mapes: [], representative: [] },
+      Intermittent: { count: 0, volume: 0, mapes: [], representative: [] },
+      Erratic: { count: 0, volume: 0, mapes: [], representative: [] },
+      Lumpy: { count: 0, volume: 0, mapes: [], representative: [] },
+    };
+
+    classifiedData.forEach(item => {
+      const q = quads[item.classification];
+      q.count++;
+      q.volume += item.volume;
+      if (item.mape !== null) q.mapes.push(item.mape);
+      if (q.representative.length === 0) q.representative = item.demands.slice(0, 12);
+    });
+
+    const result: Record<string, { pctDFUs: number; pctVolume: number; avgMape: number | null; representative: number[] }> = {};
+    for (const [key, val] of Object.entries(quads)) {
+      result[key] = {
+        pctDFUs: totalItems > 0 ? (val.count / totalItems) * 100 : 0,
+        pctVolume: totalVolume > 0 ? (val.volume / totalVolume) * 100 : 0,
+        avgMape: val.mapes.length > 0 ? val.mapes.reduce((a, b) => a + b, 0) / val.mapes.length : null,
+        representative: val.representative,
+      };
+    }
+    return result;
+  }, [classifiedData]);
+
+  const scatterDisplayData = useMemo(() => {
+    if (classifiedData.length <= 500) return classifiedData;
+    const step = Math.ceil(classifiedData.length / 500);
+    return classifiedData.filter((_, i) => i % step === 0);
+  }, [classifiedData]);
 
   if (!idColumn || !dateColumn || !demandColumn) {
-    return <div className="text-sm text-muted-foreground p-4">Select ID, Date, and Demand columns for ADI/CV analysis</div>;
+    return <div className="text-sm text-muted-foreground p-4">Select ID, Date, and Demand columns for ADI/CV² analysis</div>;
   }
+
+  const scatterColors: Record<string, string> = {
+    Smooth: QUADRANT_COLORS.Smooth.text,
+    Intermittent: QUADRANT_COLORS.Intermittent.text,
+    Erratic: QUADRANT_COLORS.Erratic.text,
+    Lumpy: QUADRANT_COLORS.Lumpy.text,
+  };
+
+  const quadrantOrder: [string, string][] = [
+    ['Intermittent', 'Lumpy'],
+    ['Smooth', 'Erratic'],
+  ];
+
+  const maxBarVal = (arr: number[]) => {
+    const m = Math.max(...arr, 1);
+    return m;
+  };
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 flex-wrap">
-        {Object.entries(counts).map(([cls, count]) => (
-          <Badge key={cls} variant="outline" style={{ borderColor: classificationColors[cls], color: classificationColors[cls] }}>
-            {cls}: {count} ({analysisData.length > 0 ? ((count / analysisData.length) * 100).toFixed(0) : 0}%)
-          </Badge>
-        ))}
+      <div className="grid grid-cols-2 gap-4 p-3 bg-slate-50 rounded-lg border">
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-slate-700">ADI Threshold</label>
+            <span className="text-xs font-mono font-semibold" style={{ color: PALETTE.primary }}>{adiThreshold.toFixed(2)}</span>
+          </div>
+          <input
+            type="range"
+            min="1.0"
+            max="5.0"
+            step="0.01"
+            value={adiThreshold}
+            onChange={(e) => setAdiThreshold(parseFloat(e.target.value))}
+            className="w-full h-1.5 accent-teal-600"
+            data-testid="slider-adi-threshold"
+          />
+          <div className="flex justify-between text-[10px] text-slate-400">
+            <span>1.0</span>
+            <span>5.0</span>
+          </div>
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-slate-700">CV² Threshold</label>
+            <span className="text-xs font-mono font-semibold" style={{ color: PALETTE.primary }}>{cvThreshold.toFixed(2)}</span>
+          </div>
+          <input
+            type="range"
+            min="0.1"
+            max="2.0"
+            step="0.01"
+            value={cvThreshold}
+            onChange={(e) => setCvThreshold(parseFloat(e.target.value))}
+            className="w-full h-1.5 accent-teal-600"
+            data-testid="slider-cv-threshold"
+          />
+          <div className="flex justify-between text-[10px] text-slate-400">
+            <span>0.1</span>
+            <span>2.0</span>
+          </div>
+        </div>
       </div>
-      <ResponsiveContainer width="100%" height={300}>
+
+      <div className="grid grid-cols-2 gap-3">
+        {quadrantOrder.map((row, ri) =>
+          row.map((quadrant) => {
+            const qc = QUADRANT_COLORS[quadrant];
+            const agg = quadrantAggregates[quadrant];
+            const bars = agg?.representative || [];
+            const mv = maxBarVal(bars);
+            return (
+              <div
+                key={quadrant}
+                className="relative rounded-lg p-4 overflow-hidden border"
+                style={{ backgroundColor: qc.bg, borderColor: `${qc.text}33` }}
+                data-testid={`quadrant-card-${quadrant.toLowerCase()}`}
+              >
+                <div className="absolute inset-x-0 bottom-0 h-16 flex items-end justify-around px-2 pb-1 opacity-30">
+                  {bars.map((v, bi) => (
+                    <div
+                      key={bi}
+                      style={{
+                        width: `${Math.max(100 / Math.max(bars.length, 1) - 2, 3)}%`,
+                        height: `${mv > 0 ? (v / mv) * 100 : 0}%`,
+                        backgroundColor: qc.bar,
+                        minHeight: '1px',
+                      }}
+                      className="rounded-t-sm"
+                    />
+                  ))}
+                </div>
+
+                <div className="relative z-10">
+                  <h4 className="text-sm font-bold mb-2" style={{ color: qc.text }}>{quadrant}</h4>
+                  <p className="text-lg font-bold" style={{ color: qc.text }}>{agg ? agg.pctDFUs.toFixed(1) : '0.0'}% of DFUs</p>
+                  <p className="text-sm font-semibold" style={{ color: qc.text }}>{agg ? agg.pctVolume.toFixed(1) : '0.0'}% of volume</p>
+                  {agg && agg.avgMape !== null && (
+                    <p className="text-xs font-medium mt-1" style={{ color: agg.avgMape <= 30 ? '#16a34a' : '#dc2626' }}>
+                      Avg MAPE: {agg.avgMape.toFixed(1)}%
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <ResponsiveContainer width="100%" height={320}>
         <ScatterChart margin={{ top: 10, right: 20, bottom: 30, left: 10 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis 
-            type="number" 
-            dataKey="adi" 
-            name="ADI" 
+          <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.gridStroke} />
+          <XAxis
+            type="number"
+            dataKey="adi"
+            name="ADI"
             domain={[0, 'auto']}
             tick={{ fontSize: 10 }}
             label={{ value: 'ADI (Avg Demand Interval)', position: 'bottom', offset: 15, fontSize: 10 }}
           />
-          <YAxis 
-            type="number" 
-            dataKey="cv" 
-            name="CV" 
+          <YAxis
+            type="number"
+            dataKey="cv2"
+            name="CV²"
             domain={[0, 'auto']}
             tick={{ fontSize: 10 }}
-            label={{ value: 'CV (Coeff of Variation)', angle: -90, position: 'insideLeft', offset: 0, fontSize: 10 }}
+            label={{ value: 'CV² (Squared Coeff of Variation)', angle: -90, position: 'insideLeft', offset: 0, fontSize: 10 }}
           />
-          <ReferenceLine x={1.32} stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={1.5} label={{ value: 'ADI=1.32', position: 'top', fontSize: 9, fill: '#64748b' }} />
-          <ReferenceLine y={0.49} stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={1.5} label={{ value: 'CV=0.49', position: 'right', fontSize: 9, fill: '#64748b' }} />
-          <Tooltip 
+          <ReferenceLine x={adiThreshold} stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={1.5} label={{ value: `ADI=${adiThreshold.toFixed(2)}`, position: 'top', fontSize: 9, fill: PALETTE.textSecondary }} />
+          <ReferenceLine y={cvThreshold} stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={1.5} label={{ value: `CV²=${cvThreshold.toFixed(2)}`, position: 'right', fontSize: 9, fill: PALETTE.textSecondary }} />
+          <Tooltip
             content={({ payload }) => {
               if (!payload?.length) return null;
               const d = payload[0].payload;
@@ -396,37 +574,40 @@ export function ADICVChart({ data, config }: ChartProps) {
                 <div className="bg-white p-2 border rounded shadow text-xs">
                   <p className="font-semibold">{d.id}</p>
                   <p>ADI: {d.adi.toFixed(2)}</p>
-                  <p>CV: {d.cv.toFixed(2)}</p>
-                  <p>Mean Demand: {d.mean}</p>
-                  <p className="font-medium" style={{ color: classificationColors[d.classification] }}>{d.classification}</p>
+                  <p>CV²: {d.cv2.toFixed(2)}</p>
+                  <p>Volume: {d.volume.toLocaleString()}</p>
+                  <p className="font-medium" style={{ color: scatterColors[d.classification] }}>{d.classification}</p>
                 </div>
               );
             }}
           />
-          <Scatter name="Items" data={analysisData} shape="circle">
-            {analysisData.map((entry, index) => (
-              <Cell key={index} fill={classificationColors[entry.classification]} fillOpacity={0.7} />
+          <Scatter name="Items" data={scatterDisplayData} shape="circle">
+            {scatterDisplayData.map((entry, index) => (
+              <Cell key={index} fill={scatterColors[entry.classification]} fillOpacity={0.7} />
             ))}
           </Scatter>
-          <Legend 
+          <Legend
             content={() => (
               <div className="flex gap-3 justify-center mt-2 text-[10px]">
-                {Object.entries(classificationColors).map(([cls, color]) => (
-                  <div key={cls} className="flex items-center gap-1">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
-                    <span>{cls} ({counts[cls]})</span>
-                  </div>
-                ))}
+                {Object.entries(scatterColors).map(([cls, color]) => {
+                  const count = classifiedData.filter(d => d.classification === cls).length;
+                  return (
+                    <div key={cls} className="flex items-center gap-1">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
+                      <span>{cls} ({count})</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           />
         </ScatterChart>
       </ResponsiveContainer>
-      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-        <div className="p-2 bg-green-50 rounded">Smooth: Low ADI (&lt;1.32), Low CV (&lt;0.49)</div>
-        <div className="p-2 bg-amber-50 rounded">Erratic: Low ADI (&lt;1.32), High CV (&ge;0.49)</div>
-        <div className="p-2 bg-blue-50 rounded">Intermittent: High ADI (&ge;1.32), Low CV (&lt;0.49)</div>
-        <div className="p-2 bg-red-50 rounded">Lumpy: High ADI (&ge;1.32), High CV (&ge;0.49)</div>
+
+      <div className="flex items-center justify-center gap-2">
+        <Badge variant="outline" className="text-xs" style={{ borderColor: PALETTE.primary, color: PALETTE.primary }}>
+          Total DFUs Analyzed: {classifiedData.length}
+        </Badge>
       </div>
     </div>
   );
@@ -434,25 +615,25 @@ export function ADICVChart({ data, config }: ChartProps) {
 
 export function ParetoChart({ data, config }: ChartProps) {
   const { groupColumn, valueColumn } = config;
-  
+
   const chartData = useMemo(() => {
     if (!groupColumn || !valueColumn || !data.rows.length) return [];
-    
+
     const grouped: Record<string, number> = {};
     data.rows.forEach(row => {
       const group = String(row[groupColumn]);
       const value = parseFloat(row[valueColumn]) || 0;
       grouped[group] = (grouped[group] || 0) + value;
     });
-    
+
     const sorted = Object.entries(grouped)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 20);
-    
+
     const total = sorted.reduce((a, b) => a + b.value, 0);
     let cumulative = 0;
-    
+
     return sorted.map(item => {
       cumulative += item.value;
       return {
@@ -469,14 +650,14 @@ export function ParetoChart({ data, config }: ChartProps) {
   return (
     <ResponsiveContainer width="100%" height={300}>
       <ComposedChart data={chartData}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+        <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.gridStroke} />
         <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-45} textAnchor="end" height={70} />
         <YAxis yAxisId="left" tick={{ fontSize: 10 }} />
         <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fontSize: 10 }} unit="%" />
         <Tooltip />
         <Legend />
-        <Bar yAxisId="left" dataKey="value" fill="#3b82f6" name="Value" />
-        <Line yAxisId="right" type="monotone" dataKey="cumulative" stroke="#ef4444" name="Cumulative %" dot={false} />
+        <Bar yAxisId="left" dataKey="value" fill={PALETTE.primary} name="Value" />
+        <Line yAxisId="right" type="monotone" dataKey="cumulative" stroke={PALETTE.danger} name="Cumulative %" dot={false} />
       </ComposedChart>
     </ResponsiveContainer>
   );
@@ -485,7 +666,7 @@ export function ParetoChart({ data, config }: ChartProps) {
 export function DataTableChart({ data, config }: ChartProps) {
   const displayRows = data.rows.slice(0, 100);
   const displayCols = data.columns.slice(0, 10);
-  
+
   return (
     <div className="max-h-[400px] overflow-auto">
       <Table>
@@ -519,14 +700,14 @@ export function SummaryStatsChart({ data, config }: ChartProps) {
       const values = data.rows.map(r => r[col]);
       const numericValues = values.map(v => parseFloat(v)).filter(v => !isNaN(v));
       const isNumeric = numericValues.length > values.length * 0.5;
-      
+
       let result: any = {
         column: col,
         type: isNumeric ? 'Numeric' : 'Categorical',
         filled: values.filter(v => v !== null && v !== undefined && v !== '').length,
         missing: values.filter(v => v === null || v === undefined || v === '').length
       };
-      
+
       if (isNumeric && numericValues.length > 0) {
         const sum = numericValues.reduce((a, b) => a + b, 0);
         result.mean = (sum / numericValues.length).toFixed(2);
@@ -539,7 +720,7 @@ export function SummaryStatsChart({ data, config }: ChartProps) {
         result.unique = unique.size;
         result.topValue = Array.from(unique)[0] || '-';
       }
-      
+
       return result;
     });
   }, [data.columns, data.rows]);
@@ -591,13 +772,13 @@ export function CompletenessChart({ data, config }: ChartProps) {
   return (
     <ResponsiveContainer width="100%" height={Math.max(200, data.columns.length * 25)}>
       <BarChart data={chartData} layout="vertical">
-        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+        <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.gridStroke} />
         <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10 }} unit="%" />
         <YAxis type="category" dataKey="column" tick={{ fontSize: 10 }} width={100} />
         <Tooltip formatter={(value: number) => `${value.toFixed(1)}%`} />
         <Bar dataKey="completeness" fill="#22c55e">
           {chartData.map((entry, index) => (
-            <Cell key={index} fill={entry.completeness >= 95 ? '#22c55e' : entry.completeness >= 80 ? '#f59e0b' : '#ef4444'} />
+            <Cell key={index} fill={entry.completeness >= 95 ? '#22c55e' : entry.completeness >= 80 ? PALETTE.accent : PALETTE.danger} />
           ))}
         </Bar>
       </BarChart>
@@ -608,21 +789,21 @@ export function CompletenessChart({ data, config }: ChartProps) {
 export function OutlierTableChart({ data, config }: ChartProps) {
   const outliers = useMemo(() => {
     const results: any[] = [];
-    
+
     data.columns.forEach(col => {
       const values = data.rows.map(r => parseFloat(r[col])).filter(v => !isNaN(v));
       if (values.length < 10) return;
-      
+
       const mean = values.reduce((a, b) => a + b, 0) / values.length;
       const variance = values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / values.length;
       const std = Math.sqrt(variance);
-      
+
       if (std === 0) return;
-      
+
       data.rows.forEach((row, idx) => {
         const val = parseFloat(row[col]);
         if (isNaN(val)) return;
-        
+
         const zScore = (val - mean) / std;
         if (Math.abs(zScore) > 3) {
           results.push({
@@ -635,7 +816,7 @@ export function OutlierTableChart({ data, config }: ChartProps) {
         }
       });
     });
-    
+
     return results.slice(0, 50);
   }, [data.columns, data.rows]);
 
@@ -660,7 +841,7 @@ export function OutlierTableChart({ data, config }: ChartProps) {
             <TableRow key={i}>
               <TableCell className="text-xs">{o.row}</TableCell>
               <TableCell className="text-xs font-medium">{o.column}</TableCell>
-              <TableCell className="text-xs font-semibold text-red-600">{o.value}</TableCell>
+              <TableCell className="text-xs font-semibold" style={{ color: PALETTE.danger }}>{o.value}</TableCell>
               <TableCell className="text-xs">{o.mean}</TableCell>
               <TableCell className="text-xs">{o.zScore}</TableCell>
             </TableRow>
@@ -673,12 +854,12 @@ export function OutlierTableChart({ data, config }: ChartProps) {
 
 export function SeasonalPlotChart({ data, config }: ChartProps) {
   const { dateColumn, valueColumn } = config;
-  
+
   const chartData = useMemo(() => {
     if (!dateColumn || !valueColumn || !data.rows.length) return [];
-    
+
     const byMonth: Record<string, number[]> = {};
-    
+
     data.rows.forEach(row => {
       const date = new Date(row[dateColumn]);
       if (isNaN(date.getTime())) return;
@@ -687,7 +868,7 @@ export function SeasonalPlotChart({ data, config }: ChartProps) {
       if (!byMonth[month]) byMonth[month] = [];
       byMonth[month].push(value);
     });
-    
+
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return months.map(month => ({
       month,
@@ -703,29 +884,29 @@ export function SeasonalPlotChart({ data, config }: ChartProps) {
   return (
     <ResponsiveContainer width="100%" height={300}>
       <BarChart data={chartData}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+        <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.gridStroke} />
         <XAxis dataKey="month" tick={{ fontSize: 10 }} />
         <YAxis tick={{ fontSize: 10 }} />
         <Tooltip />
-        <Bar dataKey="avg" fill="#06b6d4" name="Average Value" />
+        <Bar dataKey="avg" fill={PALETTE.secondary} name="Average Value" />
       </BarChart>
     </ResponsiveContainer>
   );
 }
 
 export const CHART_TYPES = [
-  { value: 'timeseries', label: 'Time Series', description: 'Trend over time' },
-  { value: 'histogram', label: 'Histogram', description: 'Distribution of values' },
-  { value: 'boxplot', label: 'Box Plot Stats', description: 'Distribution by group' },
-  { value: 'bar', label: 'Bar Chart', description: 'Values by category' },
-  { value: 'scatter', label: 'Scatter Plot', description: 'X vs Y correlation' },
-  { value: 'adicv', label: 'ADI/CV Analysis', description: 'Demand pattern classification' },
-  { value: 'pareto', label: 'Pareto Chart', description: '80/20 analysis' },
-  { value: 'table', label: 'Data Table', description: 'View raw data' },
-  { value: 'summary', label: 'Summary Stats', description: 'Column statistics' },
-  { value: 'seasonal', label: 'Seasonal Plot', description: 'Monthly patterns' },
-  { value: 'completeness', label: 'Completeness', description: 'Data quality check' },
-  { value: 'outliers', label: 'Outlier Table', description: 'Anomaly detection' }
+  { value: 'timeseries', label: 'Time Series', description: 'Trend analysis over time' },
+  { value: 'histogram', label: 'Histogram', description: 'Value distribution' },
+  { value: 'boxplot', label: 'Boxplot', description: 'Spread & outliers by group' },
+  { value: 'bar', label: 'Bar Chart', description: 'Categorical comparison' },
+  { value: 'scatter', label: 'Scatter Plot', description: 'Correlation analysis' },
+  { value: 'adicv', label: 'Demand Classification', description: 'ADI × CV² demand pattern map' },
+  { value: 'pareto', label: 'Pareto Analysis', description: '80/20 concentration' },
+  { value: 'table', label: 'Data Table', description: 'Raw data view' },
+  { value: 'summary', label: 'Summary Statistics', description: 'Descriptive stats per column' },
+  { value: 'seasonal', label: 'Seasonality', description: 'Monthly demand patterns' },
+  { value: 'completeness', label: 'Data Quality', description: 'Missing value analysis' },
+  { value: 'outliers', label: 'Outlier Detection', description: 'Z-score anomaly scan' }
 ];
 
 export function renderChart(chartType: string, data: ChartProps['data'], config: ChartProps['config']) {

@@ -2486,7 +2486,7 @@ function FlowWithProvider() {
 
                       {selectedNode.data.chartType === 'adicv' && (
                         <div className="space-y-2">
-                          <Label className="text-xs text-emerald-700">ID Column</Label>
+                          <Label className="text-xs text-emerald-700">ID Column (DFU / SKU)</Label>
                           <Select
                             value={selectedNode.data.chartConfig?.idColumn || ''}
                             onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, idColumn: val })}
@@ -2514,7 +2514,7 @@ function FlowWithProvider() {
                               ))}
                             </SelectContent>
                           </Select>
-                          <Label className="text-xs text-emerald-700">Demand Column</Label>
+                          <Label className="text-xs text-emerald-700">Actuals / Demand Column</Label>
                           <Select
                             value={selectedNode.data.chartConfig?.demandColumn || ''}
                             onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, demandColumn: val })}
@@ -2523,6 +2523,21 @@ function FlowWithProvider() {
                               <SelectValue placeholder="Select column..." />
                             </SelectTrigger>
                             <SelectContent>
+                              {getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Forecast Column <span className="text-muted-foreground">(optional, for MAPE)</span></Label>
+                          <Select
+                            value={selectedNode.data.chartConfig?.forecastColumn || ''}
+                            onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, forecastColumn: val === '__none__' ? undefined : val })}
+                          >
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-forecast-column">
+                              <SelectValue placeholder="Select column (optional)..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__" className="font-mono text-xs text-muted-foreground">None</SelectItem>
                               {getSourceColumns(selectedNode.id).map(col => (
                                 <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
                               ))}
