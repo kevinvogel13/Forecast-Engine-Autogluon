@@ -19,7 +19,7 @@ import {
  
 import '@xyflow/react/dist/style.css';
 import { Button } from '@/components/ui/button';
-import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown, GitMerge } from 'lucide-react';
+import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown, GitMerge, FilePlus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -46,7 +46,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import Editor from '@monaco-editor/react';
 import { CHART_TYPES, renderChart } from '@/components/exploration/ExplorationCharts';
-import { usePipelines, useCreatePipeline, useUpdatePipeline, useExecutePipeline } from '@/hooks/usePipelines';
+import { usePipelines, useCreatePipeline, useUpdatePipeline, useDeletePipeline, useExecutePipeline } from '@/hooks/usePipelines';
 import { useDatasets } from '@/hooks/useDatasets';
 
 const initialNodes: any[] = [];
@@ -79,6 +79,7 @@ function FlowWithProvider() {
   const createPipeline = useCreatePipeline();
   const updatePipeline = useUpdatePipeline();
   const executePipeline = useExecutePipeline();
+  const deletePipeline = useDeletePipeline();
   
   // Edge click popover state
   const [selectedEdgeData, setSelectedEdgeData] = useState<{ id: string, x: number, y: number, sourceNode: any, targetNode: any } | null>(null);
@@ -1411,11 +1412,29 @@ function FlowWithProvider() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => {
+                setNodes([]);
+                setEdges([]);
+                setCurrentPipelineId(null);
+                setPipelineName('');
+                setPipelineDescription('');
+                setSelectedNode(null);
+                toast.success('New pipeline created');
+              }} data-testid="menu-new">
+                <FilePlus className="w-4 h-4 mr-2" />
+                New Pipeline
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setLoadDialogOpen(true)} data-testid="menu-load">
                 <FolderOpen className="w-4 h-4 mr-2" />
                 Open Pipeline
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSaveDialogOpen(true)} data-testid="menu-save">
+              <DropdownMenuItem onClick={() => {
+                if (currentPipelineId) {
+                  updatePipeline.mutate({ id: currentPipelineId, data: { name: pipelineName, description: pipelineDescription, nodes, edges } });
+                } else {
+                  setSaveDialogOpen(true);
+                }
+              }} data-testid="menu-save">
                 <Save className="w-4 h-4 mr-2" />
                 {currentPipelineId ? 'Save Pipeline' : 'Save As...'}
               </DropdownMenuItem>
@@ -1431,6 +1450,34 @@ function FlowWithProvider() {
                 <Save className="w-4 h-4 mr-2" />
                 Save As New...
               </DropdownMenuItem>
+              {currentPipelineId && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => {
+                      if (window.confirm('Are you sure you want to delete this pipeline?')) {
+                        deletePipeline.mutate(currentPipelineId, {
+                          onSuccess: () => {
+                            setNodes([]);
+                            setEdges([]);
+                            setCurrentPipelineId(null);
+                            setPipelineName('');
+                            setPipelineDescription('');
+                            setSelectedNode(null);
+                            setLoadDialogOpen(false);
+                            setSaveDialogOpen(false);
+                          },
+                        });
+                      }
+                    }}
+                    data-testid="menu-delete"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete Pipeline
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -1470,13 +1517,40 @@ function FlowWithProvider() {
                     savedPipelines.map((pipeline) => (
                      <button
                         key={pipeline.id}
-                        className="w-full text-left p-3 rounded-lg border border-border hover:bg-accent hover:border-primary/50 transition-all group"
+                        className="w-full text-left p-3 rounded-lg border border-border hover:bg-accent hover:border-primary/50 transition-all group relative"
                         onClick={() => loadPipeline(pipeline)}
                         data-testid={`button-load-pipeline-${pipeline.id}`}
                      >
                         <div className="flex items-center justify-between mb-1">
                            <span className="font-medium group-hover:text-primary transition-colors">{pipeline.name}</span>
-                           <span className="text-xs text-muted-foreground">{new Date(pipeline.updatedAt).toLocaleDateString()}</span>
+                           <div className="flex items-center gap-2">
+                             <span className="text-xs text-muted-foreground">{new Date(pipeline.updatedAt).toLocaleDateString()}</span>
+                             <Button
+                               variant="ghost"
+                               size="icon"
+                               className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 if (window.confirm('Are you sure you want to delete this pipeline?')) {
+                                   deletePipeline.mutate(pipeline.id, {
+                                     onSuccess: () => {
+                                       if (currentPipelineId === pipeline.id) {
+                                         setNodes([]);
+                                         setEdges([]);
+                                         setCurrentPipelineId(null);
+                                         setPipelineName('');
+                                         setPipelineDescription('');
+                                         setSelectedNode(null);
+                                       }
+                                     },
+                                   });
+                                 }
+                               }}
+                               data-testid={`button-delete-pipeline-${pipeline.id}`}
+                             >
+                               <Trash2 className="w-3.5 h-3.5" />
+                             </Button>
+                           </div>
                         </div>
                         <p className="text-xs text-muted-foreground line-clamp-1">{pipeline.description}</p>
                         <div className="mt-2 text-xs flex gap-2">
