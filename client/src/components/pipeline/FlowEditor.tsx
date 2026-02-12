@@ -46,7 +46,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import Editor from '@monaco-editor/react';
 import { CHART_TYPES, renderChart } from '@/components/exploration/ExplorationCharts';
-import DOMPurify from 'dompurify';
 import { usePipelines, useCreatePipeline, useUpdatePipeline, useDeletePipeline, useExecutePipeline } from '@/hooks/usePipelines';
 import { useDatasets } from '@/hooks/useDatasets';
 
@@ -722,76 +721,32 @@ function FlowWithProvider() {
     setExplorationPreview(null);
   }, [selectedNode?.id]);
 
-  const exportReportHTML = useCallback(async () => {
-    const reportNode = selectedNode?.data.type === 'report' ? selectedNode : nodes.find(n => n.id === selectedNode?.id && n.data.type === 'report');
-    if (!reportNode) return;
-    
-    const reportTitle = reportNode.data.reportTitle || 'Untitled Report';
-    const incomingEdges = edges.filter(e => e.target === reportNode.id);
-    const connectedExplorations = incomingEdges
-      .map(e => nodes.find(n => n.id === e.source))
-      .filter(n => n && n.data.type === 'exploration');
-
-    if (connectedExplorations.length === 0) {
-      toast.error('No exploration nodes connected to this report');
+  const exportReportHTML = useCallback(() => {
+    const reportTitle = selectedNode?.data.reportTitle || 'Untitled Report';
+    const container = document.querySelector('[data-testid="report-preview-content"]');
+    if (!container) {
+      toast.error('Please open the report preview first, then click Export HTML');
       return;
     }
 
-    const savedOrder: string[] = reportNode.data.explorationOrder || [];
-    const explorationNodes = [
-      ...savedOrder.map(id => connectedExplorations.find(n => n?.id === id)).filter(Boolean),
-      ...connectedExplorations.filter(n => n && !savedOrder.includes(n.id))
-    ];
+    const clone = container.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('[data-testid^="button-"], [draggable]').forEach(el => {
+      el.removeAttribute('draggable');
+    });
+    clone.querySelectorAll('.cursor-grab').forEach(el => {
+      el.classList.remove('cursor-grab', 'active:cursor-grabbing');
+    });
+    clone.querySelectorAll('svg.lucide-grip-vertical').forEach(el => el.remove());
 
-    toast.info('Generating report...');
+    const contentHTML = clone.innerHTML;
 
-    let sectionsHTML = '';
-    for (const expNode of explorationNodes) {
-      if (!expNode) continue;
-      const chartType = expNode.data.chartType || 'Not configured';
-      const chartConfig = expNode.data.chartConfig || {};
-      const takeaway = expNode.data.takeaway || '';
-      const chartLabel = CHART_TYPES.find(ct => ct.value === chartType)?.label || chartType;
-
-      let dataHTML = '';
-      if (chartType === 'richtext') {
-        dataHTML = `<div style="margin-top:16px;line-height:1.7;color:#1e293b;">${DOMPurify.sanitize(chartConfig.richTextContent || '')}</div>`;
-      } else {
+    const styles = Array.from(document.styleSheets)
+      .map(sheet => {
         try {
-          const datasetId = getSourceDatasetId(expNode.id);
-          if (datasetId) {
-            const transforms = getUpstreamTransforms(expNode.id);
-            const needsAllRows = ['adicv', 'pareto', 'boxplot', 'histogram', 'scatter', 'seasonal', 'outlier', 'summary', 'completeness'].includes(chartType);
-            const rowLimit = needsAllRows ? 200000 : 500;
-            const response = await fetch(`/api/datasets/${datasetId}/transform?limit=${rowLimit}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ transforms })
-            });
-            if (response.ok) {
-              const previewData = await response.json();
-              const allCols = previewData.columns || [];
-              const allRows = previewData.rows || [];
-              dataHTML = generateChartDataHTML(chartType, chartConfig, allCols, allRows, previewData.totalRows || allRows.length);
-            }
-          }
-        } catch (err) {
-          console.error('Error fetching data for report export:', err);
-        }
-      }
-
-      const configEntries = Object.entries(chartConfig).filter(([k, v]) => v && typeof v !== 'object' && k !== 'richTextContent');
-      sectionsHTML += `
-        <div style="margin-bottom:40px;padding:24px;border:1px solid #e2e8f0;border-radius:12px;background:#ffffff;box-shadow:0 1px 3px 0 rgba(0,0,0,0.1);">
-          <div style="display:flex;justify-content:between;align-items:center;margin-bottom:16px;">
-            <h2 style="margin:0;font-size:20px;color:#0f172a;">${expNode.data.label || 'Exploration'}</h2>
-            <span style="margin-left:auto;background:#ecfdf5;color:#065f46;padding:4px 12px;border-radius:9999px;font-size:12px;font-weight:600;">${chartLabel}</span>
-          </div>
-          ${configEntries.length > 0 ? `<div style="margin-bottom:12px;padding:8px 12px;background:#f8fafc;border-radius:6px;"><p style="margin:0;font-size:12px;color:#64748b;font-family:monospace;">${configEntries.map(([k, v]) => `${k}: ${v}`).join(' \u2022 ')}</p></div>` : ''}
-          ${takeaway ? `<div style="margin-top:16px;padding:16px;background:#f0fdf4;border-left:4px solid #22c55e;border-radius:4px;"><p style="margin:0;font-size:14px;line-height:1.5;color:#166534;"><strong>Key Takeaway:</strong> ${takeaway}</p></div>` : ''}
-          ${dataHTML}
-        </div>`;
-    }
+          return Array.from(sheet.cssRules).map(r => r.cssText).join('\n');
+        } catch { return ''; }
+      })
+      .join('\n');
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -802,20 +757,24 @@ function FlowWithProvider() {
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #334155; background-color: #f8fafc; margin: 0; padding: 0; }
     .container { max-width: 1000px; margin: 40px auto; padding: 40px; background: white; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-    h1 { font-size: 32px; margin: 0 0 8px 0; color: #0f172a; }
-    .meta { color: #94a3b8; font-size: 14px; margin-bottom: 40px; display: flex; align-items: center; gap: 8px; }
+    .report-header { margin-bottom: 40px; }
+    .report-header h1 { font-size: 32px; margin: 0 0 8px 0; color: #0f172a; }
+    .report-header .meta { color: #94a3b8; font-size: 14px; display: flex; align-items: center; gap: 8px; }
     .footer { text-align: center; color: #94a3b8; font-size: 12px; margin-top: 60px; padding-top: 24px; border-top: 1px solid #e2e8f0; }
+    ${styles}
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>${reportTitle}</h1>
-    <div class="meta">
-      <span>Generated on ${new Date().toLocaleString()}</span>
-      <span>&bull;</span>
-      <span>${explorationNodes.length} exploration(s)</span>
+    <div class="report-header">
+      <h1>${reportTitle}</h1>
+      <div class="meta">
+        <span>Generated on ${new Date().toLocaleString()}</span>
+        <span>&bull;</span>
+        <span>${reportPreviewData.length} exploration(s)</span>
+      </div>
     </div>
-    ${sectionsHTML}
+    ${contentHTML}
     <div class="footer">
       <p>Report generated by Forecast Pipeline Application</p>
     </div>
@@ -833,7 +792,7 @@ function FlowWithProvider() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     toast.success('Report exported successfully');
-  }, [selectedNode, edges, nodes, getSourceDatasetId, getUpstreamTransforms]);
+  }, [selectedNode, reportPreviewData]);
 
   const loadReportPreview = useCallback(async () => {
     if (!selectedNode) return;
@@ -3002,7 +2961,7 @@ function FlowWithProvider() {
             </Button>
           </div>
           <ScrollArea className="flex-1 p-6 bg-slate-50/50">
-            <div className="max-w-4xl mx-auto space-y-6">
+            <div className="max-w-4xl mx-auto space-y-6" data-testid="report-preview-content">
               {reportPreviewData.map((section, idx) => {
                 const chartLabel = CHART_TYPES.find(ct => ct.value === section.chartType)?.label || 'Not configured';
                 return (
@@ -3063,14 +3022,18 @@ function FlowWithProvider() {
                           <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">{chartLabel}</span>
                         </div>
                       </div>
-                      {Object.entries(section.chartConfig).filter(([,v]) => v).length > 0 && (
+                      {Object.entries(section.chartConfig).filter(([k,v]) => v && typeof v !== 'object' && typeof v !== 'function' && k !== 'richTextContent').length > 0 && (
                         <p className="text-xs text-muted-foreground">
-                          {Object.entries(section.chartConfig).filter(([,v]) => v).map(([k,v]) => `${k}: ${v}`).join(' \u2022 ')}
+                          {Object.entries(section.chartConfig).filter(([k,v]) => v && typeof v !== 'object' && typeof v !== 'function' && k !== 'richTextContent').map(([k,v]) => `${k}: ${v}`).join(' \u2022 ')}
                         </p>
                       )}
                     </CardHeader>
                     <CardContent>
-                      {section.data && section.chartType ? (
+                      {section.chartType === 'richtext' ? (
+                        <div>
+                          {renderChart('richtext', { columns: [], rows: [], totalRows: 0 }, section.chartConfig)}
+                        </div>
+                      ) : section.data && section.chartType ? (
                         <div className="min-h-[200px]">
                           {renderChart(section.chartType, section.data, section.chartConfig)}
                         </div>

@@ -51,6 +51,8 @@ interface ChartProps {
     actualColumn?: string;
     adiThreshold?: number;
     cvThreshold?: number;
+    richTextContent?: string;
+    onRichTextChange?: (html: string) => void;
   };
 }
 
