@@ -89,6 +89,9 @@ Preferred communication style: Simple, everyday language.
     - Config: idColumn, dateColumn, demandColumn, forecastColumn (optional)
 - **Report**: Combines multiple exploration charts into an HTML report
   - Connect Exploration nodes to aggregate charts into report sections
+  - Drag-to-reorder explorations in config panel and report preview dialog
+  - Order persisted in `explorationOrder` array on report node data
+  - Up/down arrow buttons and native HTML drag-and-drop for reordering
   - Report title configuration
   - Export HTML Report button (pending implementation)
   - Violet color theme

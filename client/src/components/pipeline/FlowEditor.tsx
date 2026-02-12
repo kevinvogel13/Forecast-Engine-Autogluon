@@ -19,7 +19,7 @@ import {
  
 import '@xyflow/react/dist/style.css';
 import { Button } from '@/components/ui/button';
-import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown, GitMerge, FilePlus } from 'lucide-react';
+import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown, GitMerge, FilePlus, GripVertical, ArrowUp, ArrowDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -727,14 +727,20 @@ function FlowWithProvider() {
     
     const reportTitle = reportNode.data.reportTitle || 'Untitled Report';
     const incomingEdges = edges.filter(e => e.target === reportNode.id);
-    const explorationNodes = incomingEdges
+    const connectedExplorations = incomingEdges
       .map(e => nodes.find(n => n.id === e.source))
       .filter(n => n && n.data.type === 'exploration');
 
-    if (explorationNodes.length === 0) {
+    if (connectedExplorations.length === 0) {
       toast.error('No exploration nodes connected to this report');
       return;
     }
+
+    const savedOrder: string[] = reportNode.data.explorationOrder || [];
+    const explorationNodes = [
+      ...savedOrder.map(id => connectedExplorations.find(n => n?.id === id)).filter(Boolean),
+      ...connectedExplorations.filter(n => n && !savedOrder.includes(n.id))
+    ];
 
     toast.info('Generating report...');
 
@@ -836,14 +842,20 @@ function FlowWithProvider() {
   const loadReportPreview = useCallback(async () => {
     if (!selectedNode) return;
     const incomingEdges = edges.filter(e => e.target === selectedNode.id);
-    const explorationNodes = incomingEdges
+    const connectedExplorations = incomingEdges
       .map(e => nodes.find(n => n.id === e.source))
       .filter(n => n && n.data.type === 'exploration');
 
-    if (explorationNodes.length === 0) {
+    if (connectedExplorations.length === 0) {
       toast.error('No exploration nodes connected to this report');
       return;
     }
+
+    const savedOrder: string[] = selectedNode.data.explorationOrder || [];
+    const explorationNodes = [
+      ...savedOrder.map(id => connectedExplorations.find(n => n?.id === id)).filter(Boolean),
+      ...connectedExplorations.filter(n => n && !savedOrder.includes(n.id))
+    ];
 
     setReportPreviewLoading(true);
     const sections: typeof reportPreviewData = [];
@@ -2708,6 +2720,7 @@ function FlowWithProvider() {
 
                       <div className="space-y-2">
                         <Label className="text-xs text-violet-700 font-semibold">Connected Explorations</Label>
+                        <p className="text-[10px] text-muted-foreground">Drag or use arrows to reorder</p>
                         {(() => {
                           const incomingEdges = edges.filter(e => e.target === selectedNode.id);
                           const connectedExplorations = incomingEdges
@@ -2722,14 +2735,53 @@ function FlowWithProvider() {
                             );
                           }
 
+                          const savedOrder: string[] = selectedNode.data.explorationOrder || [];
+                          const orderedExplorations = [
+                            ...savedOrder.map(id => connectedExplorations.find(n => n?.id === id)).filter(Boolean),
+                            ...connectedExplorations.filter(n => n && !savedOrder.includes(n.id))
+                          ];
+
+                          const moveExploration = (fromIdx: number, toIdx: number) => {
+                            const newOrder = orderedExplorations.map(n => n!.id);
+                            const [moved] = newOrder.splice(fromIdx, 1);
+                            newOrder.splice(toIdx, 0, moved);
+                            updateNodeData('explorationOrder', newOrder);
+                          };
+
                           return (
-                            <div className="space-y-1.5" data-testid="list-connected-explorations">
-                              {connectedExplorations.map((expNode, idx) => {
+                            <div className="space-y-1" data-testid="list-connected-explorations">
+                              {orderedExplorations.map((expNode, idx) => {
                                 if (!expNode) return null;
                                 const chartLabel = CHART_TYPES.find(ct => ct.value === expNode.data.chartType)?.label;
                                 return (
-                                  <div key={expNode.id} className="flex items-center gap-2 p-2 rounded-md bg-white border border-violet-200 text-xs" data-testid={`exploration-item-${idx}`}>
-                                    <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                                  <div
+                                    key={expNode.id}
+                                    draggable
+                                    onDragStart={(e) => {
+                                      e.dataTransfer.setData('text/plain', String(idx));
+                                      e.dataTransfer.effectAllowed = 'move';
+                                    }}
+                                    onDragOver={(e) => {
+                                      e.preventDefault();
+                                      e.dataTransfer.dropEffect = 'move';
+                                      e.currentTarget.classList.add('ring-2', 'ring-violet-400');
+                                    }}
+                                    onDragLeave={(e) => {
+                                      e.currentTarget.classList.remove('ring-2', 'ring-violet-400');
+                                    }}
+                                    onDrop={(e) => {
+                                      e.preventDefault();
+                                      e.currentTarget.classList.remove('ring-2', 'ring-violet-400');
+                                      const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                                      if (!isNaN(fromIdx) && fromIdx !== idx) {
+                                        moveExploration(fromIdx, idx);
+                                      }
+                                    }}
+                                    className="flex items-center gap-1.5 p-2 rounded-md bg-white border border-violet-200 text-xs cursor-grab active:cursor-grabbing transition-all hover:border-violet-400"
+                                    data-testid={`exploration-item-${idx}`}
+                                  >
+                                    <GripVertical className="w-3 h-3 text-violet-300 shrink-0" />
+                                    <span className="text-[10px] text-violet-400 font-mono w-4 shrink-0">{idx + 1}</span>
                                     <span className="font-medium text-slate-700 flex-1 truncate">{expNode.data.label}</span>
                                     {chartLabel && (
                                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 shrink-0">{chartLabel}</span>
@@ -2737,6 +2789,24 @@ function FlowWithProvider() {
                                     {!chartLabel && (
                                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 shrink-0">Not configured</span>
                                     )}
+                                    <div className="flex flex-col shrink-0">
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); if (idx > 0) moveExploration(idx, idx - 1); }}
+                                        disabled={idx === 0}
+                                        className="p-0.5 hover:bg-violet-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                                        data-testid={`button-move-up-${idx}`}
+                                      >
+                                        <ArrowUp className="w-2.5 h-2.5 text-violet-600" />
+                                      </button>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); if (idx < orderedExplorations.length - 1) moveExploration(idx, idx + 1); }}
+                                        disabled={idx === orderedExplorations.length - 1}
+                                        className="p-0.5 hover:bg-violet-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                                        data-testid={`button-move-down-${idx}`}
+                                      >
+                                        <ArrowDown className="w-2.5 h-2.5 text-violet-600" />
+                                      </button>
+                                    </div>
                                   </div>
                                 );
                               })}
@@ -2926,11 +2996,62 @@ function FlowWithProvider() {
               {reportPreviewData.map((section, idx) => {
                 const chartLabel = CHART_TYPES.find(ct => ct.value === section.chartType)?.label || 'Not configured';
                 return (
-                  <Card key={idx} className="overflow-hidden">
+                  <div
+                    key={idx}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/plain', String(idx));
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      e.currentTarget.classList.add('ring-2', 'ring-violet-400');
+                    }}
+                    onDragLeave={(e) => {
+                      e.currentTarget.classList.remove('ring-2', 'ring-violet-400');
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove('ring-2', 'ring-violet-400');
+                      const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                      if (!isNaN(fromIdx) && fromIdx !== idx) {
+                        setReportPreviewData(prev => {
+                          const newArr = [...prev];
+                          const [moved] = newArr.splice(fromIdx, 1);
+                          newArr.splice(idx, 0, moved);
+                          if (selectedNode) {
+                            const incomingEdges = edges.filter(e => e.target === selectedNode.id);
+                            const connectedExplorations = incomingEdges
+                              .map(e => nodes.find(n => n.id === e.source))
+                              .filter(n => n && n.data.type === 'exploration');
+                            const savedOrder: string[] = selectedNode.data.explorationOrder || [];
+                            const currentOrder = [
+                              ...savedOrder.map(id => connectedExplorations.find(n => n?.id === id)).filter(Boolean),
+                              ...connectedExplorations.filter(n => n && !savedOrder.includes(n.id))
+                            ];
+                            const reorderedIds = [...currentOrder.map(n => n!.id)];
+                            const [movedId] = reorderedIds.splice(fromIdx, 1);
+                            reorderedIds.splice(idx, 0, movedId);
+                            updateNodeData('explorationOrder', reorderedIds);
+                          }
+                          return newArr;
+                        });
+                      }
+                    }}
+                    data-testid={`report-section-${idx}`}
+                  >
+                  <Card className="overflow-hidden cursor-grab active:cursor-grabbing transition-all hover:ring-1 hover:ring-violet-200">
                     <CardHeader className="pb-2">
                       <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg">{section.label}</CardTitle>
-                        <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">{chartLabel}</span>
+                        <div className="flex items-center gap-2">
+                          <GripVertical className="w-4 h-4 text-slate-300" />
+                          <CardTitle className="text-lg">{section.label}</CardTitle>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-400 font-mono">{idx + 1} of {reportPreviewData.length}</span>
+                          <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">{chartLabel}</span>
+                        </div>
                       </div>
                       {Object.entries(section.chartConfig).filter(([,v]) => v).length > 0 && (
                         <p className="text-xs text-muted-foreground">
@@ -2955,6 +3076,7 @@ function FlowWithProvider() {
                       )}
                     </CardContent>
                   </Card>
+                  </div>
                 );
               })}
               {reportPreviewData.length === 0 && (
