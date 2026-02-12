@@ -448,10 +448,10 @@ export function ADICVChart({ data, config }: ChartProps) {
   }, []);
 
   const HARDCODED_PATTERNS: Record<string, number[]> = {
-    Smooth: [70, 75, 72, 68, 74, 71, 73, 69, 76, 72, 74, 70],
-    Intermittent: [0, 0, 45, 0, 0, 0, 52, 0, 0, 38, 0, 0],
-    Erratic: [20, 85, 10, 95, 30, 78, 5, 90, 15, 88, 25, 65],
-    Lumpy: [0, 0, 90, 0, 0, 0, 0, 75, 0, 0, 0, 95],
+    Smooth: [48, 52, 50, 47, 53, 49, 51, 48, 50, 52, 49, 51, 50, 48, 53, 50, 47, 52, 50, 49],
+    Intermittent: [12, 0, 0, 0, 15, 0, 0, 10, 0, 0, 0, 0, 14, 0, 0, 0, 11, 0, 0, 13],
+    Erratic: [15, 82, 5, 95, 40, 10, 88, 3, 72, 20, 90, 8, 60, 95, 12, 78, 5, 85, 30, 92],
+    Lumpy: [0, 0, 85, 0, 0, 0, 0, 0, 92, 0, 0, 0, 0, 78, 0, 0, 0, 0, 0, 88],
   };
 
   const stableAxisDomain = useMemo(() => {
@@ -507,17 +507,17 @@ export function ADICVChart({ data, config }: ChartProps) {
         }}
         data-testid={`quadrant-card-${quadrant.toLowerCase()}`}
       >
-        <div className="absolute inset-x-0 bottom-0 h-12 flex items-end justify-around px-1.5 pb-0.5 opacity-20">
+        <div className="absolute inset-x-0 bottom-0 h-20 flex items-end px-2 pb-1 opacity-25" style={{ gap: '1px' }}>
           {bars.map((v, bi) => (
             <div
               key={bi}
               style={{
-                width: `${Math.max(100 / bars.length - 2, 3)}%`,
+                flex: 1,
                 height: `${(v / mv) * 100}%`,
                 backgroundColor: qc.bar,
                 minHeight: v > 0 ? '2px' : '0px',
               }}
-              className="rounded-t-sm"
+              className="rounded-t-[1px]"
             />
           ))}
         </div>
