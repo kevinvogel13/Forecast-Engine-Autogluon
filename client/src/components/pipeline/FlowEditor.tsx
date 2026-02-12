@@ -722,9 +722,11 @@ function FlowWithProvider() {
   }, [selectedNode?.id]);
 
   const exportReportHTML = useCallback(async () => {
-    if (!selectedNode) return;
-    const reportTitle = selectedNode.data.reportTitle || 'Untitled Report';
-    const incomingEdges = edges.filter(e => e.target === selectedNode.id);
+    const reportNode = selectedNode?.data.type === 'report' ? selectedNode : nodes.find(n => n.id === selectedNode?.id && n.data.type === 'report');
+    if (!reportNode) return;
+    
+    const reportTitle = reportNode.data.reportTitle || 'Untitled Report';
+    const incomingEdges = edges.filter(e => e.target === reportNode.id);
     const explorationNodes = incomingEdges
       .map(e => nodes.find(n => n.id === e.source))
       .filter(n => n && n.data.type === 'exploration');
@@ -733,6 +735,8 @@ function FlowWithProvider() {
       toast.error('No exploration nodes connected to this report');
       return;
     }
+
+    toast.info('Generating report...');
 
     let sectionsHTML = '';
     for (const expNode of explorationNodes) {
@@ -756,45 +760,72 @@ function FlowWithProvider() {
             const previewData = await response.json();
             const cols = previewData.columns || [];
             const rows = (previewData.rows || []).slice(0, 50);
-            dataHTML = `<table style="width:100%;border-collapse:collapse;margin-top:12px;font-size:12px;">
-              <thead><tr>${cols.map((c: string) => `<th style="border:1px solid #e2e8f0;padding:6px 8px;background:#f8fafc;text-align:left;">${c}</th>`).join('')}</tr></thead>
-              <tbody>${rows.map((row: any) => `<tr>${cols.map((c: string) => `<td style="border:1px solid #e2e8f0;padding:4px 8px;">${row[c] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>
-            </table>
-            <p style="color:#94a3b8;font-size:11px;margin-top:4px;">Showing ${rows.length} of ${previewData.totalRows?.toLocaleString() || '?'} rows</p>`;
+            dataHTML = `
+            <div style="margin-top:16px;overflow-x:auto;">
+              <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:600px;">
+                <thead>
+                  <tr>${cols.map((c: string) => `<th style="border:1px solid #e2e8f0;padding:8px 10px;background:#f8fafc;text-align:left;color:#475569;font-weight:600;">${c}</th>`).join('')}</tr>
+                </thead>
+                <tbody>
+                  ${rows.map((row: any) => `<tr>${cols.map((c: string) => `<td style="border:1px solid #e2e8f0;padding:6px 10px;color:#1e293b;">${row[c] ?? ''}</td>`).join('')}</tr>`).join('')}
+                </tbody>
+              </table>
+              <p style="color:#94a3b8;font-size:11px;margin-top:8px;">Showing ${rows.length} of ${previewData.totalRows?.toLocaleString() || '?'} rows</p>
+            </div>`;
           }
         }
-      } catch {}
+      } catch (err) {
+        console.error('Error fetching data for report export:', err);
+      }
 
-      const configEntries = Object.entries(chartConfig).filter(([, v]) => v);
+      const configEntries = Object.entries(chartConfig).filter(([, v]) => v && typeof v !== 'object');
       sectionsHTML += `
-        <div style="margin-bottom:32px;padding:20px;border:1px solid #e2e8f0;border-radius:8px;background:#fafafa;">
-          <h2 style="margin:0 0 4px 0;font-size:18px;color:#1e293b;">${expNode.data.label || 'Exploration'}</h2>
-          <div style="display:flex;gap:8px;margin-bottom:12px;">
-            <span style="background:#d1fae5;color:#065f46;padding:2px 10px;border-radius:12px;font-size:12px;">${chartLabel}</span>
+        <div style="margin-bottom:40px;padding:24px;border:1px solid #e2e8f0;border-radius:12px;background:#ffffff;box-shadow:0 1px 3px 0 rgba(0,0,0,0.1);">
+          <div style="display:flex;justify-content:between;align-items:center;margin-bottom:16px;">
+            <h2 style="margin:0;font-size:20px;color:#0f172a;">${expNode.data.label || 'Exploration'}</h2>
+            <span style="margin-left:auto;background:#ecfdf5;color:#065f46;padding:4px 12px;border-radius:9999px;font-size:12px;font-weight:600;">${chartLabel}</span>
           </div>
-          ${configEntries.length > 0 ? `<p style="font-size:13px;color:#64748b;">Columns: ${configEntries.map(([k, v]) => `${k}=${v}`).join(', ')}</p>` : ''}
-          ${takeaway ? `<div style="margin-top:12px;padding:12px;background:#f0fdf4;border-left:3px solid #22c55e;border-radius:4px;"><p style="margin:0;font-size:13px;color:#166534;"><strong>Key Takeaway:</strong> ${takeaway}</p></div>` : ''}
+          ${configEntries.length > 0 ? `<div style="margin-bottom:12px;padding:8px 12px;background:#f8fafc;border-radius:6px;"><p style="margin:0;font-size:12px;color:#64748b;font-family:monospace;">${configEntries.map(([k, v]) => `${k}: ${v}`).join(' \u2022 ')}</p></div>` : ''}
+          ${takeaway ? `<div style="margin-top:16px;padding:16px;background:#f0fdf4;border-left:4px solid #22c55e;border-radius:4px;"><p style="margin:0;font-size:14px;line-height:1.5;color:#166534;"><strong>Key Takeaway:</strong> ${takeaway}</p></div>` : ''}
           ${dataHTML}
         </div>`;
     }
 
-    const html = `<!DOCTYPE html>
+    const html = \`<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${reportTitle}</title></head>
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:900px;margin:0 auto;padding:40px 20px;color:#334155;">
-  <h1 style="font-size:28px;margin-bottom:8px;color:#0f172a;">${reportTitle}</h1>
-  <p style="color:#94a3b8;font-size:13px;margin-bottom:32px;">Generated on ${new Date().toLocaleString()} &bull; ${explorationNodes.length} exploration(s)</p>
-  ${sectionsHTML}
-  <hr style="border:none;border-top:1px solid #e2e8f0;margin-top:40px;">
-  <p style="text-align:center;color:#94a3b8;font-size:11px;margin-top:16px;">Report generated by Pipeline Editor</p>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>\${reportTitle}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #334155; background-color: #f8fafc; margin: 0; padding: 0; }
+    .container { max-width: 1000px; margin: 40px auto; padding: 40px; background: white; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+    h1 { font-size: 32px; margin: 0 0 8px 0; color: #0f172a; }
+    .meta { color: #94a3b8; font-size: 14px; margin-bottom: 40px; display: flex; align-items: center; gap: 8px; }
+    .footer { text-align: center; color: #94a3b8; font-size: 12px; margin-top: 60px; padding-top: 24px; border-top: 1px solid #e2e8f0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>\${reportTitle}</h1>
+    <div class="meta">
+      <span>Generated on \${new Date().toLocaleString()}</span>
+      <span>&bull;</span>
+      <span>\${explorationNodes.length} exploration(s)</span>
+    </div>
+    \${sectionsHTML}
+    <div class="footer">
+      <p>Report generated by Forecast Pipeline Application</p>
+    </div>
+  </div>
 </body>
-</html>`;
+</html>\`;
 
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${reportTitle.replace(/[^a-zA-Z0-9]/g, '_')}.html`;
+    a.download = \`\${reportTitle.replace(/[^a-zA-Z0-9]/g, '_')}.html\`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2881,12 +2912,12 @@ function FlowWithProvider() {
 
       <Dialog open={reportPreviewOpen} onOpenChange={setReportPreviewOpen}>
         <DialogContent className="max-w-[95vw] w-full h-[95vh] p-0 flex flex-col overflow-hidden">
-          <div className="p-6 border-b shrink-0 flex items-center justify-between">
+          <div className="p-6 border-b shrink-0 flex items-center justify-between bg-white z-20">
             <div>
               <DialogTitle className="text-xl">{selectedNode?.data.reportTitle || 'Report Preview'}</DialogTitle>
               <DialogDescription>{reportPreviewData.length} exploration(s) &bull; Generated {new Date().toLocaleDateString()}</DialogDescription>
             </div>
-            <Button variant="outline" className="gap-2" onClick={exportReportHTML}>
+            <Button variant="outline" className="gap-2 border-violet-200 text-violet-700 hover:bg-violet-50" onClick={exportReportHTML}>
               <FileText className="w-4 h-4" /> Export HTML
             </Button>
           </div>
