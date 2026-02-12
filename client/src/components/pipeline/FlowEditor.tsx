@@ -698,10 +698,10 @@ function FlowWithProvider() {
     setExplorationPreviewLoading(true);
     try {
       const transforms = getUpstreamTransforms(selectedNode.id);
-      const response = await fetch(`/api/datasets/${datasetId}/filtered-preview`, {
+      const response = await fetch(`/api/datasets/${datasetId}/transform?limit=500`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transforms, limit: 500 })
+        body: JSON.stringify({ transforms })
       });
       if (!response.ok) throw new Error('Failed to fetch preview');
       const data = await response.json();
@@ -743,10 +743,10 @@ function FlowWithProvider() {
         const datasetId = getSourceDatasetId(expNode.id);
         if (datasetId) {
           const transforms = getUpstreamTransforms(expNode.id);
-          const response = await fetch(`/api/datasets/${datasetId}/filtered-preview`, {
+          const response = await fetch(`/api/datasets/${datasetId}/transform?limit=100`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transforms, limit: 100 })
+            body: JSON.stringify({ transforms })
           });
           if (response.ok) {
             const previewData = await response.json();
@@ -820,10 +820,10 @@ function FlowWithProvider() {
         const datasetId = getSourceDatasetId(expNode.id);
         if (datasetId) {
           const transforms = getUpstreamTransforms(expNode.id);
-          const response = await fetch(`/api/datasets/${datasetId}/filtered-preview`, {
+          const response = await fetch(`/api/datasets/${datasetId}/transform?limit=500`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transforms, limit: 500 })
+            body: JSON.stringify({ transforms })
           });
           if (response.ok) {
             previewData = await response.json();

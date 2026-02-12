@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import {
   LineChart, Line, BarChart, Bar, ScatterChart, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  Cell, PieChart, Pie, AreaChart, Area, ComposedChart
+  Cell, PieChart, Pie, AreaChart, Area, ComposedChart, ReferenceLine
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -363,12 +363,12 @@ export function ADICVChart({ data, config }: ChartProps) {
       <div className="flex gap-2 flex-wrap">
         {Object.entries(counts).map(([cls, count]) => (
           <Badge key={cls} variant="outline" style={{ borderColor: classificationColors[cls], color: classificationColors[cls] }}>
-            {cls}: {count} ({((count / analysisData.length) * 100).toFixed(0)}%)
+            {cls}: {count} ({analysisData.length > 0 ? ((count / analysisData.length) * 100).toFixed(0) : 0}%)
           </Badge>
         ))}
       </div>
       <ResponsiveContainer width="100%" height={300}>
-        <ScatterChart>
+        <ScatterChart margin={{ top: 10, right: 20, bottom: 30, left: 10 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
           <XAxis 
             type="number" 
@@ -376,7 +376,7 @@ export function ADICVChart({ data, config }: ChartProps) {
             name="ADI" 
             domain={[0, 'auto']}
             tick={{ fontSize: 10 }}
-            label={{ value: 'ADI (Avg Demand Interval)', position: 'bottom', fontSize: 10 }}
+            label={{ value: 'ADI (Avg Demand Interval)', position: 'bottom', offset: 15, fontSize: 10 }}
           />
           <YAxis 
             type="number" 
@@ -384,8 +384,10 @@ export function ADICVChart({ data, config }: ChartProps) {
             name="CV" 
             domain={[0, 'auto']}
             tick={{ fontSize: 10 }}
-            label={{ value: 'CV (Coeff of Variation)', angle: -90, position: 'left', fontSize: 10 }}
+            label={{ value: 'CV (Coeff of Variation)', angle: -90, position: 'insideLeft', offset: 0, fontSize: 10 }}
           />
+          <ReferenceLine x={1.32} stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={1.5} label={{ value: 'ADI=1.32', position: 'top', fontSize: 9, fill: '#64748b' }} />
+          <ReferenceLine y={0.49} stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={1.5} label={{ value: 'CV=0.49', position: 'right', fontSize: 9, fill: '#64748b' }} />
           <Tooltip 
             content={({ payload }) => {
               if (!payload?.length) return null;
@@ -395,21 +397,29 @@ export function ADICVChart({ data, config }: ChartProps) {
                   <p className="font-semibold">{d.id}</p>
                   <p>ADI: {d.adi.toFixed(2)}</p>
                   <p>CV: {d.cv.toFixed(2)}</p>
-                  <p>Mean: {d.mean}</p>
+                  <p>Mean Demand: {d.mean}</p>
                   <p className="font-medium" style={{ color: classificationColors[d.classification] }}>{d.classification}</p>
                 </div>
               );
             }}
           />
-          {['Smooth', 'Erratic', 'Intermittent', 'Lumpy'].map(cls => (
-            <Scatter
-              key={cls}
-              name={cls}
-              data={analysisData.filter(d => d.classification === cls)}
-              fill={classificationColors[cls]}
-            />
-          ))}
-          <Legend />
+          <Scatter name="Items" data={analysisData} shape="circle">
+            {analysisData.map((entry, index) => (
+              <Cell key={index} fill={classificationColors[entry.classification]} fillOpacity={0.7} />
+            ))}
+          </Scatter>
+          <Legend 
+            content={() => (
+              <div className="flex gap-3 justify-center mt-2 text-[10px]">
+                {Object.entries(classificationColors).map(([cls, color]) => (
+                  <div key={cls} className="flex items-center gap-1">
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
+                    <span>{cls} ({counts[cls]})</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          />
         </ScatterChart>
       </ResponsiveContainer>
       <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
