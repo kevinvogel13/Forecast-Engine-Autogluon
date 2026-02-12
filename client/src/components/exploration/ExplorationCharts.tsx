@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import DOMPurify from 'dompurify';
 import {
   LineChart, Line, BarChart, Bar, ScatterChart, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -962,7 +963,183 @@ export function SeasonalPlotChart({ data, config }: ChartProps) {
   );
 }
 
+const RICHTEXT_COLORS = [
+  { value: '#1e293b', label: 'Default' },
+  { value: '#0d9488', label: 'Teal' },
+  { value: '#6366f1', label: 'Indigo' },
+  { value: '#ef4444', label: 'Red' },
+  { value: '#f59e0b', label: 'Amber' },
+  { value: '#22c55e', label: 'Green' },
+  { value: '#8b5cf6', label: 'Purple' },
+  { value: '#64748b', label: 'Slate' },
+];
+
+function RichTextChart({ config }: { data?: ChartProps['data']; config: ChartProps['config'] }) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const [activeStyles, setActiveStyles] = useState<Set<string>>(new Set());
+  const onChangeRef = useRef<((html: string) => void) | null>(null);
+  onChangeRef.current = config?.onRichTextChange || null;
+
+  const checkActiveStyles = useCallback(() => {
+    const styles = new Set<string>();
+    if (document.queryCommandState('bold')) styles.add('bold');
+    if (document.queryCommandState('italic')) styles.add('italic');
+    if (document.queryCommandState('underline')) styles.add('underline');
+    setActiveStyles(styles);
+  }, []);
+
+  useEffect(() => {
+    if (editorRef.current && config?.richTextContent !== undefined) {
+      if (editorRef.current.innerHTML !== config.richTextContent) {
+        editorRef.current.innerHTML = config.richTextContent || '';
+      }
+    }
+  }, [config?.richTextContent]);
+
+  const execCommand = (cmd: string, value?: string) => {
+    editorRef.current?.focus();
+    document.execCommand(cmd, false, value);
+    checkActiveStyles();
+    if (editorRef.current && onChangeRef.current) {
+      onChangeRef.current(DOMPurify.sanitize(editorRef.current.innerHTML));
+    }
+  };
+
+  const handleInput = () => {
+    if (editorRef.current && onChangeRef.current) {
+      onChangeRef.current(DOMPurify.sanitize(editorRef.current.innerHTML));
+    }
+  };
+
+  const isReadOnly = !config?.onRichTextChange;
+
+  if (isReadOnly) {
+    return (
+      <div
+        className="prose prose-sm max-w-none p-4"
+        style={{ color: PALETTE.textPrimary, lineHeight: 1.7 }}
+        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(config?.richTextContent || '<p style="color:#94a3b8;">No content yet</p>') }}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-0 border border-slate-200 rounded-lg overflow-hidden bg-white" data-testid="richtext-editor">
+      <div className="flex flex-wrap items-center gap-1 p-2 bg-slate-50 border-b border-slate-200" data-testid="richtext-toolbar">
+        <button
+          onMouseDown={(e) => { e.preventDefault(); execCommand('bold'); }}
+          className={`p-1.5 rounded text-xs font-bold hover:bg-slate-200 transition-colors ${activeStyles.has('bold') ? 'bg-slate-300 text-slate-900' : 'text-slate-600'}`}
+          title="Bold"
+          data-testid="button-bold"
+        >B</button>
+        <button
+          onMouseDown={(e) => { e.preventDefault(); execCommand('italic'); }}
+          className={`p-1.5 rounded text-xs italic hover:bg-slate-200 transition-colors ${activeStyles.has('italic') ? 'bg-slate-300 text-slate-900' : 'text-slate-600'}`}
+          title="Italic"
+          data-testid="button-italic"
+        >I</button>
+        <button
+          onMouseDown={(e) => { e.preventDefault(); execCommand('underline'); }}
+          className={`p-1.5 rounded text-xs underline hover:bg-slate-200 transition-colors ${activeStyles.has('underline') ? 'bg-slate-300 text-slate-900' : 'text-slate-600'}`}
+          title="Underline"
+          data-testid="button-underline"
+        >U</button>
+
+        <div className="w-px h-5 bg-slate-300 mx-1" />
+
+        <select
+          onChange={(e) => {
+            if (e.target.value) execCommand('fontSize', e.target.value);
+          }}
+          defaultValue=""
+          className="h-7 px-1.5 text-[11px] bg-white border border-slate-200 rounded cursor-pointer hover:bg-slate-50"
+          title="Font Size"
+          data-testid="select-font-size"
+        >
+          <option value="" disabled>Size</option>
+          <option value="1">Small</option>
+          <option value="3">Normal</option>
+          <option value="5">Large</option>
+          <option value="7">X-Large</option>
+        </select>
+
+        <select
+          onChange={(e) => {
+            if (e.target.value) execCommand('formatBlock', e.target.value);
+          }}
+          defaultValue=""
+          className="h-7 px-1.5 text-[11px] bg-white border border-slate-200 rounded cursor-pointer hover:bg-slate-50"
+          title="Heading"
+          data-testid="select-heading"
+        >
+          <option value="" disabled>Heading</option>
+          <option value="p">Paragraph</option>
+          <option value="h1">Heading 1</option>
+          <option value="h2">Heading 2</option>
+          <option value="h3">Heading 3</option>
+        </select>
+
+        <div className="w-px h-5 bg-slate-300 mx-1" />
+
+        <div className="flex items-center gap-0.5">
+          {RICHTEXT_COLORS.map(c => (
+            <button
+              key={c.value}
+              onMouseDown={(e) => { e.preventDefault(); execCommand('foreColor', c.value); }}
+              className="w-5 h-5 rounded-full border border-slate-200 hover:scale-110 transition-transform"
+              style={{ backgroundColor: c.value }}
+              title={c.label}
+              data-testid={`button-color-${c.label.toLowerCase()}`}
+            />
+          ))}
+        </div>
+
+        <div className="w-px h-5 bg-slate-300 mx-1" />
+
+        <button
+          onMouseDown={(e) => { e.preventDefault(); execCommand('insertUnorderedList'); }}
+          className="p-1.5 rounded text-xs hover:bg-slate-200 text-slate-600"
+          title="Bullet List"
+          data-testid="button-bullet-list"
+        >• List</button>
+        <button
+          onMouseDown={(e) => { e.preventDefault(); execCommand('insertOrderedList'); }}
+          className="p-1.5 rounded text-xs hover:bg-slate-200 text-slate-600"
+          title="Numbered List"
+          data-testid="button-numbered-list"
+        >1. List</button>
+      </div>
+
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={handleInput}
+        onKeyUp={checkActiveStyles}
+        onMouseUp={checkActiveStyles}
+        className="min-h-[200px] p-4 outline-none text-sm leading-relaxed"
+        style={{ color: PALETTE.textPrimary }}
+        data-testid="richtext-content-area"
+        data-placeholder="Start typing your text content here..."
+      />
+      <style>{`
+        [data-testid="richtext-content-area"]:empty:before {
+          content: attr(data-placeholder);
+          color: #94a3b8;
+          pointer-events: none;
+        }
+        [data-testid="richtext-content-area"] h1 { font-size: 2em; font-weight: 700; margin: 0.5em 0; }
+        [data-testid="richtext-content-area"] h2 { font-size: 1.5em; font-weight: 600; margin: 0.4em 0; }
+        [data-testid="richtext-content-area"] h3 { font-size: 1.17em; font-weight: 600; margin: 0.3em 0; }
+        [data-testid="richtext-content-area"] ul { list-style: disc; padding-left: 1.5em; }
+        [data-testid="richtext-content-area"] ol { list-style: decimal; padding-left: 1.5em; }
+      `}</style>
+    </div>
+  );
+}
+
 export const CHART_TYPES = [
+  { value: 'richtext', label: 'Rich Text', description: 'Formatted text with styling' },
   { value: 'timeseries', label: 'Time Series', description: 'Trend analysis over time' },
   { value: 'histogram', label: 'Histogram', description: 'Value distribution' },
   { value: 'boxplot', label: 'Boxplot', description: 'Spread & outliers by group' },
@@ -979,6 +1156,7 @@ export const CHART_TYPES = [
 
 export function renderChart(chartType: string, data: ChartProps['data'], config: ChartProps['config']) {
   switch (chartType) {
+    case 'richtext': return <RichTextChart data={data} config={config} />;
     case 'timeseries': return <TimeSeriesChart data={data} config={config} />;
     case 'histogram': return <HistogramChart data={data} config={config} />;
     case 'boxplot': return <BoxPlotChart data={data} config={config} />;

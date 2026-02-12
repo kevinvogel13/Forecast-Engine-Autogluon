@@ -75,7 +75,12 @@ Preferred communication style: Simple, everyday language.
   - Widgets: GeneralStats, TimeSeriesView, CategoryDistribution, DataCompletenessChart, DemandPatternAnalysis, OutlierTable
 - **Exploration**: Modular chart components for data exploration
   - Individual chart type selection with conditional column configuration
-  - 12 chart types: Time Series, Histogram, Boxplot, Bar Chart, Scatter, Demand Classification (ADI×CV²), Pareto Analysis, Data Table, Summary Statistics, Seasonality, Data Quality, Outlier Detection
+  - 13 chart types: Rich Text, Time Series, Histogram, Boxplot, Bar Chart, Scatter, Demand Classification (ADI×CV²), Pareto Analysis, Data Table, Summary Statistics, Seasonality, Data Quality, Outlier Detection
+  - **Rich Text**: Formatted text component with toolbar (bold, italic, underline, headings, font sizes, 8 colors, bullet/numbered lists)
+    - Uses contentEditable with document.execCommand for formatting
+    - Content stored as HTML in `chartConfig.richTextContent`
+    - Read-only rendering in report preview and HTML export
+    - Editable in exploration config panel with live toolbar
   - Consistent teal/indigo color palette (PALETTE object in ExplorationCharts.tsx)
   - Each exploration node has a takeaway/notes textarea for user annotations
   - Chart preview rendered in the configuration panel when columns are selected

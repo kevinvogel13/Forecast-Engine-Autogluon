@@ -46,6 +46,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import Editor from '@monaco-editor/react';
 import { CHART_TYPES, renderChart } from '@/components/exploration/ExplorationCharts';
+import DOMPurify from 'dompurify';
 import { usePipelines, useCreatePipeline, useUpdatePipeline, useDeletePipeline, useExecutePipeline } from '@/hooks/usePipelines';
 import { useDatasets } from '@/hooks/useDatasets';
 
@@ -753,38 +754,42 @@ function FlowWithProvider() {
       const chartLabel = CHART_TYPES.find(ct => ct.value === chartType)?.label || chartType;
 
       let dataHTML = '';
-      try {
-        const datasetId = getSourceDatasetId(expNode.id);
-        if (datasetId) {
-          const transforms = getUpstreamTransforms(expNode.id);
-          const response = await fetch(`/api/datasets/${datasetId}/transform?limit=100`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transforms })
-          });
-          if (response.ok) {
-            const previewData = await response.json();
-            const cols = previewData.columns || [];
-            const rows = (previewData.rows || []).slice(0, 50);
-            dataHTML = `
-            <div style="margin-top:16px;overflow-x:auto;">
-              <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:600px;">
-                <thead>
-                  <tr>${cols.map((c: string) => `<th style="border:1px solid #e2e8f0;padding:8px 10px;background:#f8fafc;text-align:left;color:#475569;font-weight:600;">${c}</th>`).join('')}</tr>
-                </thead>
-                <tbody>
-                  ${rows.map((row: any) => `<tr>${cols.map((c: string) => `<td style="border:1px solid #e2e8f0;padding:6px 10px;color:#1e293b;">${row[c] ?? ''}</td>`).join('')}</tr>`).join('')}
-                </tbody>
-              </table>
-              <p style="color:#94a3b8;font-size:11px;margin-top:8px;">Showing ${rows.length} of ${previewData.totalRows?.toLocaleString() || '?'} rows</p>
-            </div>`;
+      if (chartType === 'richtext') {
+        dataHTML = `<div style="margin-top:16px;line-height:1.7;color:#1e293b;">${DOMPurify.sanitize(chartConfig.richTextContent || '')}</div>`;
+      } else {
+        try {
+          const datasetId = getSourceDatasetId(expNode.id);
+          if (datasetId) {
+            const transforms = getUpstreamTransforms(expNode.id);
+            const response = await fetch(`/api/datasets/${datasetId}/transform?limit=100`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ transforms })
+            });
+            if (response.ok) {
+              const previewData = await response.json();
+              const cols = previewData.columns || [];
+              const rows = (previewData.rows || []).slice(0, 50);
+              dataHTML = `
+              <div style="margin-top:16px;overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:600px;">
+                  <thead>
+                    <tr>${cols.map((c: string) => `<th style="border:1px solid #e2e8f0;padding:8px 10px;background:#f8fafc;text-align:left;color:#475569;font-weight:600;">${c}</th>`).join('')}</tr>
+                  </thead>
+                  <tbody>
+                    ${rows.map((row: any) => `<tr>${cols.map((c: string) => `<td style="border:1px solid #e2e8f0;padding:6px 10px;color:#1e293b;">${row[c] ?? ''}</td>`).join('')}</tr>`).join('')}
+                  </tbody>
+                </table>
+                <p style="color:#94a3b8;font-size:11px;margin-top:8px;">Showing ${rows.length} of ${previewData.totalRows?.toLocaleString() || '?'} rows</p>
+              </div>`;
+            }
           }
+        } catch (err) {
+          console.error('Error fetching data for report export:', err);
         }
-      } catch (err) {
-        console.error('Error fetching data for report export:', err);
       }
 
-      const configEntries = Object.entries(chartConfig).filter(([, v]) => v && typeof v !== 'object');
+      const configEntries = Object.entries(chartConfig).filter(([k, v]) => v && typeof v !== 'object' && k !== 'richTextContent');
       sectionsHTML += `
         <div style="margin-bottom:40px;padding:24px;border:1px solid #e2e8f0;border-radius:12px;background:#ffffff;box-shadow:0 1px 3px 0 rgba(0,0,0,0.1);">
           <div style="display:flex;justify-content:between;align-items:center;margin-bottom:16px;">
@@ -2598,6 +2603,20 @@ function FlowWithProvider() {
                               ))}
                             </SelectContent>
                           </Select>
+                        </div>
+                      )}
+
+                      {selectedNode.data.chartType === 'richtext' && (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-emerald-700 font-semibold">Text Content</Label>
+                          <div className="min-h-[250px]">
+                            {renderChart('richtext', { columns: [], rows: [], totalRows: 0 }, {
+                              ...selectedNode.data.chartConfig,
+                              onRichTextChange: (html: string) => {
+                                updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, richTextContent: html });
+                              }
+                            })}
+                          </div>
                         </div>
                       )}
 
