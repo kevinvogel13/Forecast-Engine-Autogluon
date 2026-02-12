@@ -471,9 +471,9 @@ export function ADICVChart({ data, config }: ChartProps) {
     maxCv2: Math.max(stableAxisDomain.maxCv2, cvThreshold * 1.2),
   }), [stableAxisDomain, adiThreshold, cvThreshold]);
 
-  const leftPct = (adiThreshold / axisDomain.maxAdi) * 100;
-  const bottomPct = (cvThreshold / axisDomain.maxCv2) * 100;
-  const topPct = 100 - bottomPct;
+  const leftPct = 50;
+  const bottomPct = 50;
+  const topPct = 50;
 
   if (!idColumn || !dateColumn || !demandColumn) {
     return <div className="text-sm text-muted-foreground p-4">Select ID, Date, and Demand columns for ADI/CV² analysis</div>;
