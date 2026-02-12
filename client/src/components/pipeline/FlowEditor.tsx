@@ -761,27 +761,18 @@ function FlowWithProvider() {
           const datasetId = getSourceDatasetId(expNode.id);
           if (datasetId) {
             const transforms = getUpstreamTransforms(expNode.id);
-            const response = await fetch(`/api/datasets/${datasetId}/transform?limit=100`, {
+            const needsAllRows = ['adicv', 'pareto', 'boxplot', 'histogram', 'scatter', 'seasonal', 'outlier', 'summary', 'completeness'].includes(chartType);
+            const rowLimit = needsAllRows ? 200000 : 500;
+            const response = await fetch(`/api/datasets/${datasetId}/transform?limit=${rowLimit}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ transforms })
             });
             if (response.ok) {
               const previewData = await response.json();
-              const cols = previewData.columns || [];
-              const rows = (previewData.rows || []).slice(0, 50);
-              dataHTML = `
-              <div style="margin-top:16px;overflow-x:auto;">
-                <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:600px;">
-                  <thead>
-                    <tr>${cols.map((c: string) => `<th style="border:1px solid #e2e8f0;padding:8px 10px;background:#f8fafc;text-align:left;color:#475569;font-weight:600;">${c}</th>`).join('')}</tr>
-                  </thead>
-                  <tbody>
-                    ${rows.map((row: any) => `<tr>${cols.map((c: string) => `<td style="border:1px solid #e2e8f0;padding:6px 10px;color:#1e293b;">${row[c] ?? ''}</td>`).join('')}</tr>`).join('')}
-                  </tbody>
-                </table>
-                <p style="color:#94a3b8;font-size:11px;margin-top:8px;">Showing ${rows.length} of ${previewData.totalRows?.toLocaleString() || '?'} rows</p>
-              </div>`;
+              const allCols = previewData.columns || [];
+              const allRows = previewData.rows || [];
+              dataHTML = generateChartDataHTML(chartType, chartConfig, allCols, allRows, previewData.totalRows || allRows.length);
             }
           }
         } catch (err) {
