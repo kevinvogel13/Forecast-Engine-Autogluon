@@ -104,6 +104,16 @@ function FlowWithProvider() {
   const [explorationPreview, setExplorationPreview] = useState<{ columns: string[], rows: any[], totalRows: number } | null>(null);
   const [explorationPreviewLoading, setExplorationPreviewLoading] = useState(false);
 
+  const [reportPreviewOpen, setReportPreviewOpen] = useState(false);
+  const [reportPreviewData, setReportPreviewData] = useState<Array<{
+    label: string;
+    chartType: string;
+    chartConfig: any;
+    takeaway: string;
+    data: { columns: string[], rows: any[], totalRows: number } | null;
+  }>>([]);
+  const [reportPreviewLoading, setReportPreviewLoading] = useState(false);
+
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge({
       ...params,
@@ -786,6 +796,53 @@ function FlowWithProvider() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     toast.success('Report exported successfully');
+  }, [selectedNode, edges, nodes, getSourceDatasetId, getUpstreamTransforms]);
+
+  const loadReportPreview = useCallback(async () => {
+    if (!selectedNode) return;
+    const incomingEdges = edges.filter(e => e.target === selectedNode.id);
+    const explorationNodes = incomingEdges
+      .map(e => nodes.find(n => n.id === e.source))
+      .filter(n => n && n.data.type === 'exploration');
+
+    if (explorationNodes.length === 0) {
+      toast.error('No exploration nodes connected to this report');
+      return;
+    }
+
+    setReportPreviewLoading(true);
+    const sections: typeof reportPreviewData = [];
+
+    for (const expNode of explorationNodes) {
+      if (!expNode) continue;
+      let previewData = null;
+      try {
+        const datasetId = getSourceDatasetId(expNode.id);
+        if (datasetId) {
+          const transforms = getUpstreamTransforms(expNode.id);
+          const response = await fetch(`/api/datasets/${datasetId}/filtered-preview`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transforms, limit: 500 })
+          });
+          if (response.ok) {
+            previewData = await response.json();
+          }
+        }
+      } catch {}
+      
+      sections.push({
+        label: expNode.data.label || 'Exploration',
+        chartType: expNode.data.chartType || '',
+        chartConfig: expNode.data.chartConfig || {},
+        takeaway: expNode.data.takeaway || '',
+        data: previewData
+      });
+    }
+
+    setReportPreviewData(sections);
+    setReportPreviewLoading(false);
+    setReportPreviewOpen(true);
   }, [selectedNode, edges, nodes, getSourceDatasetId, getUpstreamTransforms]);
 
   // Keep refs for nodes/edges to avoid dependency issues
@@ -2566,6 +2623,21 @@ function FlowWithProvider() {
 
                       <Button
                         className="w-full bg-violet-600 hover:bg-violet-700 text-white"
+                        onClick={loadReportPreview}
+                        disabled={reportPreviewLoading}
+                        data-testid="button-view-report"
+                      >
+                        {reportPreviewLoading ? (
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                        ) : (
+                          <BarChart3 className="w-4 h-4 mr-2" />
+                        )}
+                        {reportPreviewLoading ? 'Loading Report...' : 'View Report'}
+                      </Button>
+
+                      <Button
+                        variant="outline"
+                        className="w-full border-violet-300 text-violet-700 hover:bg-violet-100"
                         onClick={exportReportHTML}
                         data-testid="button-export-report"
                       >
@@ -2709,6 +2781,61 @@ function FlowWithProvider() {
            <ScrollArea className="flex-1 p-6 bg-slate-50/50">
               <ForecastResultsDashboard />
            </ScrollArea>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={reportPreviewOpen} onOpenChange={setReportPreviewOpen}>
+        <DialogContent className="max-w-[95vw] w-full h-[95vh] p-0 flex flex-col overflow-hidden">
+          <div className="p-6 border-b shrink-0 flex items-center justify-between">
+            <div>
+              <DialogTitle className="text-xl">{selectedNode?.data.reportTitle || 'Report Preview'}</DialogTitle>
+              <DialogDescription>{reportPreviewData.length} exploration(s) &bull; Generated {new Date().toLocaleDateString()}</DialogDescription>
+            </div>
+            <Button variant="outline" className="gap-2" onClick={exportReportHTML}>
+              <FileText className="w-4 h-4" /> Export HTML
+            </Button>
+          </div>
+          <ScrollArea className="flex-1 p-6 bg-slate-50/50">
+            <div className="max-w-4xl mx-auto space-y-6">
+              {reportPreviewData.map((section, idx) => {
+                const chartLabel = CHART_TYPES.find(ct => ct.value === section.chartType)?.label || 'Not configured';
+                return (
+                  <Card key={idx} className="overflow-hidden">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg">{section.label}</CardTitle>
+                        <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">{chartLabel}</span>
+                      </div>
+                      {Object.entries(section.chartConfig).filter(([,v]) => v).length > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          {Object.entries(section.chartConfig).filter(([,v]) => v).map(([k,v]) => `${k}: ${v}`).join(' \u2022 ')}
+                        </p>
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      {section.data && section.chartType ? (
+                        <div className="min-h-[200px]">
+                          {renderChart(section.chartType, section.data, section.chartConfig)}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-muted-foreground text-sm">
+                          {!section.chartType ? 'Chart type not configured' : 'No data available'}
+                        </div>
+                      )}
+                      {section.takeaway && (
+                        <div className="mt-4 p-3 bg-emerald-50 border-l-3 border-emerald-500 rounded-r-md">
+                          <p className="text-sm text-emerald-800"><strong>Takeaway:</strong> {section.takeaway}</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+              {reportPreviewData.length === 0 && (
+                <div className="text-center py-12 text-muted-foreground">No explorations to display</div>
+              )}
+            </div>
+          </ScrollArea>
         </DialogContent>
       </Dialog>
 

@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import {
   LineChart, Line, BarChart, Bar, ScatterChart, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  Cell, PieChart, Pie, AreaChart, Area
+  Cell, PieChart, Pie, AreaChart, Area, ComposedChart
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -137,7 +137,7 @@ export function BoxPlotChart({ data, config }: ChartProps) {
       const max = sorted[n - 1] || 0;
       const mean = values.reduce((a, b) => a + b, 0) / n;
       
-      return { name, min, q1, median, q3, max, mean: mean.toFixed(1), count: n };
+      return { name, min, q1, median, q3, max, mean, count: n };
     });
   }, [data.rows, groupColumn, valueColumn]);
 
@@ -145,36 +145,89 @@ export function BoxPlotChart({ data, config }: ChartProps) {
     return <div className="text-sm text-muted-foreground p-4">Select group and value columns</div>;
   }
 
+  if (stats.length === 0) {
+    return <div className="text-sm text-muted-foreground p-4">No data available</div>;
+  }
+
+  const globalMin = Math.min(...stats.map(s => s.min));
+  const globalMax = Math.max(...stats.map(s => s.max));
+  const range = globalMax - globalMin || 1;
+  
+  const rowHeight = 40;
+  const padding = { left: 100, right: 40, top: 10, bottom: 30 };
+  const chartWidth = 340;
+  const plotWidth = chartWidth - padding.left - padding.right;
+  const totalHeight = stats.length * rowHeight + padding.top + padding.bottom;
+  
+  const scale = (val: number) => padding.left + ((val - globalMin) / range) * plotWidth;
+
   return (
     <div className="space-y-2">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Group</TableHead>
-            <TableHead>Min</TableHead>
-            <TableHead>Q1</TableHead>
-            <TableHead>Median</TableHead>
-            <TableHead>Q3</TableHead>
-            <TableHead>Max</TableHead>
-            <TableHead>Mean</TableHead>
-            <TableHead>N</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {stats.map((s, i) => (
-            <TableRow key={i}>
-              <TableCell className="font-medium">{s.name}</TableCell>
-              <TableCell>{s.min.toFixed(1)}</TableCell>
-              <TableCell>{s.q1.toFixed(1)}</TableCell>
-              <TableCell className="font-semibold">{s.median.toFixed(1)}</TableCell>
-              <TableCell>{s.q3.toFixed(1)}</TableCell>
-              <TableCell>{s.max.toFixed(1)}</TableCell>
-              <TableCell>{s.mean}</TableCell>
-              <TableCell>{s.count}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <svg width="100%" viewBox={`0 0 ${chartWidth} ${totalHeight}`} className="text-xs">
+        <line x1={padding.left} y1={totalHeight - padding.bottom} x2={chartWidth - padding.right} y2={totalHeight - padding.bottom} stroke="#e2e8f0" strokeWidth="1" />
+        
+        {Array.from({ length: 5 }, (_, i) => {
+          const val = globalMin + (range * i) / 4;
+          const x = scale(val);
+          return (
+            <g key={i}>
+              <line x1={x} y1={totalHeight - padding.bottom} x2={x} y2={totalHeight - padding.bottom + 4} stroke="#94a3b8" strokeWidth="1" />
+              <text x={x} y={totalHeight - padding.bottom + 16} textAnchor="middle" fill="#64748b" fontSize="9">{val.toFixed(0)}</text>
+              <line x1={x} y1={padding.top} x2={x} y2={totalHeight - padding.bottom} stroke="#f1f5f9" strokeWidth="1" />
+            </g>
+          );
+        })}
+        
+        {stats.map((s, i) => {
+          const y = padding.top + i * rowHeight + rowHeight / 2;
+          const boxHeight = 18;
+          
+          return (
+            <g key={i}>
+              <text x={padding.left - 8} y={y + 4} textAnchor="end" fill="#334155" fontSize="10" fontWeight="500">
+                {s.name.length > 12 ? s.name.slice(0, 12) + '\u2026' : s.name}
+              </text>
+              
+              <line x1={scale(s.min)} y1={y} x2={scale(s.max)} y2={y} stroke="#64748b" strokeWidth="1" />
+              
+              <line x1={scale(s.min)} y1={y - 6} x2={scale(s.min)} y2={y + 6} stroke="#64748b" strokeWidth="1" />
+              
+              <line x1={scale(s.max)} y1={y - 6} x2={scale(s.max)} y2={y + 6} stroke="#64748b" strokeWidth="1" />
+              
+              <rect
+                x={scale(s.q1)}
+                y={y - boxHeight / 2}
+                width={Math.max(scale(s.q3) - scale(s.q1), 2)}
+                height={boxHeight}
+                fill="#3b82f6"
+                fillOpacity={0.3}
+                stroke="#3b82f6"
+                strokeWidth="1.5"
+                rx="2"
+              />
+              
+              <line x1={scale(s.median)} y1={y - boxHeight / 2} x2={scale(s.median)} y2={y + boxHeight / 2} stroke="#ef4444" strokeWidth="2" />
+              
+              <circle cx={scale(s.mean)} cy={y} r="2.5" fill="#f59e0b" stroke="#f59e0b" />
+            </g>
+          );
+        })}
+      </svg>
+      
+      <div className="flex items-center gap-4 text-[10px] text-muted-foreground px-2">
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded-sm bg-blue-500/30 border border-blue-500" />
+          <span>IQR (Q1-Q3)</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-0.5 bg-red-500" />
+          <span>Median</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-amber-500" />
+          <span>Mean</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -405,7 +458,7 @@ export function ParetoChart({ data, config }: ChartProps) {
 
   return (
     <ResponsiveContainer width="100%" height={300}>
-      <BarChart data={chartData}>
+      <ComposedChart data={chartData}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
         <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-45} textAnchor="end" height={70} />
         <YAxis yAxisId="left" tick={{ fontSize: 10 }} />
@@ -414,7 +467,7 @@ export function ParetoChart({ data, config }: ChartProps) {
         <Legend />
         <Bar yAxisId="left" dataKey="value" fill="#3b82f6" name="Value" />
         <Line yAxisId="right" type="monotone" dataKey="cumulative" stroke="#ef4444" name="Cumulative %" dot={false} />
-      </BarChart>
+      </ComposedChart>
     </ResponsiveContainer>
   );
 }
