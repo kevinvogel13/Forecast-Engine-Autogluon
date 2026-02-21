@@ -1,4 +1,5 @@
-import { useCallback, useState, useRef, useMemo, useEffect } from 'react';
+import { useCallback, useState, useRef, useMemo, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   ReactFlow, 
   MiniMap, 
@@ -46,6 +47,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import Editor from '@monaco-editor/react';
 import { CHART_TYPES, renderChart } from '@/components/exploration/ExplorationCharts';
+import { HEADER_PORTAL_ID } from '@/components/layout/Shell';
 import { usePipelines, useCreatePipeline, useUpdatePipeline, useDeletePipeline, useExecutePipeline } from '@/hooks/usePipelines';
 import { useDatasets } from '@/hooks/useDatasets';
 
@@ -101,6 +103,13 @@ function FlowWithProvider() {
   const [saveAsNew, setSaveAsNew] = useState(false);
   const [stashedPipelineName, setStashedPipelineName] = useState('');
   const [stashedPipelineDescription, setStashedPipelineDescription] = useState('');
+  
+  // Header portal container
+  const [headerPortal, setHeaderPortal] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const el = document.getElementById(HEADER_PORTAL_ID);
+    if (el) setHeaderPortal(el);
+  }, []);
 
   const [explorationPreview, setExplorationPreview] = useState<{ columns: string[], rows: any[], totalRows: number } | null>(null);
   const [explorationPreviewLoading, setExplorationPreviewLoading] = useState(false);
@@ -1388,109 +1397,106 @@ function FlowWithProvider() {
   }, [screenToFlowPosition, setNodes, nodes.length]);
 
   return (
-    <div className="flex h-full w-full border border-border rounded-xl bg-slate-50 overflow-hidden shadow-inner relative">
+    <div className="flex h-full w-full bg-slate-50 overflow-hidden relative">
       <div className="flex-1 relative h-full" ref={reactFlowWrapper}>
-        {/* Consolidated Toolbar */}
-        <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-          {/* Pipeline name indicator */}
-          {currentPipelineId && pipelineName && (
-            <div className="bg-white/90 backdrop-blur px-3 py-1.5 rounded-lg border shadow-sm mr-2">
-              <p className="text-xs text-muted-foreground">Current Pipeline</p>
-              <p className="text-sm font-medium truncate max-w-[150px]">{pipelineName}</p>
-            </div>
-          )}
-          
-          {/* File Menu Dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline" className="bg-white/90 backdrop-blur gap-1.5" data-testid="button-file-menu">
-                <FileText className="w-4 h-4" />
-                File
-                <ChevronDown className="w-3 h-3 ml-1" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={() => {
-                setNodes([]);
-                setEdges([]);
-                setCurrentPipelineId(null);
-                setPipelineName('');
-                setPipelineDescription('');
-                setSelectedNode(null);
-                toast.success('New pipeline created');
-              }} data-testid="menu-new">
-                <FilePlus className="w-4 h-4 mr-2" />
-                New Pipeline
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setLoadDialogOpen(true)} data-testid="menu-load">
-                <FolderOpen className="w-4 h-4 mr-2" />
-                Open Pipeline
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => {
-                if (currentPipelineId) {
-                  updatePipeline.mutate({ id: currentPipelineId, data: { name: pipelineName, description: pipelineDescription, nodes, edges } });
-                } else {
+        {/* Header Actions Portal */}
+        {headerPortal && createPortal(
+          <>
+            {currentPipelineId && pipelineName && (
+              <span className="text-xs text-muted-foreground border-r pr-3 mr-1 truncate max-w-[180px]" data-testid="text-pipeline-name">
+                {pipelineName}
+              </span>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="ghost" className="h-8 gap-1.5 text-xs" data-testid="button-file-menu">
+                  <FileText className="w-3.5 h-3.5" />
+                  File
+                  <ChevronDown className="w-3 h-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={() => {
+                  setNodes([]);
+                  setEdges([]);
+                  setCurrentPipelineId(null);
+                  setPipelineName('');
+                  setPipelineDescription('');
+                  setSelectedNode(null);
+                  toast.success('New pipeline created');
+                }} data-testid="menu-new">
+                  <FilePlus className="w-4 h-4 mr-2" />
+                  New Pipeline
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setLoadDialogOpen(true)} data-testid="menu-load">
+                  <FolderOpen className="w-4 h-4 mr-2" />
+                  Open Pipeline
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => {
+                  if (currentPipelineId) {
+                    updatePipeline.mutate({ id: currentPipelineId, data: { name: pipelineName, description: pipelineDescription, nodes, edges } });
+                  } else {
+                    setSaveDialogOpen(true);
+                  }
+                }} data-testid="menu-save">
+                  <Save className="w-4 h-4 mr-2" />
+                  {currentPipelineId ? 'Save Pipeline' : 'Save As...'}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => {
+                  setSaveAsNew(true);
+                  setStashedPipelineName(pipelineName);
+                  setStashedPipelineDescription(pipelineDescription);
+                  setPipelineName('');
+                  setPipelineDescription('');
                   setSaveDialogOpen(true);
-                }
-              }} data-testid="menu-save">
-                <Save className="w-4 h-4 mr-2" />
-                {currentPipelineId ? 'Save Pipeline' : 'Save As...'}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => {
-                setSaveAsNew(true);
-                setStashedPipelineName(pipelineName);
-                setStashedPipelineDescription(pipelineDescription);
-                setPipelineName('');
-                setPipelineDescription('');
-                setSaveDialogOpen(true);
-              }} data-testid="menu-save-as">
-                <Save className="w-4 h-4 mr-2" />
-                Save As New...
-              </DropdownMenuItem>
-              {currentPipelineId && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onClick={() => {
-                      if (window.confirm('Are you sure you want to delete this pipeline?')) {
-                        deletePipeline.mutate(currentPipelineId, {
-                          onSuccess: () => {
-                            setNodes([]);
-                            setEdges([]);
-                            setCurrentPipelineId(null);
-                            setPipelineName('');
-                            setPipelineDescription('');
-                            setSelectedNode(null);
-                            setLoadDialogOpen(false);
-                            setSaveDialogOpen(false);
-                          },
-                        });
-                      }
-                    }}
-                    data-testid="menu-delete"
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Delete Pipeline
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Run Pipeline Button - Prominent */}
-          <Button 
-            size="sm" 
-            className={`gap-2 shadow-lg hover:shadow-xl transition-all ${isRunning ? 'bg-orange-500 hover:bg-orange-600' : 'bg-green-600 hover:bg-green-700'}`}
-            onClick={runPipeline}
-            disabled={isRunning}
-            data-testid="button-run-pipeline"
-          >
-            {isRunning ? <span className="animate-spin">⟳</span> : <Play className="w-4 h-4" />} 
-            {isRunning ? 'Running...' : 'Run'}
-          </Button>
-        </div>
+                }} data-testid="menu-save-as">
+                  <Save className="w-4 h-4 mr-2" />
+                  Save As New...
+                </DropdownMenuItem>
+                {currentPipelineId && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => {
+                        if (window.confirm('Are you sure you want to delete this pipeline?')) {
+                          deletePipeline.mutate(currentPipelineId, {
+                            onSuccess: () => {
+                              setNodes([]);
+                              setEdges([]);
+                              setCurrentPipelineId(null);
+                              setPipelineName('');
+                              setPipelineDescription('');
+                              setSelectedNode(null);
+                              setLoadDialogOpen(false);
+                              setSaveDialogOpen(false);
+                            },
+                          });
+                        }
+                      }}
+                      data-testid="menu-delete"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Pipeline
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button 
+              size="sm" 
+              className={`h-8 gap-1.5 text-xs ${isRunning ? 'bg-orange-500 hover:bg-orange-600' : 'bg-green-600 hover:bg-green-700'}`}
+              onClick={runPipeline}
+              disabled={isRunning}
+              data-testid="button-run-pipeline"
+            >
+              {isRunning ? <span className="animate-spin">⟳</span> : <Play className="w-3.5 h-3.5" />} 
+              {isRunning ? 'Running...' : 'Run'}
+            </Button>
+          </>,
+          headerPortal
+        )}
 
         {/* Load Pipeline Dialog */}
         <Dialog open={loadDialogOpen} onOpenChange={setLoadDialogOpen}>

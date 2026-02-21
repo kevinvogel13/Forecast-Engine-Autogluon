@@ -3,9 +3,9 @@ import FlowEditor from '@/components/pipeline/FlowEditor';
 
 export default function Pipeline() {
   return (
-    <Shell>
+    <Shell fullBleed>
       <div className="flex flex-col h-full">
-        <div className="flex-1 min-h-[600px] flex flex-col">
+        <div className="flex-1 flex flex-col">
            <FlowEditor />
         </div>
       </div>
