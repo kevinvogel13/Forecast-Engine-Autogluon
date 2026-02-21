@@ -32,7 +32,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import PipelineNode from './PipelineNode';
-import EDADashboard from '@/components/dashboard/EDADashboard';
 import ConfigurationPanel from '@/components/configuration/ConfigurationPanel';
 import ForecastResultsDashboard from '@/components/dashboard/ForecastResultsDashboard';
 import NodePalette from './NodePalette';
@@ -90,9 +89,6 @@ function FlowWithProvider() {
   const [nodeOutputShapes, setNodeOutputShapes] = useState<Record<string, { rows: number; cols: number }>>({});
   
   // Modal states for full views
-  const [edaOpen, setEdaOpen] = useState(false);
-  const [edaDatasetId, setEdaDatasetId] = useState<string | null>(null);
-  const [edaTransforms, setEdaTransforms] = useState<Array<{ type: 'filter' | 'python' | 'sql' | 'sampling'; data: any }>>([]);
   const [configOpen, setConfigOpen] = useState(false);
   const [resultsOpen, setResultsOpen] = useState(false);
   
@@ -1090,55 +1086,6 @@ function FlowWithProvider() {
     }
   }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.stats?.rows, selectedNode?.data.stats?.cols, previewData, setNodes]);
 
-  // Update validation/EDA node stats from upstream data (with all transforms applied)
-  useEffect(() => {
-    if (!selectedNode || selectedNode.data.type !== 'eda') return;
-    
-    const datasetId = getSourceDatasetId(selectedNode.id);
-    if (!datasetId) return;
-    
-    // Get all upstream transforms
-    const transforms = getUpstreamTransforms(selectedNode.id);
-    
-    // Use unified transform endpoint
-    const endpoint = transforms.length > 0 
-      ? `/api/datasets/${datasetId}/transform?limit=1`
-      : `/api/datasets/${datasetId}/preview?limit=1`;
-    
-    const fetchOptions = transforms.length > 0 
-      ? {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transforms })
-        }
-      : { method: 'GET' };
-    
-    // Fetch stats with all transforms applied
-    fetch(endpoint, fetchOptions)
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (data && selectedNode) {
-          setNodes(nds => nds.map(n => {
-            if (n.id === selectedNode.id) {
-              return {
-                ...n,
-                data: {
-                  ...n.data,
-                  stats: {
-                    rows: data.totalRows,
-                    cols: data.columns?.length || 0
-                  },
-                  columns: data.columns || []
-                }
-              };
-            }
-            return n;
-          }));
-        }
-      })
-      .catch(err => console.error('Failed to fetch EDA stats:', err));
-  }, [selectedNode?.id, selectedNode?.data.type, getSourceDatasetId, getUpstreamTransforms, setNodes, edges]);
-
   // Calculate output shapes for all nodes and update edges with labels
   useEffect(() => {
     const calculateShapes = async () => {
@@ -1807,35 +1754,6 @@ function FlowWithProvider() {
                      </div>
                   )}
 
-                  {selectedNode.data.type === 'eda' && (
-                    <div className="space-y-4 border rounded-md p-4 bg-blue-50/50 border-blue-100">
-                       <div className="flex flex-col items-center justify-center text-center space-y-3 py-2">
-                          <div className="bg-blue-100 p-3 rounded-full">
-                             <BarChart3 className="w-6 h-6 text-blue-600" />
-                          </div>
-                          <div>
-                             <h4 className="text-sm font-semibold text-blue-900">Data Validation</h4>
-                             <p className="text-xs text-blue-700 mt-1">Validate data quality, check for anomalies, and explore distributions. Data passes through unchanged if validation succeeds.</p>
-                          </div>
-                          <div className="w-full space-y-2 text-left">
-                             <div className="flex items-center gap-2 text-xs bg-white/70 rounded p-2 border border-blue-100">
-                                <Database className="w-4 h-4 text-blue-500" />
-                                <span className="text-blue-800">Pass-through: Input data flows to connected nodes</span>
-                             </div>
-                          </div>
-                          <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => {
-                               const datasetId = getSourceDatasetId(selectedNode.id);
-                               const transforms = getUpstreamTransforms(selectedNode.id);
-                               setEdaDatasetId(datasetId);
-                               setEdaTransforms(transforms);
-                               setEdaOpen(true);
-                          }} data-testid="button-open-eda">
-                             Open EDA Dashboard
-                          </Button>
-                       </div>
-                    </div>
-                  )}
-
                   {selectedNode.data.type === 'config' && (
                     <div className="space-y-4 border rounded-md p-4 bg-purple-50/50 border-purple-100">
                        <div className="flex flex-col items-center justify-center text-center space-y-3 py-2">
@@ -2352,7 +2270,7 @@ function FlowWithProvider() {
                   )}
 
                   {selectedNode.data.type === 'aggregation' && (
-                    <div className="space-y-4 border rounded-md p-3 bg-sky-50/50 border-sky-100">
+                    <div className="space-y-4 border rounded-md p-3 bg-teal-50/50 border-teal-100">
                       <div className="space-y-2">
                         <Label>Group By Columns</Label>
                         <ColumnMultiSelect
@@ -2394,14 +2312,14 @@ function FlowWithProvider() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="text-[10px] text-sky-700 bg-sky-100/50 p-2 rounded">
+                      <div className="text-[10px] text-teal-700 bg-teal-100/50 p-2 rounded">
                         Groups data by selected columns and computes aggregate values. Useful for rolling up daily data to weekly/monthly.
                       </div>
                     </div>
                   )}
 
                   {selectedNode.data.type === 'outlierTreatment' && (
-                    <div className="space-y-4 border rounded-md p-3 bg-rose-50/50 border-rose-100">
+                    <div className="space-y-4 border rounded-md p-3 bg-amber-50/50 border-amber-100">
                       <div className="space-y-2">
                         <Label>Target Column</Label>
                         <Select
@@ -2475,14 +2393,14 @@ function FlowWithProvider() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="text-[10px] text-rose-700 bg-rose-100/50 p-2 rounded">
+                      <div className="text-[10px] text-amber-700 bg-amber-100/50 p-2 rounded">
                         Detects outliers using the selected method and applies the chosen treatment to handle extreme values.
                       </div>
                     </div>
                   )}
 
                   {selectedNode.data.type === 'columnTransform' && (
-                    <div className="space-y-4 border rounded-md p-3 bg-lime-50/50 border-lime-100">
+                    <div className="space-y-4 border rounded-md p-3 bg-teal-50/50 border-teal-100">
                       <div className="space-y-2">
                         <Label>Operation</Label>
                         <Select
@@ -2613,7 +2531,7 @@ function FlowWithProvider() {
                       )}
 
                       {(!selectedNode.data.colOperation || selectedNode.data.colOperation === 'rename') && (
-                        <div className="text-[10px] text-lime-700 bg-lime-100/50 p-2 rounded">
+                        <div className="text-[10px] text-teal-700 bg-teal-100/50 p-2 rounded">
                           Transform columns without writing code — rename, drop, change types, or create calculated fields.
                         </div>
                       )}
@@ -2621,7 +2539,7 @@ function FlowWithProvider() {
                   )}
 
                   {selectedNode.data.type === 'removeDuplicates' && (
-                    <div className="space-y-4 border rounded-md p-3 bg-fuchsia-50/50 border-fuchsia-100">
+                    <div className="space-y-4 border rounded-md p-3 bg-amber-50/50 border-amber-100">
                       <div className="space-y-2">
                         <Label>Dedup Key Columns</Label>
                         <ColumnMultiSelect
@@ -2650,14 +2568,14 @@ function FlowWithProvider() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="text-[10px] text-fuchsia-700 bg-fuchsia-100/50 p-2 rounded">
+                      <div className="text-[10px] text-amber-700 bg-amber-100/50 p-2 rounded">
                         Removes duplicate rows based on the selected key columns.
                       </div>
                     </div>
                   )}
 
                   {selectedNode.data.type === 'pivotUnpivot' && (
-                    <div className="space-y-4 border rounded-md p-3 bg-stone-50/50 border-stone-100">
+                    <div className="space-y-4 border rounded-md p-3 bg-teal-50/50 border-teal-100">
                       <div className="space-y-2">
                         <Label>Mode</Label>
                         <Select
@@ -2789,7 +2707,7 @@ function FlowWithProvider() {
                         </>
                       )}
 
-                      <div className="text-[10px] text-stone-700 bg-stone-100/50 p-2 rounded">
+                      <div className="text-[10px] text-teal-700 bg-teal-100/50 p-2 rounded">
                         {selectedNode.data.pivotMode === 'unpivot' 
                           ? 'Converts wide-format data to long format (melts columns into rows).'
                           : 'Converts long-format data to wide format (spreads values into columns).'}
@@ -3488,21 +3406,7 @@ function FlowWithProvider() {
         </ReactFlow>
       </div>
 
-      {/* Full Screen Dialogs for EDA and Config */}
-      <Dialog open={edaOpen} onOpenChange={setEdaOpen}>
-        <DialogContent className="max-w-[95vw] w-full h-[95vh] p-0 flex flex-col overflow-hidden">
-           <div className="p-6 border-b shrink-0 flex items-center justify-between">
-              <div>
-                 <DialogTitle className="text-xl">Data Validation & EDA</DialogTitle>
-                 <DialogDescription>Interactive exploratory data analysis.</DialogDescription>
-              </div>
-           </div>
-           <ScrollArea className="flex-1 p-6 bg-slate-50/50">
-              <EDADashboard datasetId={edaDatasetId} transforms={edaTransforms} />
-           </ScrollArea>
-        </DialogContent>
-      </Dialog>
-
+      {/* Full Screen Dialog for Model Config */}
       <Dialog open={configOpen} onOpenChange={setConfigOpen}>
         <DialogContent className="max-w-[95vw] w-full h-[95vh] p-0 flex flex-col overflow-hidden">
            <div className="p-6 border-b shrink-0 flex items-center justify-between">

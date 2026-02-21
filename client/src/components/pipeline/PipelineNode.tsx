@@ -1,6 +1,6 @@
 import { Handle, Position } from '@xyflow/react';
 import { Badge } from '@/components/ui/badge';
-import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, AlertCircle, Layers, ListTree, TableProperties, Code, HardDrive, History, Trash2, Settings2, BarChart3, CheckCircle2, Table2, LineChart, FileText, Eraser, CalendarClock, Group, ShieldAlert, Columns3, CopyMinus, ArrowRightLeft } from 'lucide-react';
+import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, AlertCircle, Layers, ListTree, TableProperties, Code, HardDrive, History, Trash2, Settings2, CheckCircle2, Table2, LineChart, FileText, Eraser, CalendarClock, Group, ShieldAlert, Columns3, CopyMinus, ArrowRightLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface PipelineNodeProps {
@@ -40,7 +40,6 @@ const getIcon = (type: string) => {
     case 'python': return Code;
     case 'output': return HardDrive;
     case 'history': return History;
-    case 'eda': return BarChart3;
     case 'exploration': return LineChart;
     case 'report': return FileText;
     case 'config': return Settings2;
@@ -50,25 +49,30 @@ const getIcon = (type: string) => {
 
 const getTypeColor = (type: string) => {
   switch (type) {
+    // Data (blue)
     case 'input': return { bg: 'bg-blue-50', border: 'border-blue-200', icon: 'bg-blue-100 text-blue-600', handle: 'bg-blue-500' };
-    case 'preview': return { bg: 'bg-indigo-50', border: 'border-indigo-200', icon: 'bg-indigo-100 text-indigo-600', handle: 'bg-indigo-500' };
-    case 'merge': return { bg: 'bg-orange-50', border: 'border-orange-200', icon: 'bg-orange-100 text-orange-600', handle: 'bg-orange-500' };
-    case 'filter': return { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'bg-purple-100 text-purple-600', handle: 'bg-purple-500' };
-    case 'sampling': return { bg: 'bg-pink-50', border: 'border-pink-200', icon: 'bg-pink-100 text-pink-600', handle: 'bg-pink-500' };
+    // Clean (amber)
+    case 'filter': return { bg: 'bg-amber-50', border: 'border-amber-200', icon: 'bg-amber-100 text-amber-600', handle: 'bg-amber-500' };
+    case 'sampling': return { bg: 'bg-amber-50', border: 'border-amber-200', icon: 'bg-amber-100 text-amber-600', handle: 'bg-amber-500' };
     case 'fillMissing': return { bg: 'bg-amber-50', border: 'border-amber-200', icon: 'bg-amber-100 text-amber-600', handle: 'bg-amber-500' };
+    case 'outlierTreatment': return { bg: 'bg-amber-50', border: 'border-amber-200', icon: 'bg-amber-100 text-amber-600', handle: 'bg-amber-500' };
+    case 'removeDuplicates': return { bg: 'bg-amber-50', border: 'border-amber-200', icon: 'bg-amber-100 text-amber-600', handle: 'bg-amber-500' };
+    // Reshape (teal)
+    case 'merge': return { bg: 'bg-teal-50', border: 'border-teal-200', icon: 'bg-teal-100 text-teal-600', handle: 'bg-teal-500' };
+    case 'aggregation': return { bg: 'bg-teal-50', border: 'border-teal-200', icon: 'bg-teal-100 text-teal-600', handle: 'bg-teal-500' };
     case 'dateGapFill': return { bg: 'bg-teal-50', border: 'border-teal-200', icon: 'bg-teal-100 text-teal-600', handle: 'bg-teal-500' };
-    case 'aggregation': return { bg: 'bg-sky-50', border: 'border-sky-200', icon: 'bg-sky-100 text-sky-600', handle: 'bg-sky-500' };
-    case 'outlierTreatment': return { bg: 'bg-rose-50', border: 'border-rose-200', icon: 'bg-rose-100 text-rose-600', handle: 'bg-rose-500' };
-    case 'columnTransform': return { bg: 'bg-lime-50', border: 'border-lime-200', icon: 'bg-lime-100 text-lime-600', handle: 'bg-lime-500' };
-    case 'removeDuplicates': return { bg: 'bg-fuchsia-50', border: 'border-fuchsia-200', icon: 'bg-fuchsia-100 text-fuchsia-600', handle: 'bg-fuchsia-500' };
-    case 'pivotUnpivot': return { bg: 'bg-stone-50', border: 'border-stone-200', icon: 'bg-stone-100 text-stone-600', handle: 'bg-stone-500' };
-    case 'eda': return { bg: 'bg-green-50', border: 'border-green-200', icon: 'bg-green-100 text-green-600', handle: 'bg-green-500' };
+    case 'columnTransform': return { bg: 'bg-teal-50', border: 'border-teal-200', icon: 'bg-teal-100 text-teal-600', handle: 'bg-teal-500' };
+    case 'pivotUnpivot': return { bg: 'bg-teal-50', border: 'border-teal-200', icon: 'bg-teal-100 text-teal-600', handle: 'bg-teal-500' };
+    // Code (slate)
+    case 'python': return { bg: 'bg-slate-50', border: 'border-slate-200', icon: 'bg-slate-100 text-slate-600', handle: 'bg-slate-500' };
+    case 'sql': return { bg: 'bg-slate-50', border: 'border-slate-200', icon: 'bg-slate-100 text-slate-600', handle: 'bg-slate-500' };
+    // Analysis (emerald)
+    case 'preview': return { bg: 'bg-emerald-50', border: 'border-emerald-200', icon: 'bg-emerald-100 text-emerald-600', handle: 'bg-emerald-500' };
     case 'exploration': return { bg: 'bg-emerald-50', border: 'border-emerald-200', icon: 'bg-emerald-100 text-emerald-600', handle: 'bg-emerald-500' };
-    case 'report': return { bg: 'bg-violet-50', border: 'border-violet-200', icon: 'bg-violet-100 text-violet-600', handle: 'bg-violet-500' };
-    case 'python': return { bg: 'bg-yellow-50', border: 'border-yellow-200', icon: 'bg-yellow-100 text-yellow-600', handle: 'bg-yellow-500' };
-    case 'sql': return { bg: 'bg-cyan-50', border: 'border-cyan-200', icon: 'bg-cyan-100 text-cyan-600', handle: 'bg-cyan-500' };
-    case 'config': return { bg: 'bg-slate-50', border: 'border-slate-200', icon: 'bg-slate-100 text-slate-600', handle: 'bg-slate-500' };
-    case 'output': return { bg: 'bg-red-50', border: 'border-red-200', icon: 'bg-red-100 text-red-600', handle: 'bg-red-500' };
+    case 'report': return { bg: 'bg-emerald-50', border: 'border-emerald-200', icon: 'bg-emerald-100 text-emerald-600', handle: 'bg-emerald-500' };
+    // Model (violet)
+    case 'config': return { bg: 'bg-violet-50', border: 'border-violet-200', icon: 'bg-violet-100 text-violet-600', handle: 'bg-violet-500' };
+    case 'output': return { bg: 'bg-violet-50', border: 'border-violet-200', icon: 'bg-violet-100 text-violet-600', handle: 'bg-violet-500' };
     default: return { bg: 'bg-white', border: 'border-border', icon: 'bg-muted text-muted-foreground', handle: 'bg-slate-500' };
   }
 };
@@ -76,7 +80,6 @@ const getTypeColor = (type: string) => {
 const getTypeLabel = (type: string) => {
   switch (type) {
     case 'input': return 'Data Source';
-    case 'eda': return 'Validation';
     case 'config': return 'Model Config';
     case 'fillMissing': return 'Fill Missing';
     case 'dateGapFill': return 'Date Gap Fill';

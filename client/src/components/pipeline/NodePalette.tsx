@@ -5,7 +5,6 @@ import {
   GitMerge, 
   Filter, 
   Settings2, 
-  BarChart3, 
   Binary, 
   Code2, 
   FileOutput,
@@ -37,38 +36,48 @@ const categories = [
     label: 'Data',
     nodes: [
       { type: 'input', label: 'Data Source', icon: Database, color: 'bg-blue-100 text-blue-600', description: 'Import data from file or SQL' },
-      { type: 'preview', label: 'Data Preview', icon: Table2, color: 'bg-indigo-100 text-indigo-600', description: 'View head of dataframe' },
-      { type: 'merge', label: 'Merge / Join', icon: GitMerge, color: 'bg-orange-100 text-orange-600', description: 'Combine multiple datasets' },
     ]
   },
   {
-    label: 'Transform',
+    label: 'Clean',
     nodes: [
-      { type: 'filter', label: 'Filter', icon: Filter, color: 'bg-purple-100 text-purple-600', description: 'Filter rows by condition' },
-      { type: 'sampling', label: 'Sampling', icon: Layers, color: 'bg-pink-100 text-pink-600', description: 'Stratified group sampling' },
+      { type: 'filter', label: 'Filter', icon: Filter, color: 'bg-amber-100 text-amber-600', description: 'Filter rows by condition' },
       { type: 'fillMissing', label: 'Fill Missing', icon: Eraser, color: 'bg-amber-100 text-amber-600', description: 'Fill NaN/null values' },
+      { type: 'removeDuplicates', label: 'Remove Duplicates', icon: CopyMinus, color: 'bg-amber-100 text-amber-600', description: 'Deduplicate rows' },
+      { type: 'outlierTreatment', label: 'Outlier Treatment', icon: ShieldAlert, color: 'bg-amber-100 text-amber-600', description: 'Detect & treat outliers' },
+      { type: 'sampling', label: 'Sampling', icon: Layers, color: 'bg-amber-100 text-amber-600', description: 'Stratified group sampling' },
+    ]
+  },
+  {
+    label: 'Reshape',
+    nodes: [
+      { type: 'merge', label: 'Merge / Join', icon: GitMerge, color: 'bg-teal-100 text-teal-600', description: 'Combine multiple datasets' },
+      { type: 'aggregation', label: 'Aggregation', icon: Group, color: 'bg-teal-100 text-teal-600', description: 'Group by & aggregate' },
+      { type: 'columnTransform', label: 'Column Transform', icon: Columns3, color: 'bg-teal-100 text-teal-600', description: 'Rename, drop, cast columns' },
       { type: 'dateGapFill', label: 'Date Gap Filler', icon: CalendarClock, color: 'bg-teal-100 text-teal-600', description: 'Fill missing time periods' },
-      { type: 'aggregation', label: 'Aggregation', icon: Group, color: 'bg-sky-100 text-sky-600', description: 'Group by & aggregate' },
-      { type: 'outlierTreatment', label: 'Outlier Treatment', icon: ShieldAlert, color: 'bg-rose-100 text-rose-600', description: 'Detect & treat outliers' },
-      { type: 'columnTransform', label: 'Column Transform', icon: Columns3, color: 'bg-lime-100 text-lime-600', description: 'Rename, drop, cast columns' },
-      { type: 'removeDuplicates', label: 'Remove Duplicates', icon: CopyMinus, color: 'bg-fuchsia-100 text-fuchsia-600', description: 'Deduplicate rows' },
-      { type: 'pivotUnpivot', label: 'Pivot / Unpivot', icon: ArrowRightLeft, color: 'bg-stone-100 text-stone-600', description: 'Reshape wide ↔ long' },
-      { type: 'python', label: 'Python Script', icon: Code2, color: 'bg-yellow-100 text-yellow-600', description: 'Custom Python transform' },
-      { type: 'sql', label: 'SQL Transform', icon: Binary, color: 'bg-cyan-100 text-cyan-600', description: 'SQL-based transformation' },
+      { type: 'pivotUnpivot', label: 'Pivot / Unpivot', icon: ArrowRightLeft, color: 'bg-teal-100 text-teal-600', description: 'Reshape wide ↔ long' },
+    ]
+  },
+  {
+    label: 'Code',
+    nodes: [
+      { type: 'python', label: 'Python Script', icon: Code2, color: 'bg-slate-100 text-slate-600', description: 'Custom Python transform' },
+      { type: 'sql', label: 'SQL Transform', icon: Binary, color: 'bg-slate-100 text-slate-600', description: 'SQL-based transformation' },
     ]
   },
   {
     label: 'Analysis',
     nodes: [
+      { type: 'preview', label: 'Data Preview', icon: Table2, color: 'bg-emerald-100 text-emerald-600', description: 'View head of dataframe' },
       { type: 'exploration', label: 'Exploration', icon: LineChart, color: 'bg-emerald-100 text-emerald-600', description: 'Single chart/analysis component' },
-      { type: 'report', label: 'Report', icon: FileText, color: 'bg-violet-100 text-violet-600', description: 'Combine charts into HTML report' },
+      { type: 'report', label: 'Report', icon: FileText, color: 'bg-emerald-100 text-emerald-600', description: 'Combine charts into HTML report' },
     ]
   },
   {
     label: 'Model',
     nodes: [
-      { type: 'config', label: 'Model Config', icon: Settings2, color: 'bg-slate-100 text-slate-600', description: 'Configure forecast model' },
-      { type: 'output', label: 'Output', icon: FileOutput, color: 'bg-red-100 text-red-600', description: 'View forecast results' },
+      { type: 'config', label: 'Model Config', icon: Settings2, color: 'bg-violet-100 text-violet-600', description: 'Configure forecast model' },
+      { type: 'output', label: 'Output', icon: FileOutput, color: 'bg-violet-100 text-violet-600', description: 'View forecast results' },
     ]
   }
 ];
