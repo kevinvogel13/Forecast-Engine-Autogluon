@@ -138,6 +138,8 @@ function FlowWithProvider() {
     data: { columns: string[], rows: any[], totalRows: number } | null;
   }>>([]);
   const [reportPreviewLoading, setReportPreviewLoading] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportFilename, setExportFilename] = useState('');
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge({
@@ -809,81 +811,146 @@ function FlowWithProvider() {
     setExplorationPreview(null);
   }, [selectedNode?.id]);
 
-  const exportReportHTML = useCallback(() => {
-    const reportTitle = selectedNode?.data.reportTitle || 'Untitled Report';
-    const container = document.querySelector('[data-testid="report-preview-content"]');
-    if (!container) {
-      toast.error('Please open the report preview first, then click Export HTML');
-      return;
-    }
+  const generateReportHTML = useCallback((title: string, sections: typeof reportPreviewData) => {
+    const rechartsTypes = ['timeseries', 'histogram', 'boxplot', 'bar', 'scatter', 'pareto', 'seasonal', 'outliers', 'adicv'];
+    const chartTypeLabels: Record<string, string> = {};
+    CHART_TYPES.forEach(ct => { chartTypeLabels[ct.value] = ct.label; });
 
-    const clone = container.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll('[data-testid^="button-"], [draggable]').forEach(el => {
-      el.removeAttribute('draggable');
-    });
-    clone.querySelectorAll('.cursor-grab').forEach(el => {
-      el.classList.remove('cursor-grab', 'active:cursor-grabbing');
-    });
-    clone.querySelectorAll('svg.lucide-grip-vertical').forEach(el => el.remove());
+    const renderSection = (section: typeof reportPreviewData[0], idx: number) => {
+      const chartLabel = chartTypeLabels[section.chartType] || 'Not configured';
+      let contentHTML = '';
 
-    const contentHTML = clone.innerHTML;
+      if (section.chartType === 'richtext') {
+        contentHTML = `<div class="richtext-content">${section.chartConfig.richTextContent || '<p>No content</p>'}</div>`;
+      } else if (section.chartType === 'table' && section.data) {
+        const cols = section.data.columns;
+        const rows = section.data.rows.slice(0, 100);
+        contentHTML = `<div class="table-wrapper"><table><thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${cols.map(c => `<td>${row[c] != null ? String(row[c]) : ''}</td>`).join('')}</tr>`).join('')}</tbody></table>${section.data.rows.length > 100 ? `<p class="table-note">Showing 100 of ${section.data.rows.length} rows</p>` : ''}</div>`;
+      } else if (section.chartType === 'summary' && section.data) {
+        const cols = section.data.columns;
+        const numericCols = cols.filter(c => {
+          const vals = section.data!.rows.map(r => parseFloat(r[c])).filter(v => !isNaN(v));
+          return vals.length > section.data!.rows.length * 0.5;
+        });
+        if (numericCols.length > 0) {
+          const statsRows = numericCols.map(col => {
+            const vals = section.data!.rows.map(r => parseFloat(r[col])).filter(v => !isNaN(v));
+            const sorted = [...vals].sort((a, b) => a - b);
+            const n = vals.length;
+            const mean = n > 0 ? vals.reduce((a, b) => a + b, 0) / n : 0;
+            const min = sorted[0] ?? 0;
+            const max = sorted[n - 1] ?? 0;
+            const median = n > 0 ? sorted[Math.floor(n / 2)] : 0;
+            const std = n > 1 ? Math.sqrt(vals.reduce((acc, v) => acc + (v - mean) ** 2, 0) / (n - 1)) : 0;
+            return `<tr><td class="font-medium">${col}</td><td>${n}</td><td>${mean.toFixed(2)}</td><td>${std.toFixed(2)}</td><td>${min.toFixed(2)}</td><td>${median.toFixed(2)}</td><td>${max.toFixed(2)}</td></tr>`;
+          });
+          contentHTML = `<div class="table-wrapper"><table><thead><tr><th>Column</th><th>Count</th><th>Mean</th><th>Std Dev</th><th>Min</th><th>Median</th><th>Max</th></tr></thead><tbody>${statsRows.join('')}</tbody></table></div>`;
+        } else {
+          contentHTML = '<p class="no-data">No numeric columns available for summary statistics</p>';
+        }
+      } else if (section.chartType === 'completeness' && section.data) {
+        const cols = section.data.columns;
+        const totalRows = section.data.rows.length;
+        const qualityRows = cols.map(col => {
+          const nonNull = section.data!.rows.filter(r => r[col] != null && r[col] !== '').length;
+          const missing = totalRows - nonNull;
+          const pct = totalRows > 0 ? ((nonNull / totalRows) * 100).toFixed(1) : '0.0';
+          return `<tr><td class="font-medium">${col}</td><td>${totalRows}</td><td>${nonNull}</td><td>${missing}</td><td>${pct}%</td></tr>`;
+        });
+        contentHTML = `<div class="table-wrapper"><table><thead><tr><th>Column</th><th>Total</th><th>Non-null</th><th>Missing</th><th>Completeness</th></tr></thead><tbody>${qualityRows.join('')}</tbody></table></div>`;
+      } else if (rechartsTypes.includes(section.chartType)) {
+        contentHTML = `<div class="chart-placeholder"><div class="chart-placeholder-icon">📊</div><p>Chart rendered in application — view in pipeline editor</p><p class="chart-type-label">${chartLabel}</p></div>`;
+      } else {
+        contentHTML = `<p class="no-data">No preview available for this exploration type</p>`;
+      }
 
-    const styles = Array.from(document.styleSheets)
-      .map(sheet => {
-        try {
-          return Array.from(sheet.cssRules).map(r => r.cssText).join('\n');
-        } catch { return ''; }
-      })
-      .join('\n');
+      const configDetails: string[] = [];
+      const cfg = section.chartConfig || {};
+      if (cfg.dateColumn) configDetails.push(`Date: ${cfg.dateColumn}`);
+      if (cfg.valueColumn) configDetails.push(`Value: ${cfg.valueColumn}`);
+      if (cfg.groupColumn) configDetails.push(`Group: ${cfg.groupColumn}`);
+      if (cfg.xColumn) configDetails.push(`X: ${cfg.xColumn}`);
+      if (cfg.yColumn) configDetails.push(`Y: ${cfg.yColumn}`);
+      if (cfg.idColumn) configDetails.push(`ID: ${cfg.idColumn}`);
+      if (cfg.demandColumn) configDetails.push(`Demand: ${cfg.demandColumn}`);
 
-    const html = `<!DOCTYPE html>
+      return `<div class="section-card">
+        <div class="section-header">
+          <div class="section-number">${idx + 1}</div>
+          <div>
+            <h2 class="section-title">${section.label}</h2>
+            <span class="section-badge">${chartLabel}</span>
+            ${configDetails.length > 0 ? `<div class="config-details">${configDetails.join(' · ')}</div>` : ''}
+          </div>
+        </div>
+        <div class="section-body">${contentHTML}</div>
+        ${section.takeaway ? `<div class="takeaway"><strong>Key Takeaway:</strong> ${section.takeaway}</div>` : ''}
+      </div>`;
+    };
+
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <title>${reportTitle}</title>
+  <title>${title}</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #334155; background-color: #f8fafc; margin: 0; padding: 0; }
-    .container { max-width: 1000px; margin: 40px auto; padding: 40px; background: white; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-    .report-header { margin-bottom: 40px; }
-    .report-header h1 { font-size: 32px; margin: 0 0 8px 0; color: #0f172a; }
-    .report-header .meta { color: #94a3b8; font-size: 14px; display: flex; align-items: center; gap: 8px; }
-    .footer { text-align: center; color: #94a3b8; font-size: 12px; margin-top: 60px; padding-top: 24px; border-top: 1px solid #e2e8f0; }
-    ${styles}
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #334155; background: #f8fafc; }
+    .container { max-width: 900px; margin: 40px auto; padding: 0 24px; }
+    .report-header { background: white; border-radius: 12px; padding: 40px; margin-bottom: 24px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+    .report-header h1 { font-size: 28px; color: #0f172a; margin-bottom: 8px; font-weight: 700; }
+    .report-header .meta { color: #94a3b8; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+    .section-card { background: white; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 20px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+    .section-header { display: flex; align-items: flex-start; gap: 14px; padding: 20px 24px; border-bottom: 1px solid #f1f5f9; }
+    .section-number { width: 28px; height: 28px; border-radius: 8px; background: #7c3aed; color: white; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+    .section-title { font-size: 17px; font-weight: 600; color: #1e293b; margin-bottom: 4px; }
+    .section-badge { display: inline-block; background: #f5f3ff; color: #7c3aed; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 4px; border: 1px solid #ede9fe; }
+    .config-details { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+    .section-body { padding: 20px 24px; }
+    .takeaway { padding: 16px 24px; background: #fefce8; border-top: 1px solid #fef08a; font-size: 13px; color: #713f12; }
+    .takeaway strong { color: #92400e; }
+    .chart-placeholder { text-align: center; padding: 40px 20px; background: #f8fafc; border-radius: 8px; border: 2px dashed #e2e8f0; }
+    .chart-placeholder-icon { font-size: 32px; margin-bottom: 8px; }
+    .chart-placeholder p { color: #64748b; font-size: 13px; margin: 4px 0; }
+    .chart-type-label { font-weight: 600; color: #7c3aed !important; }
+    .table-wrapper { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background: #f8fafc; color: #475569; font-weight: 600; text-align: left; padding: 10px 12px; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+    td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+    td.font-medium { font-weight: 500; }
+    tr:hover td { background: #f8fafc; }
+    .table-note { font-size: 12px; color: #94a3b8; text-align: center; margin-top: 12px; }
+    .no-data { color: #94a3b8; font-size: 13px; text-align: center; padding: 24px; }
+    .richtext-content { font-size: 14px; line-height: 1.7; }
+    .richtext-content h1, .richtext-content h2, .richtext-content h3 { color: #1e293b; margin: 16px 0 8px; }
+    .richtext-content p { margin-bottom: 8px; }
+    .richtext-content ul, .richtext-content ol { margin: 8px 0 8px 20px; }
+    .footer { text-align: center; color: #94a3b8; font-size: 12px; padding: 32px 0 40px; border-top: 1px solid #e2e8f0; margin-top: 16px; }
+    @media (max-width: 640px) { .container { padding: 0 12px; margin: 16px auto; } .report-header { padding: 24px; } .section-header { padding: 16px; } .section-body { padding: 16px; } }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="report-header">
-      <h1>${reportTitle}</h1>
+      <h1>${title}</h1>
       <div class="meta">
         <span>Generated on ${new Date().toLocaleString()}</span>
         <span>&bull;</span>
-        <span>${reportPreviewData.length} exploration(s)</span>
+        <span>${sections.length} exploration(s)</span>
       </div>
     </div>
-    ${contentHTML}
+    ${sections.map((s, i) => renderSection(s, i)).join('\n')}
     <div class="footer">
       <p>Report generated by Forecast Pipeline Application</p>
     </div>
   </div>
 </body>
 </html>`;
+  }, []);
 
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${reportTitle.replace(/[^a-zA-Z0-9]/g, '_')}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast.success('Report exported successfully');
-  }, [selectedNode, reportPreviewData]);
-
-  const loadReportPreview = useCallback(async () => {
-    if (!selectedNode) return;
+  const loadReportData = useCallback(async (): Promise<typeof reportPreviewData> => {
+    if (!selectedNode) return [];
     const incomingEdges = edges.filter(e => e.target === selectedNode.id);
     const connectedExplorations = incomingEdges
       .map(e => nodes.find(n => n.id === e.source))
@@ -891,7 +958,7 @@ function FlowWithProvider() {
 
     if (connectedExplorations.length === 0) {
       toast.error('No exploration nodes connected to this report');
-      return;
+      return [];
     }
 
     const savedOrder: string[] = selectedNode.data.explorationOrder || [];
@@ -900,7 +967,6 @@ function FlowWithProvider() {
       ...connectedExplorations.filter(n => n && !savedOrder.includes(n.id))
     ];
 
-    setReportPreviewLoading(true);
     const sections: typeof reportPreviewData = [];
 
     for (const expNode of explorationNodes) {
@@ -923,7 +989,7 @@ function FlowWithProvider() {
           }
         }
       } catch {}
-      
+
       sections.push({
         label: expNode.data.label || 'Exploration',
         chartType: expNode.data.chartType || '',
@@ -933,10 +999,54 @@ function FlowWithProvider() {
       });
     }
 
+    return sections;
+  }, [selectedNode, edges, nodes, getSourceDatasetId, getUpstreamTransforms]);
+
+  const openExportDialog = useCallback(async () => {
+    const reportTitle = selectedNode?.data.reportTitle || 'Untitled Report';
+    setExportFilename(reportTitle);
+
+    if (reportPreviewData.length === 0) {
+      setReportPreviewLoading(true);
+      const sections = await loadReportData();
+      setReportPreviewData(sections);
+      setReportPreviewLoading(false);
+      if (sections.length === 0) {
+        toast.error('No exploration nodes connected to this report');
+        return;
+      }
+    }
+
+    setExportDialogOpen(true);
+  }, [selectedNode, reportPreviewData, loadReportData]);
+
+  const doExportHTML = useCallback(() => {
+    const filename = exportFilename.trim() || 'report';
+    const safeFilename = filename.replace(/[^a-zA-Z0-9 _-]/g, '_');
+    const html = generateReportHTML(filename, reportPreviewData);
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeFilename}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setExportDialogOpen(false);
+    toast.success('Report exported successfully');
+  }, [exportFilename, reportPreviewData, generateReportHTML]);
+
+  const loadReportPreview = useCallback(async () => {
+    if (!selectedNode) return;
+    setReportPreviewLoading(true);
+    const sections = await loadReportData();
     setReportPreviewData(sections);
     setReportPreviewLoading(false);
-    setReportPreviewOpen(true);
-  }, [selectedNode, edges, nodes, getSourceDatasetId, getUpstreamTransforms]);
+    if (sections.length > 0) {
+      setReportPreviewOpen(true);
+    }
+  }, [selectedNode, loadReportData]);
 
   // Keep refs for nodes/edges to avoid dependency issues
   const nodesRef = useRef(nodes);
@@ -3388,7 +3498,7 @@ function FlowWithProvider() {
                       <Button
                         variant="outline"
                         className="w-full border-violet-300 text-violet-700 hover:bg-violet-100"
-                        onClick={exportReportHTML}
+                        onClick={openExportDialog}
                         data-testid="button-export-report"
                       >
                         <FileText className="w-4 h-4 mr-2" />
@@ -3575,7 +3685,7 @@ function FlowWithProvider() {
               <DialogTitle className="text-xl">{selectedNode?.data.reportTitle || 'Report Preview'}</DialogTitle>
               <DialogDescription>{reportPreviewData.length} exploration(s) &bull; Generated {new Date().toLocaleDateString()}</DialogDescription>
             </div>
-            <Button variant="outline" className="gap-2 border-violet-200 text-violet-700 hover:bg-violet-50" onClick={exportReportHTML}>
+            <Button variant="outline" className="gap-2 border-violet-200 text-violet-700 hover:bg-violet-50" onClick={openExportDialog}>
               <FileText className="w-4 h-4" /> Export HTML
             </Button>
           </div>
@@ -3676,6 +3786,40 @@ function FlowWithProvider() {
               )}
             </div>
           </ScrollArea>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Export HTML Report</DialogTitle>
+            <DialogDescription>Choose a filename for the exported report.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="export-filename">Filename</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="export-filename"
+                  value={exportFilename}
+                  onChange={(e) => setExportFilename(e.target.value)}
+                  placeholder="Report filename"
+                  data-testid="input-export-filename"
+                  onKeyDown={(e) => { if (e.key === 'Enter') doExportHTML(); }}
+                />
+                <span className="text-sm text-muted-foreground shrink-0">.html</span>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setExportDialogOpen(false)} data-testid="button-cancel-export">
+                Cancel
+              </Button>
+              <Button className="bg-violet-600 hover:bg-violet-700 text-white" onClick={doExportHTML} data-testid="button-confirm-export">
+                <FileText className="w-4 h-4 mr-2" />
+                Export
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
