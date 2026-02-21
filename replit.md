@@ -61,7 +61,7 @@ Nodes are categorized and color-coded:
 - **Python Script**: Custom pandas transformations.
 - **SQL Transform**: DuckDB SQL-based transformations.
 - **Validation (EDA)**: Exploratory data analysis dashboard with widgets like GeneralStats, TimeSeriesView, etc.
-- **Exploration**: Modular chart components (e.g., Rich Text, Time Series, Demand Classification (ADI×CV²), Forecast vs Actual, Backtest Metrics). Features a consistent teal/indigo palette. 15 chart types total.
+- **Exploration**: Modular chart components (e.g., Rich Text, Time Series, Demand Classification (ADI×CV²), Forecast vs Actual, Backtest Metrics, Feature Importance). Features a consistent teal/indigo palette. 16 chart types total.
 - **Report**: Combines multiple exploration charts into an HTML report.
 - **Model Config**: AutoGluon forecast model configuration, including training/loading, data frequency, forecast horizon, backtesting with walk-forward cross-validation, feature engineering, and data preprocessing within folds. All config state persists to node data (save/load with pipeline). Per-column preprocessing: cfgFillConfigs (Record per column with strategy/constant), cfgOutlierConfigs (Record per column with method/threshold/action).
 - **Output**: View forecast results.
@@ -73,6 +73,18 @@ Nodes are categorized and color-coded:
 
 ### Filter Node Technical Details
 - Supports various operators and dynamic metadata updates.
+
+### Python Pipeline Engine (`engine/`)
+- **Entry Point**: `engine/pipeline.py` — receives pipeline JSON, resolves topological order, runs handlers
+- **12-Factor Principles**: Config via env vars (`STORAGE_TYPE`, `STORAGE_PATH`, `MODEL_PATH`, `LOG_LEVEL`), structured JSON logs to stdout, stateless execution
+- **Storage Adapter**: `engine/adapters/storage.py` — abstract interface with `LocalStorageAdapter` (swappable for S3/GCS)
+- **Handler Registry**: `engine/handlers/registry.py` — decorator-based `@register(node_type)` pattern
+- **Data Handlers**: `data_source`, `data_preview`, `filter` — CSV loading, preview, row filtering
+- **Prep Handlers**: `fill_missing`, `column_transform`, `remove_duplicates`, `merge`, `sampling`, `date_gap_filler`, `outlier_treatment`, `pivot`
+- **Code Handlers**: `python_script` (sandboxed exec), `sql_transform` (DuckDB in-memory)
+- **Model Handler**: `model_config` — AutoGluon TimeSeriesPredictor with statistical fallback, per-column preprocessing within folds, permutation-based feature importance
+- **Python Packages**: pandas, numpy, scikit-learn, scipy, duckdb
+- **Execution Bridge**: Express route spawns `python3 -m engine.pipeline` with pipeline JSON, config via env vars, streams progress/results back
 
 ### Build Process
 - **Development**: Vite for frontend, tsx for backend.

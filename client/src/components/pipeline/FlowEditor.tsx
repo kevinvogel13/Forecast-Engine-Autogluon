@@ -1631,49 +1631,52 @@ function FlowWithProvider() {
     // Turn on edge animations
     setEdges((eds) => eds.map(e => ({ ...e, animated: true })));
 
-    // Execute pipeline via API
     executePipeline.mutate(currentPipelineId, {
-      onSuccess: () => {
-        // Simple simulation for visual feedback
-        const nonInputNodes = nodes.filter(n => n.data.type !== 'input').map(n => n.id);
+      onSuccess: (result: any) => {
+        const progress = result.progress || [];
         
-        let delay = 1000;
-        nonInputNodes.forEach((nodeId, index) => {
-           setTimeout(() => {
-              setNodes((nds) => 
-                nds.map(n => {
-                  if (n.id === nodeId) {
-                     return { ...n, data: { ...n.data, status: 'processing' } };
-                  }
-                  return n;
-                })
-              );
-           }, delay);
+        let delay = 0;
+        progress.forEach((p: any, index: number) => {
+          setTimeout(() => {
+            setNodes((nds) =>
+              nds.map(n => {
+                if (n.id === p.nodeId) {
+                  const newStatus = p.status === 'completed' ? 'success' : p.status === 'error' ? 'error' : 'processing';
+                  const newStats = p.resultInfo ? { rows: p.resultInfo.rows || 0, cols: (p.resultInfo.columns || []).length } : n.data.stats;
+                  return { ...n, data: { ...n.data, status: newStatus, stats: newStats } };
+                }
+                return n;
+              })
+            );
 
-           delay += 2000;
-
-           setTimeout(() => {
-              setNodes((nds) => 
-                nds.map(n => {
-                  if (n.id === nodeId) {
-                     return { ...n, data: { ...n.data, status: 'success' } };
-                  }
-                  return n;
-                })
-              );
+            if (index === progress.length - 1) {
+              setIsRunning(false);
+              setEdges((eds) => eds.map(e => ({ ...e, animated: false })));
               
-              if (index === nonInputNodes.length - 1) {
-                setIsRunning(false);
-                setEdges((eds) => eds.map(e => ({ ...e, animated: false })));
+              if (result.success) {
+                toast.success(`Pipeline completed: ${Object.keys(result.results || {}).length} nodes processed`);
+              } else {
+                toast.error(result.error || 'Pipeline execution failed');
               }
-           }, delay);
-           
-           delay += 500;
+            }
+          }, delay);
+          delay += 300;
         });
+        
+        if (progress.length === 0) {
+          setIsRunning(false);
+          setEdges((eds) => eds.map(e => ({ ...e, animated: false })));
+          if (result.success) {
+            toast.success('Pipeline completed');
+          } else {
+            toast.error(result.error || 'Pipeline execution failed');
+          }
+        }
       },
-      onError: () => {
+      onError: (error: any) => {
         setIsRunning(false);
         setEdges((eds) => eds.map(e => ({ ...e, animated: false })));
+        toast.error(error.message || 'Pipeline execution failed');
       }
     });
   };

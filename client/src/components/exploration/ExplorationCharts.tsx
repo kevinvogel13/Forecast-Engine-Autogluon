@@ -1498,6 +1498,60 @@ export function BacktestMetricsChart({ data, config }: ChartProps) {
   );
 }
 
+export function FeatureImportanceChart({ data, config }: ChartProps) {
+  const { groupColumn, valueColumn } = config;
+
+  const chartData = useMemo(() => {
+    if (!groupColumn || !valueColumn || !data.rows.length) return [];
+
+    return data.rows
+      .map(row => ({
+        feature: String(row[groupColumn] || ''),
+        importance: parseFloat(row[valueColumn]) || 0,
+      }))
+      .sort((a, b) => Math.abs(b.importance) - Math.abs(a.importance))
+      .slice(0, 25);
+  }, [data.rows, groupColumn, valueColumn]);
+
+  if (!groupColumn || !valueColumn) {
+    return <div className="text-sm text-muted-foreground p-4" data-testid="text-fi-placeholder">Select feature name and importance value columns</div>;
+  }
+
+  if (chartData.length === 0) {
+    return <div className="text-sm text-muted-foreground p-4">No feature importance data available</div>;
+  }
+
+  const maxVal = Math.max(...chartData.map(d => Math.abs(d.importance)));
+
+  return (
+    <div className="space-y-2">
+      <ResponsiveContainer width="100%" height={Math.max(200, chartData.length * 28 + 40)}>
+        <BarChart data={chartData} layout="vertical" margin={{ left: 10, right: 30 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.gridStroke} horizontal={false} />
+          <XAxis type="number" tick={{ fontSize: 10 }} domain={[-maxVal * 0.1, maxVal * 1.1]} />
+          <YAxis type="category" dataKey="feature" tick={{ fontSize: 10 }} width={120} />
+          <Tooltip
+            formatter={(value: number) => [value.toFixed(4), 'Importance']}
+            contentStyle={{ fontSize: 11 }}
+          />
+          <Bar dataKey="importance" name="Feature Importance">
+            {chartData.map((entry, index) => (
+              <Cell
+                key={`cell-${index}`}
+                fill={entry.importance >= 0 ? PALETTE.primary : PALETTE.danger}
+                fillOpacity={0.8}
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <p className="text-[10px] text-muted-foreground px-2">
+        Feature importance based on permutation analysis. Higher absolute values indicate stronger influence on predictions.
+      </p>
+    </div>
+  );
+}
+
 export const CHART_TYPES = [
   { value: 'richtext', label: 'Rich Text', description: 'Formatted text with styling' },
   { value: 'timeseries', label: 'Time Series', description: 'Trend analysis over time' },
@@ -1514,6 +1568,7 @@ export const CHART_TYPES = [
   { value: 'outliers', label: 'Outlier Detection', description: 'Z-score anomaly scan' },
   { value: 'forecast_actual', label: 'Forecast vs Actual', description: 'Compare forecasts against actuals' },
   { value: 'backtest_metrics', label: 'Backtest Metrics', description: 'Error metrics for model evaluation' },
+  { value: 'feature_importance', label: 'Feature Importance', description: 'Permutation-based feature contribution analysis' },
 ];
 
 export function renderChart(chartType: string, data: ChartProps['data'], config: ChartProps['config']) {
@@ -1533,6 +1588,7 @@ export function renderChart(chartType: string, data: ChartProps['data'], config:
     case 'outliers': return <OutlierTableChart data={data} config={config} />;
     case 'forecast_actual': return <ForecastVsActualChart data={data} config={config} />;
     case 'backtest_metrics': return <BacktestMetricsChart data={data} config={config} />;
+    case 'feature_importance': return <FeatureImportanceChart data={data} config={config} />;
     default: return <div className="text-muted-foreground p-4">Select a chart type</div>;
   }
 }
