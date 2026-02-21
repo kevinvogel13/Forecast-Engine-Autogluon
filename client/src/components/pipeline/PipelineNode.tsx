@@ -1,7 +1,8 @@
-import { Handle, Position } from '@xyflow/react';
+import { Handle, Position, useNodeId } from '@xyflow/react';
 import { Badge } from '@/components/ui/badge';
 import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, AlertCircle, Layers, ListTree, TableProperties, Code, HardDrive, History, Trash2, Settings2, CheckCircle2, Table2, LineChart, FileText, Eraser, CalendarClock, Group, ShieldAlert, Columns3, CopyMinus, ArrowRightLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useCallback } from 'react';
 
 interface PipelineNodeProps {
   data: {
@@ -102,6 +103,15 @@ export default function PipelineNode({ data, selected }: PipelineNodeProps) {
   const Icon = getIcon(data.type);
   const colors = getTypeColor(data.type);
   const statusInfo = getStatusIndicator(data.status);
+  const nodeId = useNodeId();
+
+  const handleSourceClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    window.dispatchEvent(new CustomEvent('quick-connect-click', {
+      detail: { nodeId, x: rect.right + 10, y: rect.top + rect.height / 2 }
+    }));
+  }, [nodeId]);
 
   return (
     <div className={cn(
@@ -166,6 +176,7 @@ export default function PipelineNode({ data, selected }: PipelineNodeProps) {
             "hover:!w-6 hover:!h-6 hover:!shadow-lg"
           )}
           data-testid={`handle-source-${data.type}`}
+          onClick={handleSourceClick}
         />
       )}
     </div>

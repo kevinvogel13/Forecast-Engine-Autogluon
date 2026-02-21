@@ -101,6 +101,19 @@ function FlowWithProvider() {
   const quickConnectJustOpened = useRef(false);
   const [quickConnectMenu, setQuickConnectMenu] = useState<{ x: number; y: number; sourceNodeId: string } | null>(null);
   
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { nodeId, x, y } = (e as CustomEvent).detail;
+      if (nodeId) {
+        quickConnectJustOpened.current = true;
+        setQuickConnectMenu({ x, y, sourceNodeId: nodeId });
+        setTimeout(() => { quickConnectJustOpened.current = false; }, 300);
+      }
+    };
+    window.addEventListener('quick-connect-click', handler);
+    return () => window.removeEventListener('quick-connect-click', handler);
+  }, []);
+
   // Save as new flag and stashed values for restore on cancel
   const [saveAsNew, setSaveAsNew] = useState(false);
   const [stashedPipelineName, setStashedPipelineName] = useState('');
@@ -146,9 +159,10 @@ function FlowWithProvider() {
     if (!connectingNodeId.current) return;
     
     const target = event.target as HTMLElement;
-    const isHandle = target.classList.contains('react-flow__handle');
+    const targetEl = target.closest('.react-flow__handle[data-handlepos]');
+    const isInputHandle = targetEl !== null && (targetEl as HTMLElement).dataset.handlepos === 'left';
     
-    if (!isHandle) {
+    if (!isInputHandle) {
       const clientX = 'clientX' in event ? event.clientX : event.changedTouches?.[0]?.clientX ?? 0;
       const clientY = 'clientY' in event ? event.clientY : event.changedTouches?.[0]?.clientY ?? 0;
       
@@ -237,6 +251,8 @@ function FlowWithProvider() {
   );
 
   const onNodeClick = useCallback((event: React.MouseEvent, node: any) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('.react-flow__handle')) return;
     setSelectedNode(node);
     setSelectedEdgeData(null); // Close edge popover
   }, []);
