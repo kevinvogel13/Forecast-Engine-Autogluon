@@ -18,20 +18,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-background">
           <header className="h-14 border-b border-border bg-card/50 backdrop-blur-sm px-6 flex items-center justify-between shrink-0 z-10">
             <div className="flex items-center gap-2">
-               <div className="w-8 h-8 rounded bg-primary flex items-center justify-center text-primary-foreground text-xs font-mono font-bold shrink-0 cursor-default">F</div>
-               <h1 className="text-sm font-medium text-muted-foreground ml-2">
-                 Pipeline Designer
+               <div className="w-8 h-8 rounded bg-primary flex items-center justify-center text-primary-foreground text-xs font-mono font-bold shrink-0 cursor-default" data-testid="app-logo">FP</div>
+               <h1 className="text-sm font-medium text-muted-foreground ml-2" data-testid="app-title">
+                 Forecasting Pipeline
                </h1>
-            </div>
-            <div className="flex items-center gap-4">
-               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>Project: Q3 Forecasting</span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                  <span>Online</span>
-               </div>
-               <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-xs font-medium shrink-0 cursor-pointer hover:bg-accent/80 transition-colors" title="John Doe">
-                  JD
-               </div>
             </div>
           </header>
           
