@@ -48,11 +48,9 @@ Preferred communication style: Simple, everyday language.
   - `components/layout/` - Shell and navigation
 
 ### Palette Organization & Color Coding
-Nodes are organized into 6 color-coded groups in the palette:
-- **Data** (blue): Data Source
-- **Clean** (amber): Filter, Fill Missing, Remove Duplicates, Outlier Treatment, Sampling
-- **Reshape** (teal): Merge/Join, Aggregation, Column Transform, Date Gap Filler, Pivot/Unpivot
-- **Code** (slate): Python Script, SQL Transform
+Nodes are organized into 4 color-coded groups in the palette:
+- **Source** (blue): Data Source
+- **Prep** (yellow): Filter, Fill Missing, Remove Duplicates, Outlier Treatment, Sampling, Merge/Join, Aggregation, Column Transform, Date Gap Filler, Pivot/Unpivot, Python Script, SQL Transform
 - **Analysis** (emerald): Data Preview, Exploration, Report
 - **Model** (violet): Model Config, Output
 

@@ -33,36 +33,26 @@ interface NodePaletteProps {
 
 const categories = [
   {
-    label: 'Data',
+    label: 'Source',
     nodes: [
       { type: 'input', label: 'Data Source', icon: Database, color: 'bg-blue-100 text-blue-600', description: 'Import data from file or SQL' },
     ]
   },
   {
-    label: 'Clean',
+    label: 'Prep',
     nodes: [
-      { type: 'filter', label: 'Filter', icon: Filter, color: 'bg-amber-100 text-amber-600', description: 'Filter rows by condition' },
-      { type: 'fillMissing', label: 'Fill Missing', icon: Eraser, color: 'bg-amber-100 text-amber-600', description: 'Fill NaN/null values' },
-      { type: 'removeDuplicates', label: 'Remove Duplicates', icon: CopyMinus, color: 'bg-amber-100 text-amber-600', description: 'Deduplicate rows' },
-      { type: 'outlierTreatment', label: 'Outlier Treatment', icon: ShieldAlert, color: 'bg-amber-100 text-amber-600', description: 'Detect & treat outliers' },
-      { type: 'sampling', label: 'Sampling', icon: Layers, color: 'bg-amber-100 text-amber-600', description: 'Stratified group sampling' },
-    ]
-  },
-  {
-    label: 'Reshape',
-    nodes: [
-      { type: 'merge', label: 'Merge / Join', icon: GitMerge, color: 'bg-teal-100 text-teal-600', description: 'Combine multiple datasets' },
-      { type: 'aggregation', label: 'Aggregation', icon: Group, color: 'bg-teal-100 text-teal-600', description: 'Group by & aggregate' },
-      { type: 'columnTransform', label: 'Column Transform', icon: Columns3, color: 'bg-teal-100 text-teal-600', description: 'Rename, drop, cast columns' },
-      { type: 'dateGapFill', label: 'Date Gap Filler', icon: CalendarClock, color: 'bg-teal-100 text-teal-600', description: 'Fill missing time periods' },
-      { type: 'pivotUnpivot', label: 'Pivot / Unpivot', icon: ArrowRightLeft, color: 'bg-teal-100 text-teal-600', description: 'Reshape wide ↔ long' },
-    ]
-  },
-  {
-    label: 'Code',
-    nodes: [
-      { type: 'python', label: 'Python Script', icon: Code2, color: 'bg-slate-100 text-slate-600', description: 'Custom Python transform' },
-      { type: 'sql', label: 'SQL Transform', icon: Binary, color: 'bg-slate-100 text-slate-600', description: 'SQL-based transformation' },
+      { type: 'filter', label: 'Filter', icon: Filter, color: 'bg-yellow-100 text-yellow-600', description: 'Filter rows by condition' },
+      { type: 'fillMissing', label: 'Fill Missing', icon: Eraser, color: 'bg-yellow-100 text-yellow-600', description: 'Fill NaN/null values' },
+      { type: 'removeDuplicates', label: 'Remove Duplicates', icon: CopyMinus, color: 'bg-yellow-100 text-yellow-600', description: 'Deduplicate rows' },
+      { type: 'outlierTreatment', label: 'Outlier Treatment', icon: ShieldAlert, color: 'bg-yellow-100 text-yellow-600', description: 'Detect & treat outliers' },
+      { type: 'sampling', label: 'Sampling', icon: Layers, color: 'bg-yellow-100 text-yellow-600', description: 'Stratified group sampling' },
+      { type: 'merge', label: 'Merge / Join', icon: GitMerge, color: 'bg-yellow-100 text-yellow-600', description: 'Combine multiple datasets' },
+      { type: 'aggregation', label: 'Aggregation', icon: Group, color: 'bg-yellow-100 text-yellow-600', description: 'Group by & aggregate' },
+      { type: 'columnTransform', label: 'Column Transform', icon: Columns3, color: 'bg-yellow-100 text-yellow-600', description: 'Rename, drop, cast columns' },
+      { type: 'dateGapFill', label: 'Date Gap Filler', icon: CalendarClock, color: 'bg-yellow-100 text-yellow-600', description: 'Fill missing time periods' },
+      { type: 'pivotUnpivot', label: 'Pivot / Unpivot', icon: ArrowRightLeft, color: 'bg-yellow-100 text-yellow-600', description: 'Reshape wide ↔ long' },
+      { type: 'python', label: 'Python Script', icon: Code2, color: 'bg-yellow-100 text-yellow-600', description: 'Custom Python transform' },
+      { type: 'sql', label: 'SQL Transform', icon: Binary, color: 'bg-yellow-100 text-yellow-600', description: 'SQL-based transformation' },
     ]
   },
   {

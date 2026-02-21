@@ -2140,7 +2140,7 @@ function FlowWithProvider() {
                   )}
 
                   {selectedNode.data.type === 'fillMissing' && (
-                    <div className="space-y-4 border rounded-md p-3 bg-amber-50/50 border-amber-100">
+                    <div className="space-y-4 border rounded-md p-3 bg-yellow-50/50 border-yellow-100">
                       <div className="space-y-2">
                         <Label>Target Columns</Label>
                         <ColumnMultiSelect
@@ -2184,14 +2184,14 @@ function FlowWithProvider() {
                           />
                         </div>
                       )}
-                      <div className="text-[10px] text-amber-700 bg-amber-100/50 p-2 rounded">
+                      <div className="text-[10px] text-yellow-700 bg-yellow-100/50 p-2 rounded">
                         Replaces NaN/null values in selected columns using the chosen strategy.
                       </div>
                     </div>
                   )}
 
                   {selectedNode.data.type === 'dateGapFill' && (
-                    <div className="space-y-4 border rounded-md p-3 bg-teal-50/50 border-teal-100">
+                    <div className="space-y-4 border rounded-md p-3 bg-yellow-50/50 border-yellow-100">
                       <div className="space-y-2">
                         <Label>Date Column</Label>
                         <Select
@@ -2263,14 +2263,14 @@ function FlowWithProvider() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="text-[10px] text-teal-700 bg-teal-100/50 p-2 rounded">
+                      <div className="text-[10px] text-yellow-700 bg-yellow-100/50 p-2 rounded">
                         Inserts missing time periods to create a continuous date series. Essential for time series forecasting.
                       </div>
                     </div>
                   )}
 
                   {selectedNode.data.type === 'aggregation' && (
-                    <div className="space-y-4 border rounded-md p-3 bg-teal-50/50 border-teal-100">
+                    <div className="space-y-4 border rounded-md p-3 bg-yellow-50/50 border-yellow-100">
                       <div className="space-y-2">
                         <Label>Group By Columns</Label>
                         <ColumnMultiSelect
@@ -2312,14 +2312,14 @@ function FlowWithProvider() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="text-[10px] text-teal-700 bg-teal-100/50 p-2 rounded">
+                      <div className="text-[10px] text-yellow-700 bg-yellow-100/50 p-2 rounded">
                         Groups data by selected columns and computes aggregate values. Useful for rolling up daily data to weekly/monthly.
                       </div>
                     </div>
                   )}
 
                   {selectedNode.data.type === 'outlierTreatment' && (
-                    <div className="space-y-4 border rounded-md p-3 bg-amber-50/50 border-amber-100">
+                    <div className="space-y-4 border rounded-md p-3 bg-yellow-50/50 border-yellow-100">
                       <div className="space-y-2">
                         <Label>Target Column</Label>
                         <Select
@@ -2393,14 +2393,14 @@ function FlowWithProvider() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="text-[10px] text-amber-700 bg-amber-100/50 p-2 rounded">
+                      <div className="text-[10px] text-yellow-700 bg-yellow-100/50 p-2 rounded">
                         Detects outliers using the selected method and applies the chosen treatment to handle extreme values.
                       </div>
                     </div>
                   )}
 
                   {selectedNode.data.type === 'columnTransform' && (
-                    <div className="space-y-4 border rounded-md p-3 bg-teal-50/50 border-teal-100">
+                    <div className="space-y-4 border rounded-md p-3 bg-yellow-50/50 border-yellow-100">
                       <div className="space-y-2">
                         <Label>Operation</Label>
                         <Select
@@ -2531,7 +2531,7 @@ function FlowWithProvider() {
                       )}
 
                       {(!selectedNode.data.colOperation || selectedNode.data.colOperation === 'rename') && (
-                        <div className="text-[10px] text-teal-700 bg-teal-100/50 p-2 rounded">
+                        <div className="text-[10px] text-yellow-700 bg-yellow-100/50 p-2 rounded">
                           Transform columns without writing code — rename, drop, change types, or create calculated fields.
                         </div>
                       )}
@@ -2539,7 +2539,7 @@ function FlowWithProvider() {
                   )}
 
                   {selectedNode.data.type === 'removeDuplicates' && (
-                    <div className="space-y-4 border rounded-md p-3 bg-amber-50/50 border-amber-100">
+                    <div className="space-y-4 border rounded-md p-3 bg-yellow-50/50 border-yellow-100">
                       <div className="space-y-2">
                         <Label>Dedup Key Columns</Label>
                         <ColumnMultiSelect
@@ -2568,14 +2568,14 @@ function FlowWithProvider() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="text-[10px] text-amber-700 bg-amber-100/50 p-2 rounded">
+                      <div className="text-[10px] text-yellow-700 bg-yellow-100/50 p-2 rounded">
                         Removes duplicate rows based on the selected key columns.
                       </div>
                     </div>
                   )}
 
                   {selectedNode.data.type === 'pivotUnpivot' && (
-                    <div className="space-y-4 border rounded-md p-3 bg-teal-50/50 border-teal-100">
+                    <div className="space-y-4 border rounded-md p-3 bg-yellow-50/50 border-yellow-100">
                       <div className="space-y-2">
                         <Label>Mode</Label>
                         <Select
@@ -2707,7 +2707,7 @@ function FlowWithProvider() {
                         </>
                       )}
 
-                      <div className="text-[10px] text-teal-700 bg-teal-100/50 p-2 rounded">
+                      <div className="text-[10px] text-yellow-700 bg-yellow-100/50 p-2 rounded">
                         {selectedNode.data.pivotMode === 'unpivot' 
                           ? 'Converts wide-format data to long format (melts columns into rows).'
                           : 'Converts long-format data to wide format (spreads values into columns).'}
