@@ -662,6 +662,7 @@ function FlowWithProvider() {
   } | null>(null);
   const [columnValuesLoading, setColumnValuesLoading] = useState(false);
 
+  const [dateColumnRanges, setDateColumnRanges] = useState<Record<string, { minDate: string; maxDate: string }>>({});
   const [configDateRange, setConfigDateRange] = useState<{
     minDate: string;
     maxDate: string;
@@ -717,35 +718,48 @@ function FlowWithProvider() {
   }, [selectedNode?.data.filterColumn, selectedNode?.data.type, fetchColumnValues]);
 
   useEffect(() => {
-    if (!selectedNode || selectedNode.data.type !== 'config') { setConfigDateRange(null); return; }
-    if (selectedNode.data.modelMode === 'load') return;
+    if (!selectedNode || selectedNode.data.type !== 'config') {
+      setConfigDateRange(null);
+      setDateColumnRanges({});
+      return;
+    }
 
     const datasetId = getSourceDatasetId(selectedNode.id);
-    if (!datasetId) { setConfigDateRange(null); return; }
+    if (!datasetId) { setConfigDateRange(null); setDateColumnRanges({}); return; }
 
     const columns = getNodeColumns(selectedNode.id);
     const dateHints = ['date', 'time', 'period', 'month', 'year', 'day', 'week'];
-    const dateCol = selectedNode.data.configDateColumn ||
-      columns.find(c => dateHints.some(h => c.toLowerCase().includes(h))) || null;
-
-    if (!dateCol) { setConfigDateRange(null); return; }
-
-    if (!selectedNode.data.configDateColumn && dateCol) {
-      updateNodeData('configDateColumn', dateCol);
-    }
+    const dateCols = columns.filter(c => dateHints.some(h => c.toLowerCase().includes(h)));
 
     (async () => {
-      try {
-        const resp = await fetch(`/api/datasets/${datasetId}/column/${encodeURIComponent(dateCol)}/date-range`);
-        if (resp.ok) {
-          const data = await resp.json();
-          setConfigDateRange({ minDate: data.minDate, maxDate: data.maxDate });
-          if (!selectedNode.data.trainStart) updateNodeData('trainStart', data.minDate);
-          if (!selectedNode.data.trainEnd) updateNodeData('trainEnd', data.maxDate);
-        } else {
-          setConfigDateRange(null);
-        }
-      } catch { setConfigDateRange(null); }
+      const ranges: Record<string, { minDate: string; maxDate: string }> = {};
+      await Promise.all(dateCols.map(async (col) => {
+        try {
+          const resp = await fetch(`/api/datasets/${datasetId}/column/${encodeURIComponent(col)}/date-range`);
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.minDate && data.maxDate) {
+              ranges[col] = { minDate: data.minDate, maxDate: data.maxDate };
+            }
+          }
+        } catch {}
+      }));
+      setDateColumnRanges(ranges);
+
+      const dateCol = selectedNode.data.configDateColumn ||
+        Object.keys(ranges)[0] || null;
+
+      if (!selectedNode.data.configDateColumn && dateCol) {
+        updateNodeData('configDateColumn', dateCol);
+      }
+
+      if (dateCol && ranges[dateCol]) {
+        setConfigDateRange(ranges[dateCol]);
+        if (!selectedNode.data.trainStart) updateNodeData('trainStart', ranges[dateCol].minDate);
+        if (!selectedNode.data.trainEnd) updateNodeData('trainEnd', ranges[dateCol].maxDate);
+      } else {
+        setConfigDateRange(null);
+      }
     })();
   }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.configDateColumn, selectedNode?.data.modelMode, getSourceDatasetId, getNodeColumns]);
 
@@ -2071,30 +2085,34 @@ function FlowWithProvider() {
                           </select>
                        </div>
 
-                       <div className={`space-y-2 p-3 rounded-lg border-2 ${selectedNode.data.configDateColumn ? 'border-violet-200 bg-violet-50/30' : 'border-amber-300 bg-amber-50/50'}`}>
-                          <div className="flex items-center gap-2">
-                             {!selectedNode.data.configDateColumn && (
-                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[10px] font-bold text-white shrink-0">!</span>
-                             )}
-                             <Label className="text-xs font-semibold">{selectedNode.data.configDateColumn ? 'Date Column' : 'Which column contains your dates?'}</Label>
-                          </div>
-                          {!selectedNode.data.configDateColumn && (
-                             <p className="text-[10px] text-muted-foreground">Select the column that holds your time series dates so the model knows the timeline.</p>
-                          )}
+                       <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Date Column</Label>
                           <select
                              value={selectedNode.data.configDateColumn || ''}
-                             onChange={(e) => updateNodeData('configDateColumn', e.target.value)}
-                             className={`w-full h-9 text-xs rounded-md border px-3 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 font-medium ${selectedNode.data.configDateColumn ? 'border-input bg-background' : 'border-amber-300 bg-white'}`}
+                             onChange={(e) => {
+                                updateNodeData('configDateColumn', e.target.value);
+                                const range = dateColumnRanges[e.target.value];
+                                if (range) {
+                                   setConfigDateRange(range);
+                                   updateNodeData('trainStart', range.minDate);
+                                   updateNodeData('trainEnd', range.maxDate);
+                                } else {
+                                   setConfigDateRange(null);
+                                }
+                             }}
+                             className="w-full h-8 text-xs rounded-md border border-input bg-background px-3 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                              data-testid="select-date-column"
                           >
                              <option value="">Select date column...</option>
-                             {getNodeColumns(selectedNode.id).map(col => (
-                                <option key={col} value={col}>{col}</option>
-                             ))}
+                             {getNodeColumns(selectedNode.id).map(col => {
+                                const range = dateColumnRanges[col];
+                                return (
+                                   <option key={col} value={col}>
+                                      {col}{range ? ` (${range.minDate} → ${range.maxDate})` : ''}
+                                   </option>
+                                );
+                             })}
                           </select>
-                          {configDateRange && (
-                             <p className="text-[10px] text-violet-600 font-medium">Data spans {configDateRange.minDate} to {configDateRange.maxDate}</p>
-                          )}
                        </div>
 
                        {modelMode === 'train' ? (
