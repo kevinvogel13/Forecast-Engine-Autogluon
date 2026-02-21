@@ -61,6 +61,32 @@ Preferred communication style: Simple, everyday language.
   - Randomly samples X% of unique groups and returns ALL rows for each sampled group
   - Ensures each sampled group has complete time series data for CV/ADI calculation
   - Field names: `samplingColumn`, `samplePercent` (default: 100), `samplingSeed` (default: 42)
+- **Fill Missing Values**: Handle NaN/null values in selected columns
+  - Strategies: forward fill, backward fill, linear interpolation, mean, median, zero, constant
+  - Optional constant value input when "constant" strategy is selected
+  - Field names: `fillColumns` (array), `fillStrategy` (default: 'ffill'), `fillConstant`
+- **Date Gap Filler**: Insert missing time periods to ensure continuous date series
+  - Select date column, frequency (daily/weekly/monthly/quarterly), optional group column
+  - Fill strategy for new rows: zero, forward fill, interpolation
+  - Field names: `dateColumn`, `dateFrequency` (default: 'D'), `dateGroupColumn`, `gapFillStrategy` (default: 'zero')
+- **Aggregation / Group By**: Group data and compute aggregate values
+  - Multi-select group-by columns, value columns, aggregation function
+  - Functions: sum, mean, median, min, max, count, first, last
+  - Field names: `groupByColumns` (array), `aggValueColumns` (array), `aggFunction` (default: 'sum')
+- **Outlier Treatment**: Detect and handle extreme values
+  - Detection methods: IQR, Z-Score, Percentile with configurable threshold
+  - Treatment actions: cap/floor (winsorize), replace with median/mean/null, remove rows
+  - Field names: `outlierColumn`, `outlierMethod` (default: 'iqr'), `outlierThreshold`, `outlierAction` (default: 'cap')
+- **Column Transform**: Column operations without code
+  - Operations: rename, drop, type cast (numeric/integer/string/datetime/boolean), calculated column
+  - Field names vary by operation: `colOperation`, `renameFrom`/`renameTo`, `dropColumns`, `castColumn`/`castType`, `calcColumnName`/`calcExpression`
+- **Remove Duplicates**: Deduplicate rows by selected key columns
+  - Keep strategy: first or last occurrence
+  - Field names: `dedupColumns` (array), `dedupKeep` (default: 'first')
+- **Pivot / Unpivot**: Reshape data between wide and long formats
+  - Pivot (long→wide): index column, columns to spread, values, aggregation function
+  - Unpivot (wide→long): ID columns, columns to melt, variable/value names
+  - Field names: `pivotMode` (default: 'pivot'), `pivotIndex`, `pivotColumns`, `pivotValues`, `pivotAggFunc`, `unpivotIdColumns`, `unpivotValueColumns`, `unpivotVarName`, `unpivotValName`
 - **Python Script**: Custom pandas transformations via Monaco editor
   - Shows input data preview when connected to upstream data source
   - Stats (rows/cols) update based on connected input

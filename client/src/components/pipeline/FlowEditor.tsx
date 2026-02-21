@@ -2221,6 +2221,582 @@ function FlowWithProvider() {
                     </div>
                   )}
 
+                  {selectedNode.data.type === 'fillMissing' && (
+                    <div className="space-y-4 border rounded-md p-3 bg-amber-50/50 border-amber-100">
+                      <div className="space-y-2">
+                        <Label>Target Columns</Label>
+                        <ColumnMultiSelect
+                          label="Columns to fill"
+                          selectedCols={selectedNode.data.fillColumns || []}
+                          availableCols={getSourceColumns(selectedNode.id)}
+                          onChange={(cols) => updateNodeData('fillColumns', cols)}
+                          testId="select-fill-columns"
+                        />
+                        <p className="text-[10px] text-muted-foreground">Leave empty to apply to all numeric columns</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Fill Strategy</Label>
+                        <Select
+                          value={selectedNode.data.fillStrategy || 'ffill'}
+                          onValueChange={(val) => updateNodeData('fillStrategy', val)}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid="select-fill-strategy">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ffill">Forward Fill</SelectItem>
+                            <SelectItem value="bfill">Backward Fill</SelectItem>
+                            <SelectItem value="interpolate">Linear Interpolation</SelectItem>
+                            <SelectItem value="mean">Fill with Mean</SelectItem>
+                            <SelectItem value="median">Fill with Median</SelectItem>
+                            <SelectItem value="zero">Fill with Zero</SelectItem>
+                            <SelectItem value="constant">Fill with Constant</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {selectedNode.data.fillStrategy === 'constant' && (
+                        <div className="space-y-2">
+                          <Label>Constant Value</Label>
+                          <Input
+                            className="h-8 text-xs font-mono"
+                            placeholder="e.g. 0, N/A, Unknown"
+                            value={selectedNode.data.fillConstant || ''}
+                            onChange={(e) => updateNodeData('fillConstant', e.target.value)}
+                            data-testid="input-fill-constant"
+                          />
+                        </div>
+                      )}
+                      <div className="text-[10px] text-amber-700 bg-amber-100/50 p-2 rounded">
+                        Replaces NaN/null values in selected columns using the chosen strategy.
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'dateGapFill' && (
+                    <div className="space-y-4 border rounded-md p-3 bg-teal-50/50 border-teal-100">
+                      <div className="space-y-2">
+                        <Label>Date Column</Label>
+                        <Select
+                          value={selectedNode.data.dateColumn || ''}
+                          onValueChange={(val) => updateNodeData('dateColumn', val)}
+                        >
+                          <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-date-gap-column">
+                            <SelectValue placeholder="Select date column..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {getSourceColumns(selectedNode.id).length === 0 ? (
+                              <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
+                            ) : (
+                              getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Frequency</Label>
+                        <Select
+                          value={selectedNode.data.dateFrequency || 'D'}
+                          onValueChange={(val) => updateNodeData('dateFrequency', val)}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid="select-date-frequency">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="D">Daily</SelectItem>
+                            <SelectItem value="W">Weekly</SelectItem>
+                            <SelectItem value="MS">Monthly</SelectItem>
+                            <SelectItem value="QS">Quarterly</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Group Column (optional)</Label>
+                        <Select
+                          value={selectedNode.data.dateGroupColumn || '__none__'}
+                          onValueChange={(val) => updateNodeData('dateGroupColumn', val === '__none__' ? '' : val)}
+                        >
+                          <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-date-group-column">
+                            <SelectValue placeholder="No grouping" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">No grouping</SelectItem>
+                            {getSourceColumns(selectedNode.id).map(col => (
+                              <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[10px] text-muted-foreground">Fill gaps per group (e.g., per SKU or product)</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Fill Strategy for New Rows</Label>
+                        <Select
+                          value={selectedNode.data.gapFillStrategy || 'zero'}
+                          onValueChange={(val) => updateNodeData('gapFillStrategy', val)}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid="select-gap-fill-strategy">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="zero">Fill with Zero</SelectItem>
+                            <SelectItem value="ffill">Forward Fill</SelectItem>
+                            <SelectItem value="interpolate">Linear Interpolation</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="text-[10px] text-teal-700 bg-teal-100/50 p-2 rounded">
+                        Inserts missing time periods to create a continuous date series. Essential for time series forecasting.
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'aggregation' && (
+                    <div className="space-y-4 border rounded-md p-3 bg-sky-50/50 border-sky-100">
+                      <div className="space-y-2">
+                        <Label>Group By Columns</Label>
+                        <ColumnMultiSelect
+                          label="Group by"
+                          selectedCols={selectedNode.data.groupByColumns || []}
+                          availableCols={getSourceColumns(selectedNode.id)}
+                          onChange={(cols) => updateNodeData('groupByColumns', cols)}
+                          testId="select-groupby-columns"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Value Columns</Label>
+                        <ColumnMultiSelect
+                          label="Values"
+                          selectedCols={selectedNode.data.aggValueColumns || []}
+                          availableCols={getSourceColumns(selectedNode.id)}
+                          onChange={(cols) => updateNodeData('aggValueColumns', cols)}
+                          testId="select-agg-value-columns"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Aggregation Function</Label>
+                        <Select
+                          value={selectedNode.data.aggFunction || 'sum'}
+                          onValueChange={(val) => updateNodeData('aggFunction', val)}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid="select-agg-function">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="sum">Sum</SelectItem>
+                            <SelectItem value="mean">Mean / Average</SelectItem>
+                            <SelectItem value="median">Median</SelectItem>
+                            <SelectItem value="min">Minimum</SelectItem>
+                            <SelectItem value="max">Maximum</SelectItem>
+                            <SelectItem value="count">Count</SelectItem>
+                            <SelectItem value="first">First</SelectItem>
+                            <SelectItem value="last">Last</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="text-[10px] text-sky-700 bg-sky-100/50 p-2 rounded">
+                        Groups data by selected columns and computes aggregate values. Useful for rolling up daily data to weekly/monthly.
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'outlierTreatment' && (
+                    <div className="space-y-4 border rounded-md p-3 bg-rose-50/50 border-rose-100">
+                      <div className="space-y-2">
+                        <Label>Target Column</Label>
+                        <Select
+                          value={selectedNode.data.outlierColumn || ''}
+                          onValueChange={(val) => updateNodeData('outlierColumn', val)}
+                        >
+                          <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-outlier-column">
+                            <SelectValue placeholder="Select column..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {getSourceColumns(selectedNode.id).length === 0 ? (
+                              <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
+                            ) : (
+                              getSourceColumns(selectedNode.id).map(col => (
+                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Detection Method</Label>
+                        <Select
+                          value={selectedNode.data.outlierMethod || 'iqr'}
+                          onValueChange={(val) => updateNodeData('outlierMethod', val)}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid="select-outlier-method">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="iqr">IQR (Interquartile Range)</SelectItem>
+                            <SelectItem value="zscore">Z-Score</SelectItem>
+                            <SelectItem value="percentile">Percentile</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="flex justify-between">
+                          <span>Threshold</span>
+                          <span className="text-xs font-mono text-muted-foreground">
+                            {selectedNode.data.outlierMethod === 'zscore' ? 'σ' : 
+                             selectedNode.data.outlierMethod === 'percentile' ? '%' : '× IQR'}
+                          </span>
+                        </Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          className="h-8 text-xs font-mono"
+                          placeholder={selectedNode.data.outlierMethod === 'zscore' ? 'e.g. 3' : 
+                                       selectedNode.data.outlierMethod === 'percentile' ? 'e.g. 95' : 'e.g. 1.5'}
+                          value={selectedNode.data.outlierThreshold || ''}
+                          onChange={(e) => updateNodeData('outlierThreshold', e.target.value ? parseFloat(e.target.value) : null)}
+                          data-testid="input-outlier-threshold"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Treatment Action</Label>
+                        <Select
+                          value={selectedNode.data.outlierAction || 'cap'}
+                          onValueChange={(val) => updateNodeData('outlierAction', val)}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid="select-outlier-action">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="cap">Cap / Floor (Winsorize)</SelectItem>
+                            <SelectItem value="median">Replace with Median</SelectItem>
+                            <SelectItem value="mean">Replace with Mean</SelectItem>
+                            <SelectItem value="null">Replace with Null</SelectItem>
+                            <SelectItem value="remove">Remove Rows</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="text-[10px] text-rose-700 bg-rose-100/50 p-2 rounded">
+                        Detects outliers using the selected method and applies the chosen treatment to handle extreme values.
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'columnTransform' && (
+                    <div className="space-y-4 border rounded-md p-3 bg-lime-50/50 border-lime-100">
+                      <div className="space-y-2">
+                        <Label>Operation</Label>
+                        <Select
+                          value={selectedNode.data.colOperation || 'rename'}
+                          onValueChange={(val) => updateNodeData('colOperation', val)}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid="select-col-operation">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="rename">Rename Column</SelectItem>
+                            <SelectItem value="drop">Drop Columns</SelectItem>
+                            <SelectItem value="cast">Type Cast</SelectItem>
+                            <SelectItem value="calculate">Calculated Column</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {selectedNode.data.colOperation === 'rename' && (
+                        <>
+                          <div className="space-y-2">
+                            <Label>Column to Rename</Label>
+                            <Select
+                              value={selectedNode.data.renameFrom || ''}
+                              onValueChange={(val) => updateNodeData('renameFrom', val)}
+                            >
+                              <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-rename-from">
+                                <SelectValue placeholder="Select column..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getSourceColumns(selectedNode.id).map(col => (
+                                  <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>New Name</Label>
+                            <Input
+                              className="h-8 text-xs font-mono"
+                              placeholder="new_column_name"
+                              value={selectedNode.data.renameTo || ''}
+                              onChange={(e) => updateNodeData('renameTo', e.target.value)}
+                              data-testid="input-rename-to"
+                            />
+                          </div>
+                        </>
+                      )}
+
+                      {selectedNode.data.colOperation === 'drop' && (
+                        <div className="space-y-2">
+                          <Label>Columns to Drop</Label>
+                          <ColumnMultiSelect
+                            label="Drop columns"
+                            selectedCols={selectedNode.data.dropColumns || []}
+                            availableCols={getSourceColumns(selectedNode.id)}
+                            onChange={(cols) => updateNodeData('dropColumns', cols)}
+                            testId="select-drop-columns"
+                          />
+                        </div>
+                      )}
+
+                      {selectedNode.data.colOperation === 'cast' && (
+                        <>
+                          <div className="space-y-2">
+                            <Label>Column</Label>
+                            <Select
+                              value={selectedNode.data.castColumn || ''}
+                              onValueChange={(val) => updateNodeData('castColumn', val)}
+                            >
+                              <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-cast-column">
+                                <SelectValue placeholder="Select column..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getSourceColumns(selectedNode.id).map(col => (
+                                  <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Target Type</Label>
+                            <Select
+                              value={selectedNode.data.castType || 'numeric'}
+                              onValueChange={(val) => updateNodeData('castType', val)}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid="select-cast-type">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="numeric">Numeric (float)</SelectItem>
+                                <SelectItem value="integer">Integer</SelectItem>
+                                <SelectItem value="string">String / Text</SelectItem>
+                                <SelectItem value="datetime">Date / DateTime</SelectItem>
+                                <SelectItem value="boolean">Boolean</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </>
+                      )}
+
+                      {selectedNode.data.colOperation === 'calculate' && (
+                        <>
+                          <div className="space-y-2">
+                            <Label>New Column Name</Label>
+                            <Input
+                              className="h-8 text-xs font-mono"
+                              placeholder="e.g. revenue"
+                              value={selectedNode.data.calcColumnName || ''}
+                              onChange={(e) => updateNodeData('calcColumnName', e.target.value)}
+                              data-testid="input-calc-column-name"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Expression</Label>
+                            <Input
+                              className="h-8 text-xs font-mono"
+                              placeholder="e.g. price * quantity"
+                              value={selectedNode.data.calcExpression || ''}
+                              onChange={(e) => updateNodeData('calcExpression', e.target.value)}
+                              data-testid="input-calc-expression"
+                            />
+                            <p className="text-[10px] text-muted-foreground">
+                              Use column names and operators: +, -, *, /
+                            </p>
+                          </div>
+                        </>
+                      )}
+
+                      {(!selectedNode.data.colOperation || selectedNode.data.colOperation === 'rename') && (
+                        <div className="text-[10px] text-lime-700 bg-lime-100/50 p-2 rounded">
+                          Transform columns without writing code — rename, drop, change types, or create calculated fields.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'removeDuplicates' && (
+                    <div className="space-y-4 border rounded-md p-3 bg-fuchsia-50/50 border-fuchsia-100">
+                      <div className="space-y-2">
+                        <Label>Dedup Key Columns</Label>
+                        <ColumnMultiSelect
+                          label="Key columns"
+                          selectedCols={selectedNode.data.dedupColumns || []}
+                          availableCols={getSourceColumns(selectedNode.id)}
+                          onChange={(cols) => updateNodeData('dedupColumns', cols)}
+                          testId="select-dedup-columns"
+                        />
+                        <p className="text-[10px] text-muted-foreground">
+                          Leave empty to check all columns for duplicates
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Keep</Label>
+                        <Select
+                          value={selectedNode.data.dedupKeep || 'first'}
+                          onValueChange={(val) => updateNodeData('dedupKeep', val)}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid="select-dedup-keep">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="first">Keep First Occurrence</SelectItem>
+                            <SelectItem value="last">Keep Last Occurrence</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="text-[10px] text-fuchsia-700 bg-fuchsia-100/50 p-2 rounded">
+                        Removes duplicate rows based on the selected key columns.
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedNode.data.type === 'pivotUnpivot' && (
+                    <div className="space-y-4 border rounded-md p-3 bg-stone-50/50 border-stone-100">
+                      <div className="space-y-2">
+                        <Label>Mode</Label>
+                        <Select
+                          value={selectedNode.data.pivotMode || 'pivot'}
+                          onValueChange={(val) => updateNodeData('pivotMode', val)}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid="select-pivot-mode">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pivot">Pivot (Long → Wide)</SelectItem>
+                            <SelectItem value="unpivot">Unpivot (Wide → Long)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {selectedNode.data.pivotMode !== 'unpivot' && (
+                        <>
+                          <div className="space-y-2">
+                            <Label>Index Column (Rows)</Label>
+                            <Select
+                              value={selectedNode.data.pivotIndex || ''}
+                              onValueChange={(val) => updateNodeData('pivotIndex', val)}
+                            >
+                              <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-pivot-index">
+                                <SelectValue placeholder="Select row identifier..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getSourceColumns(selectedNode.id).map(col => (
+                                  <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Columns to Spread</Label>
+                            <Select
+                              value={selectedNode.data.pivotColumns || ''}
+                              onValueChange={(val) => updateNodeData('pivotColumns', val)}
+                            >
+                              <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-pivot-columns">
+                                <SelectValue placeholder="Column whose values become headers..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getSourceColumns(selectedNode.id).map(col => (
+                                  <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Values</Label>
+                            <Select
+                              value={selectedNode.data.pivotValues || ''}
+                              onValueChange={(val) => updateNodeData('pivotValues', val)}
+                            >
+                              <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-pivot-values">
+                                <SelectValue placeholder="Values to populate cells..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getSourceColumns(selectedNode.id).map(col => (
+                                  <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Aggregation</Label>
+                            <Select
+                              value={selectedNode.data.pivotAggFunc || 'sum'}
+                              onValueChange={(val) => updateNodeData('pivotAggFunc', val)}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid="select-pivot-agg">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="sum">Sum</SelectItem>
+                                <SelectItem value="mean">Mean</SelectItem>
+                                <SelectItem value="count">Count</SelectItem>
+                                <SelectItem value="first">First</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </>
+                      )}
+
+                      {selectedNode.data.pivotMode === 'unpivot' && (
+                        <>
+                          <div className="space-y-2">
+                            <Label>ID Columns (Keep as rows)</Label>
+                            <ColumnMultiSelect
+                              label="ID columns"
+                              selectedCols={selectedNode.data.unpivotIdColumns || []}
+                              availableCols={getSourceColumns(selectedNode.id)}
+                              onChange={(cols) => updateNodeData('unpivotIdColumns', cols)}
+                              testId="select-unpivot-id-columns"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Columns to Melt</Label>
+                            <ColumnMultiSelect
+                              label="Value columns"
+                              selectedCols={selectedNode.data.unpivotValueColumns || []}
+                              availableCols={getSourceColumns(selectedNode.id)}
+                              onChange={(cols) => updateNodeData('unpivotValueColumns', cols)}
+                              testId="select-unpivot-value-columns"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Variable Name</Label>
+                            <Input
+                              className="h-8 text-xs font-mono"
+                              placeholder="e.g. metric"
+                              value={selectedNode.data.unpivotVarName || ''}
+                              onChange={(e) => updateNodeData('unpivotVarName', e.target.value)}
+                              data-testid="input-unpivot-var-name"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Value Name</Label>
+                            <Input
+                              className="h-8 text-xs font-mono"
+                              placeholder="e.g. value"
+                              value={selectedNode.data.unpivotValName || ''}
+                              onChange={(e) => updateNodeData('unpivotValName', e.target.value)}
+                              data-testid="input-unpivot-val-name"
+                            />
+                          </div>
+                        </>
+                      )}
+
+                      <div className="text-[10px] text-stone-700 bg-stone-100/50 p-2 rounded">
+                        {selectedNode.data.pivotMode === 'unpivot' 
+                          ? 'Converts wide-format data to long format (melts columns into rows).'
+                          : 'Converts long-format data to wide format (spreads values into columns).'}
+                      </div>
+                    </div>
+                  )}
+
                   {selectedNode.data.type === 'python' && (
                     <div className="space-y-4 border rounded-md p-3 bg-muted/20">
                        <div className="space-y-2">

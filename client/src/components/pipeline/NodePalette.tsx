@@ -14,7 +14,14 @@ import {
   Table2,
   Layers,
   LineChart,
-  FileText
+  FileText,
+  Eraser,
+  CalendarClock,
+  Group,
+  ShieldAlert,
+  Columns3,
+  CopyMinus,
+  ArrowRightLeft
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -25,21 +32,48 @@ interface NodePaletteProps {
   onToggle: () => void;
 }
 
-export default function NodePalette({ onDragStart, onAddNode, isOpen, onToggle }: NodePaletteProps) {
-  const nodes = [
-    { type: 'input', label: 'Data Source', icon: Database, color: 'bg-blue-100 text-blue-600', description: 'Import data from file or SQL' },
-    { type: 'preview', label: 'Data Preview', icon: Table2, color: 'bg-indigo-100 text-indigo-600', description: 'View head of dataframe' },
-    { type: 'merge', label: 'Merge / Join', icon: GitMerge, color: 'bg-orange-100 text-orange-600', description: 'Combine multiple datasets' },
-    { type: 'filter', label: 'Filter', icon: Filter, color: 'bg-purple-100 text-purple-600', description: 'Filter rows by condition' },
-    { type: 'sampling', label: 'Sampling', icon: Layers, color: 'bg-pink-100 text-pink-600', description: 'Stratified group sampling' },
-    { type: 'exploration', label: 'Exploration', icon: LineChart, color: 'bg-emerald-100 text-emerald-600', description: 'Single chart/analysis component' },
-    { type: 'report', label: 'Report', icon: FileText, color: 'bg-violet-100 text-violet-600', description: 'Combine charts into HTML report' },
-    { type: 'python', label: 'Python Script', icon: Code2, color: 'bg-yellow-100 text-yellow-600', description: 'Custom Python transform' },
-    { type: 'sql', label: 'SQL Transform', icon: Binary, color: 'bg-cyan-100 text-cyan-600', description: 'SQL-based transformation' },
-    { type: 'config', label: 'Model Config', icon: Settings2, color: 'bg-slate-100 text-slate-600', description: 'Configure forecast model' },
-    { type: 'output', label: 'Output', icon: FileOutput, color: 'bg-red-100 text-red-600', description: 'View forecast results' },
-  ];
+const categories = [
+  {
+    label: 'Data',
+    nodes: [
+      { type: 'input', label: 'Data Source', icon: Database, color: 'bg-blue-100 text-blue-600', description: 'Import data from file or SQL' },
+      { type: 'preview', label: 'Data Preview', icon: Table2, color: 'bg-indigo-100 text-indigo-600', description: 'View head of dataframe' },
+      { type: 'merge', label: 'Merge / Join', icon: GitMerge, color: 'bg-orange-100 text-orange-600', description: 'Combine multiple datasets' },
+    ]
+  },
+  {
+    label: 'Transform',
+    nodes: [
+      { type: 'filter', label: 'Filter', icon: Filter, color: 'bg-purple-100 text-purple-600', description: 'Filter rows by condition' },
+      { type: 'sampling', label: 'Sampling', icon: Layers, color: 'bg-pink-100 text-pink-600', description: 'Stratified group sampling' },
+      { type: 'fillMissing', label: 'Fill Missing', icon: Eraser, color: 'bg-amber-100 text-amber-600', description: 'Fill NaN/null values' },
+      { type: 'dateGapFill', label: 'Date Gap Filler', icon: CalendarClock, color: 'bg-teal-100 text-teal-600', description: 'Fill missing time periods' },
+      { type: 'aggregation', label: 'Aggregation', icon: Group, color: 'bg-sky-100 text-sky-600', description: 'Group by & aggregate' },
+      { type: 'outlierTreatment', label: 'Outlier Treatment', icon: ShieldAlert, color: 'bg-rose-100 text-rose-600', description: 'Detect & treat outliers' },
+      { type: 'columnTransform', label: 'Column Transform', icon: Columns3, color: 'bg-lime-100 text-lime-600', description: 'Rename, drop, cast columns' },
+      { type: 'removeDuplicates', label: 'Remove Duplicates', icon: CopyMinus, color: 'bg-fuchsia-100 text-fuchsia-600', description: 'Deduplicate rows' },
+      { type: 'pivotUnpivot', label: 'Pivot / Unpivot', icon: ArrowRightLeft, color: 'bg-stone-100 text-stone-600', description: 'Reshape wide ↔ long' },
+      { type: 'python', label: 'Python Script', icon: Code2, color: 'bg-yellow-100 text-yellow-600', description: 'Custom Python transform' },
+      { type: 'sql', label: 'SQL Transform', icon: Binary, color: 'bg-cyan-100 text-cyan-600', description: 'SQL-based transformation' },
+    ]
+  },
+  {
+    label: 'Analysis',
+    nodes: [
+      { type: 'exploration', label: 'Exploration', icon: LineChart, color: 'bg-emerald-100 text-emerald-600', description: 'Single chart/analysis component' },
+      { type: 'report', label: 'Report', icon: FileText, color: 'bg-violet-100 text-violet-600', description: 'Combine charts into HTML report' },
+    ]
+  },
+  {
+    label: 'Model',
+    nodes: [
+      { type: 'config', label: 'Model Config', icon: Settings2, color: 'bg-slate-100 text-slate-600', description: 'Configure forecast model' },
+      { type: 'output', label: 'Output', icon: FileOutput, color: 'bg-red-100 text-red-600', description: 'View forecast results' },
+    ]
+  }
+];
 
+export default function NodePalette({ onDragStart, onAddNode, isOpen, onToggle }: NodePaletteProps) {
   return (
     <div className="absolute top-4 left-4 z-20">
       <Button 
@@ -57,36 +91,45 @@ export default function NodePalette({ onDragStart, onAddNode, isOpen, onToggle }
       </Button>
       
       {isOpen && (
-        <Card className="absolute top-16 left-0 shadow-xl border-border/60 bg-white w-72 animate-in fade-in slide-in-from-top-2 duration-200">
-          <CardContent className="p-3">
+        <Card className="absolute top-16 left-0 shadow-xl border-border/60 bg-white w-72 animate-in fade-in slide-in-from-top-2 duration-200 max-h-[80vh] overflow-hidden flex flex-col">
+          <CardContent className="p-3 overflow-y-auto">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-1">
               Tap to add or drag onto canvas
             </p>
-            <div className="space-y-1">
-              {nodes.map((node) => (
-                <div
-                  key={node.type}
-                  className="flex items-center gap-3 cursor-pointer p-2.5 hover:bg-slate-50 rounded-lg transition-all border border-transparent hover:border-slate-200 hover:shadow-sm group active:bg-slate-100"
-                  draggable
-                  onDragStart={(event) => {
-                    onDragStart(event, node.type, node.label);
-                    onToggle();
-                  }}
-                  onClick={() => {
-                    onAddNode(node.type, node.label);
-                    onToggle();
-                  }}
-                  data-testid={`palette-${node.type}`}
-                >
-                  <div className={cn("p-2 rounded-lg", node.color)}>
-                    <node.icon className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-800">{node.label}</p>
-                    <p className="text-[10px] text-muted-foreground truncate">{node.description}</p>
-                  </div>
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-blue-600 font-medium">
-                    TAP
+            <div className="space-y-3">
+              {categories.map((category) => (
+                <div key={category.label}>
+                  <p className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest px-1 mb-1">
+                    {category.label}
+                  </p>
+                  <div className="space-y-0.5">
+                    {category.nodes.map((node) => (
+                      <div
+                        key={node.type}
+                        className="flex items-center gap-3 cursor-pointer p-2 hover:bg-slate-50 rounded-lg transition-all border border-transparent hover:border-slate-200 hover:shadow-sm group active:bg-slate-100"
+                        draggable
+                        onDragStart={(event) => {
+                          onDragStart(event, node.type, node.label);
+                          onToggle();
+                        }}
+                        onClick={() => {
+                          onAddNode(node.type, node.label);
+                          onToggle();
+                        }}
+                        data-testid={`palette-${node.type}`}
+                      >
+                        <div className={cn("p-1.5 rounded-md", node.color)}>
+                          <node.icon className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-slate-800">{node.label}</p>
+                          <p className="text-[10px] text-muted-foreground truncate leading-tight">{node.description}</p>
+                        </div>
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-blue-600 font-medium">
+                          TAP
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}

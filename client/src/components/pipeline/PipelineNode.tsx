@@ -1,6 +1,6 @@
 import { Handle, Position } from '@xyflow/react';
 import { Badge } from '@/components/ui/badge';
-import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, AlertCircle, Layers, ListTree, TableProperties, Code, HardDrive, History, Trash2, Settings2, BarChart3, CheckCircle2, Table2, LineChart, FileText } from 'lucide-react';
+import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, AlertCircle, Layers, ListTree, TableProperties, Code, HardDrive, History, Trash2, Settings2, BarChart3, CheckCircle2, Table2, LineChart, FileText, Eraser, CalendarClock, Group, ShieldAlert, Columns3, CopyMinus, ArrowRightLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface PipelineNodeProps {
@@ -27,6 +27,13 @@ const getIcon = (type: string) => {
     case 'union': return Layers;
     case 'filter': return Filter;
     case 'sampling': return Layers;
+    case 'fillMissing': return Eraser;
+    case 'dateGapFill': return CalendarClock;
+    case 'aggregation': return Group;
+    case 'outlierTreatment': return ShieldAlert;
+    case 'columnTransform': return Columns3;
+    case 'removeDuplicates': return CopyMinus;
+    case 'pivotUnpivot': return ArrowRightLeft;
     case 'transform': return Calculator;
     case 'groupby': return ListTree;
     case 'pivot': return TableProperties;
@@ -48,6 +55,13 @@ const getTypeColor = (type: string) => {
     case 'merge': return { bg: 'bg-orange-50', border: 'border-orange-200', icon: 'bg-orange-100 text-orange-600', handle: 'bg-orange-500' };
     case 'filter': return { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'bg-purple-100 text-purple-600', handle: 'bg-purple-500' };
     case 'sampling': return { bg: 'bg-pink-50', border: 'border-pink-200', icon: 'bg-pink-100 text-pink-600', handle: 'bg-pink-500' };
+    case 'fillMissing': return { bg: 'bg-amber-50', border: 'border-amber-200', icon: 'bg-amber-100 text-amber-600', handle: 'bg-amber-500' };
+    case 'dateGapFill': return { bg: 'bg-teal-50', border: 'border-teal-200', icon: 'bg-teal-100 text-teal-600', handle: 'bg-teal-500' };
+    case 'aggregation': return { bg: 'bg-sky-50', border: 'border-sky-200', icon: 'bg-sky-100 text-sky-600', handle: 'bg-sky-500' };
+    case 'outlierTreatment': return { bg: 'bg-rose-50', border: 'border-rose-200', icon: 'bg-rose-100 text-rose-600', handle: 'bg-rose-500' };
+    case 'columnTransform': return { bg: 'bg-lime-50', border: 'border-lime-200', icon: 'bg-lime-100 text-lime-600', handle: 'bg-lime-500' };
+    case 'removeDuplicates': return { bg: 'bg-fuchsia-50', border: 'border-fuchsia-200', icon: 'bg-fuchsia-100 text-fuchsia-600', handle: 'bg-fuchsia-500' };
+    case 'pivotUnpivot': return { bg: 'bg-stone-50', border: 'border-stone-200', icon: 'bg-stone-100 text-stone-600', handle: 'bg-stone-500' };
     case 'eda': return { bg: 'bg-green-50', border: 'border-green-200', icon: 'bg-green-100 text-green-600', handle: 'bg-green-500' };
     case 'exploration': return { bg: 'bg-emerald-50', border: 'border-emerald-200', icon: 'bg-emerald-100 text-emerald-600', handle: 'bg-emerald-500' };
     case 'report': return { bg: 'bg-violet-50', border: 'border-violet-200', icon: 'bg-violet-100 text-violet-600', handle: 'bg-violet-500' };
@@ -56,6 +70,21 @@ const getTypeColor = (type: string) => {
     case 'config': return { bg: 'bg-slate-50', border: 'border-slate-200', icon: 'bg-slate-100 text-slate-600', handle: 'bg-slate-500' };
     case 'output': return { bg: 'bg-red-50', border: 'border-red-200', icon: 'bg-red-100 text-red-600', handle: 'bg-red-500' };
     default: return { bg: 'bg-white', border: 'border-border', icon: 'bg-muted text-muted-foreground', handle: 'bg-slate-500' };
+  }
+};
+
+const getTypeLabel = (type: string) => {
+  switch (type) {
+    case 'input': return 'Data Source';
+    case 'eda': return 'Validation';
+    case 'config': return 'Model Config';
+    case 'fillMissing': return 'Fill Missing';
+    case 'dateGapFill': return 'Date Gap Fill';
+    case 'outlierTreatment': return 'Outlier Treatment';
+    case 'columnTransform': return 'Column Transform';
+    case 'removeDuplicates': return 'Remove Duplicates';
+    case 'pivotUnpivot': return 'Pivot / Unpivot';
+    default: return type;
   }
 };
 
@@ -81,7 +110,6 @@ export default function PipelineNode({ data, selected }: PipelineNodeProps) {
       selected && "ring-2 ring-blue-500 ring-offset-2 shadow-lg",
       data.status === 'processing' && "animate-pulse"
     )}>
-      {/* Input Handle - Large and visible */}
       {data.type !== 'input' && (
         <Handle 
           type="target" 
@@ -95,9 +123,7 @@ export default function PipelineNode({ data, selected }: PipelineNodeProps) {
         />
       )}
 
-      {/* Node Content */}
       <div className="p-3">
-        {/* Header */}
         <div className="flex items-start gap-2.5">
           <div className={cn("p-2 rounded-lg shrink-0", colors.icon)}>
             <Icon className="w-4 h-4" />
@@ -107,14 +133,10 @@ export default function PipelineNode({ data, selected }: PipelineNodeProps) {
               {data.label}
             </p>
             <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider mt-0.5">
-              {data.type === 'input' ? 'Data Source' : 
-               data.type === 'eda' ? 'Validation' :
-               data.type === 'config' ? 'Model Config' :
-               data.type}
+              {getTypeLabel(data.type)}
             </p>
           </div>
           
-          {/* Status indicator */}
           {statusInfo && (
             <div className={cn("shrink-0", statusInfo.color)}>
               {statusInfo.icon && <statusInfo.icon className="w-4 h-4" />}
@@ -125,8 +147,6 @@ export default function PipelineNode({ data, selected }: PipelineNodeProps) {
           )}
         </div>
 
-
-        {/* Error State */}
         {data.status === 'error' && (
           <div className="mt-2 flex items-center gap-1.5 text-xs text-red-700 bg-red-100 px-2 py-1.5 rounded-md border border-red-200">
             <AlertCircle className="w-3 h-3 shrink-0" />
@@ -135,7 +155,6 @@ export default function PipelineNode({ data, selected }: PipelineNodeProps) {
         )}
       </div>
 
-      {/* Output Handle - Large and visible */}
       {data.type !== 'output' && (
         <Handle 
           type="source" 
