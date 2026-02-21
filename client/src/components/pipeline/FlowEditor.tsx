@@ -3490,14 +3490,22 @@ function FlowWithProvider() {
 
         </ReactFlow>
 
-        {quickConnectMenu && (
+        {quickConnectMenu && (() => {
+          const menuHeight = 420;
+          const spaceBelow = window.innerHeight - quickConnectMenu.y - 16;
+          const spaceAbove = quickConnectMenu.y - 16;
+          const fitsBelow = spaceBelow >= menuHeight;
+          const top = fitsBelow ? quickConnectMenu.y : Math.max(16, quickConnectMenu.y - Math.min(menuHeight, spaceAbove));
+          const availableHeight = fitsBelow ? spaceBelow : Math.min(menuHeight, quickConnectMenu.y - 16);
+          const left = Math.min(quickConnectMenu.x, window.innerWidth - 270);
+          return (
           <div 
             className="fixed z-[100] animate-in fade-in zoom-in-95 duration-150"
-            style={{ left: quickConnectMenu.x, top: quickConnectMenu.y }}
+            style={{ left, top }}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
-            <Card className="w-64 shadow-xl border-border/60 bg-white max-h-[60vh] overflow-hidden flex flex-col">
+            <Card className="w-64 shadow-xl border-border/60 bg-white flex flex-col" style={{ maxHeight: availableHeight }}>
               <CardContent className="p-2 overflow-y-auto">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 px-2 pt-1">
                   Add & connect
@@ -3527,7 +3535,8 @@ function FlowWithProvider() {
               </CardContent>
             </Card>
           </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Full Screen Dialog for Model Config */}
