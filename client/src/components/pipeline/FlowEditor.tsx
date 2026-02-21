@@ -51,6 +51,25 @@ import { HEADER_PORTAL_ID } from '@/components/layout/Shell';
 import { usePipelines, useCreatePipeline, useUpdatePipeline, useDeletePipeline, useExecutePipeline } from '@/hooks/usePipelines';
 import { useDatasets } from '@/hooks/useDatasets';
 
+const ALL_MODELS: Record<string, {label: string, category: string}> = {
+  naive: { label: "Naive", category: "Statistical" },
+  seasonal_naive: { label: "SeasonalNaive", category: "Statistical" },
+  ets: { label: "ETS", category: "Statistical" },
+  arima: { label: "ARIMA", category: "Statistical" },
+  auto_arima: { label: "AutoARIMA", category: "Statistical" },
+  theta: { label: "Theta", category: "Statistical" },
+  croston: { label: "Croston", category: "Statistical" },
+  deepar: { label: "DeepAR", category: "Deep Learning" },
+  tft: { label: "TemporalFusionTransformer", category: "Deep Learning" },
+  transformer: { label: "Transformer", category: "Deep Learning" },
+  simple_feed_forward: { label: "SimpleFeedForward", category: "Deep Learning" },
+  recursive_tabular: { label: "RecursiveTabular", category: "Tree-Based" },
+  direct_tabular: { label: "DirectTabular", category: "Tree-Based" },
+  chronos: { label: "Chronos", category: "Foundation" },
+  chronos_bolt: { label: "ChronosBolt", category: "Foundation" },
+  weighted_ensemble: { label: "WeightedEnsemble", category: "Ensemble" },
+};
+
 const initialNodes: any[] = [];
 
 const defaultEdgeStyle = { 
@@ -109,6 +128,17 @@ function FlowWithProvider() {
   const [cfgRollingStats, setCfgRollingStats] = useState<string[]>(["mean", "std"]);
   const [cfgRollingWindows, setCfgRollingWindows] = useState<string[]>(["4", "12"]);
   const [cfgHolidayCountry, setCfgHolidayCountry] = useState("US");
+
+  // Advanced config state (Models & Hyperparameters)
+  const [cfgSelectedModels, setCfgSelectedModels] = useState<Record<string, boolean>>({
+    deepar: true, tft: true, chronos: false, arima: true, ets: true, theta: true,
+    recursive_tabular: true, weighted_ensemble: true
+  });
+  const [cfgModelParams, setCfgModelParams] = useState<Record<string, Record<string, any>>>({
+    deepar: { epochs: 50, learning_rate: 0.001, context_length: 64, num_layers: 2, hidden_size: 40, dropout: 0.1 },
+    tft: { epochs: 100, learning_rate: 0.01, hidden_size: 32, attention_head_size: 4, dropout: 0.1 },
+    arima: { p: 5, d: 2, q: 5, seasonal: true, approximation: false },
+  });
 
   // Advanced config state (System)
   const [cfgCpus, setCfgCpus] = useState("auto");
@@ -2066,6 +2096,12 @@ function FlowWithProvider() {
                           <p className="text-xs text-purple-700">Plan your model training, backtesting, and forecast strategy.</p>
                        </div>
 
+                       <details className="group border rounded-lg" open>
+                         <summary className="flex items-center justify-between p-3 cursor-pointer text-xs font-semibold hover:bg-muted/50">
+                           Training & Backtesting
+                           <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
+                         </summary>
+                         <div className="px-3 pb-3 space-y-5">
                        <div>
                           <Label className="text-xs font-medium mb-1.5 block">Model Source</Label>
                           <div className="flex rounded-md border overflow-hidden" data-testid="model-mode-toggle">
@@ -2204,8 +2240,6 @@ function FlowWithProvider() {
                           </div>
                        </div>
 
-                       <Separator />
-
                        <div className="space-y-3">
                           <div className="flex items-center justify-between">
                              <Label className="text-xs font-medium">Enable Backtesting</Label>
@@ -2293,8 +2327,6 @@ function FlowWithProvider() {
                           )}
                        </div>
 
-                       <Separator />
-
                        <div className="space-y-2">
                           <Label className="text-xs font-medium">Walk-Forward Plan</Label>
                           <div className="space-y-1.5 bg-white rounded-md border p-3">
@@ -2342,6 +2374,8 @@ function FlowWithProvider() {
                              <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm bg-blue-400" /> Inference</div>
                           </div>
                        </div>
+                         </div>
+                       </details>
 
                        {/* --- Inline Advanced Settings Sections --- */}
                        {(() => {
@@ -2427,6 +2461,75 @@ function FlowWithProvider() {
                                    <Label className="text-xs">Refit Full</Label>
                                    <Switch checked={cfgRefitFull} onCheckedChange={setCfgRefitFull} data-testid="switch-refit-full" />
                                  </div>
+                               </div>
+                             </details>
+
+                             <details className="group border rounded-lg">
+                               <summary className="flex items-center justify-between p-3 cursor-pointer text-xs font-semibold hover:bg-muted/50">
+                                 Models & Hyperparameters
+                                 <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
+                               </summary>
+                               <div className="px-3 pb-3 space-y-3">
+                                 <div className="space-y-2">
+                                   <Label className="text-xs">Model Selection</Label>
+                                   <div className="border rounded-md max-h-48 overflow-y-auto p-2 space-y-2">
+                                     {["Statistical", "Deep Learning", "Tree-Based", "Foundation", "Ensemble"].map(category => (
+                                       <div key={category} className="space-y-1">
+                                         <h5 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{category}</h5>
+                                         {Object.entries(ALL_MODELS).filter(([_, m]) => m.category === category).map(([key, model]) => (
+                                           <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
+                                             <Checkbox
+                                               checked={cfgSelectedModels[key] || false}
+                                               onCheckedChange={() => setCfgSelectedModels(prev => ({ ...prev, [key]: !prev[key] }))}
+                                               className="h-3.5 w-3.5"
+                                             />
+                                             {model.label}
+                                           </label>
+                                         ))}
+                                       </div>
+                                     ))}
+                                   </div>
+                                 </div>
+
+                                 {Object.entries(cfgSelectedModels).filter(([_, v]) => v).map(([key]) => {
+                                   const params = cfgModelParams[key];
+                                   if (!params || Object.keys(params).length === 0) return null;
+                                   return (
+                                     <div key={key} className="space-y-1.5 border rounded-md p-2">
+                                       <div className="flex items-center justify-between">
+                                         <Label className="text-xs font-medium">{ALL_MODELS[key]?.label}</Label>
+                                         <span className="text-[9px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{ALL_MODELS[key]?.category}</span>
+                                       </div>
+                                       <div className="grid grid-cols-2 gap-2">
+                                         {Object.entries(params).map(([param, value]) => (
+                                           <div key={param} className="space-y-0.5">
+                                             <Label className="text-[10px] text-muted-foreground">{param}</Label>
+                                             {typeof value === 'boolean' ? (
+                                               <Switch
+                                                 checked={value}
+                                                 onCheckedChange={(v) => setCfgModelParams(prev => ({
+                                                   ...prev, [key]: { ...prev[key], [param]: v }
+                                                 }))}
+                                               />
+                                             ) : (
+                                               <Input
+                                                 className="h-7 text-xs"
+                                                 value={value as any}
+                                                 onChange={(e) => setCfgModelParams(prev => ({
+                                                   ...prev, [key]: { ...prev[key], [param]: e.target.value }
+                                                 }))}
+                                               />
+                                             )}
+                                           </div>
+                                         ))}
+                                       </div>
+                                     </div>
+                                   );
+                                 })}
+
+                                 {Object.values(cfgSelectedModels).every(v => !v) && (
+                                   <p className="text-xs text-muted-foreground italic text-center py-2">No models selected</p>
+                                 )}
                                </div>
                              </details>
 
