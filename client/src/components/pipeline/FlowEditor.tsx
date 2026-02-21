@@ -34,7 +34,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import PipelineNode from './PipelineNode';
 import ConfigurationPanel from '@/components/configuration/ConfigurationPanel';
 import ForecastResultsDashboard from '@/components/dashboard/ForecastResultsDashboard';
-import NodePalette from './NodePalette';
+import NodePalette, { categories as nodeCategories } from './NodePalette';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 // Define custom node types
@@ -95,6 +96,11 @@ function FlowWithProvider() {
   // Component palette toggle
   const [paletteOpen, setPaletteOpen] = useState(false);
   
+  // Quick-connect: when user clicks/drags from output handle and releases on empty space
+  const connectingNodeId = useRef<string | null>(null);
+  const quickConnectJustOpened = useRef(false);
+  const [quickConnectMenu, setQuickConnectMenu] = useState<{ x: number; y: number; sourceNodeId: string } | null>(null);
+  
   // Save as new flag and stashed values for restore on cancel
   const [saveAsNew, setSaveAsNew] = useState(false);
   const [stashedPipelineName, setStashedPipelineName] = useState('');
@@ -129,6 +135,67 @@ function FlowWithProvider() {
     }, eds)),
     [setEdges],
   );
+
+  const onConnectStart = useCallback((_: any, params: { nodeId: string | null; handleType: string | null }) => {
+    if (params.handleType === 'source' && params.nodeId) {
+      connectingNodeId.current = params.nodeId;
+    }
+  }, []);
+
+  const onConnectEnd = useCallback((event: MouseEvent | TouchEvent) => {
+    if (!connectingNodeId.current) return;
+    
+    const target = event.target as HTMLElement;
+    const isHandle = target.classList.contains('react-flow__handle');
+    
+    if (!isHandle) {
+      const clientX = 'clientX' in event ? event.clientX : event.changedTouches?.[0]?.clientX ?? 0;
+      const clientY = 'clientY' in event ? event.clientY : event.changedTouches?.[0]?.clientY ?? 0;
+      
+      quickConnectJustOpened.current = true;
+      setQuickConnectMenu({
+        x: clientX,
+        y: clientY,
+        sourceNodeId: connectingNodeId.current,
+      });
+      setTimeout(() => { quickConnectJustOpened.current = false; }, 200);
+    }
+    
+    connectingNodeId.current = null;
+  }, []);
+
+  const onQuickConnectSelect = useCallback((nodeType: string, label: string) => {
+    if (!quickConnectMenu) return;
+
+    const sourceNode = nodes.find(n => n.id === quickConnectMenu.sourceNodeId);
+    const position = screenToFlowPosition({
+      x: quickConnectMenu.x,
+      y: quickConnectMenu.y,
+    });
+
+    const newNode = {
+      id: getId(),
+      type: 'custom',
+      position,
+      data: {
+        label,
+        type: nodeType,
+        stats: { rows: 0, cols: 0 },
+        status: 'pending',
+      },
+    };
+
+    setNodes((nds) => nds.concat(newNode));
+    setEdges((eds) => addEdge({
+      source: quickConnectMenu.sourceNodeId,
+      target: newNode.id,
+      animated: true,
+      style: defaultEdgeStyle,
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' },
+    }, eds));
+    setSelectedNode(newNode);
+    setQuickConnectMenu(null);
+  }, [quickConnectMenu, nodes, screenToFlowPosition, setNodes, setEdges]);
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -1563,11 +1630,13 @@ function FlowWithProvider() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onConnectStart={onConnectStart}
+          onConnectEnd={onConnectEnd}
           onDrop={onDrop}
           onDragOver={onDragOver}
           onNodeClick={onNodeClick}
           onEdgeClick={onEdgeClick}
-          onPaneClick={onPaneClick}
+          onPaneClick={() => { onPaneClick(); if (!quickConnectJustOpened.current) setQuickConnectMenu(null); }}
           nodeTypes={nodeTypes}
           fitView
           attributionPosition="bottom-left"
@@ -3404,6 +3473,45 @@ function FlowWithProvider() {
           />
 
         </ReactFlow>
+
+        {quickConnectMenu && (
+          <div 
+            className="fixed z-[100] animate-in fade-in zoom-in-95 duration-150"
+            style={{ left: quickConnectMenu.x, top: quickConnectMenu.y }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Card className="w-64 shadow-xl border-border/60 bg-white max-h-[60vh] overflow-hidden flex flex-col">
+              <CardContent className="p-2 overflow-y-auto">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 px-2 pt-1">
+                  Add & connect
+                </p>
+                <div className="space-y-1">
+                  {nodeCategories.map((category) => (
+                    <div key={category.label}>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest px-2 pt-1.5 pb-0.5">{category.label}</p>
+                      {category.nodes.map((node) => (
+                        <button
+                          key={node.type}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/80 transition-colors text-left"
+                          onClick={(e) => { e.stopPropagation(); onQuickConnectSelect(node.type, node.label); }}
+                          data-testid={`quick-connect-${node.type}`}
+                        >
+                          <div className={cn("p-1 rounded", node.color)}>
+                            <node.icon className="w-3 h-3" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate">{node.label}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
 
       {/* Full Screen Dialog for Model Config */}

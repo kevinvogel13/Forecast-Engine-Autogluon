@@ -31,7 +31,7 @@ interface NodePaletteProps {
   onToggle: () => void;
 }
 
-const categories = [
+export const categories = [
   {
     label: 'Source',
     nodes: [
