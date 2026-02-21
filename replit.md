@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a visual data forecasting and pipeline builder application. Users can upload datasets, connect them through a drag-and-drop GUI to define data transformations and join logic, then run forecasting models on the processed data. The application provides exploratory data analysis (EDA), validation dashboards, and forecast result visualization.
+Forecaster is a visual data pipeline and forecasting application. It enables users to upload datasets, construct data transformation pipelines using a drag-and-drop interface, and apply forecasting models. The application provides tools for exploratory data analysis, data validation, and visualization of forecast results, aiming to simplify the process of preparing data and generating predictions.
 
 ## User Preferences
 
@@ -10,202 +10,96 @@ Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 
-### Frontend Architecture
+### Frontend
 - **Framework**: React 18 with TypeScript
-- **Routing**: Wouter (lightweight client-side routing)
-- **State Management**: TanStack React Query for server state
-- **UI Components**: shadcn/ui component library built on Radix UI primitives
-- **Styling**: Tailwind CSS with custom theme configuration
-- **Visual Pipeline Editor**: @xyflow/react (React Flow) for drag-and-drop node-based pipeline design
-- **Code Editor**: Monaco Editor for Python/SQL script editing within nodes
-- **Charts**: Recharts for data visualization in dashboards
+- **Routing**: Wouter
+- **State Management**: TanStack React Query
+- **UI Components**: shadcn/ui (built on Radix UI)
+- **Styling**: Tailwind CSS
+- **Visual Editor**: @xyflow/react for drag-and-drop pipeline building
+- **Code Editor**: Monaco Editor for Python/SQL
+- **Charts**: Recharts for data visualization
 - **Build Tool**: Vite
 
-### Backend Architecture
+### Backend
 - **Runtime**: Node.js with Express
-- **Language**: TypeScript (tsx for development)
+- **Language**: TypeScript
 - **API Style**: RESTful JSON API
-- **File Uploads**: Multer for handling CSV/XLSX/JSON file uploads
-- **Data Parsing**: csv-parse for CSV processing
+- **File Uploads**: Multer
+- **Data Parsing**: csv-parse
 
 ### Data Storage
 - **Database**: PostgreSQL with Drizzle ORM
-- **Schema Location**: `shared/schema.ts` defines all database tables
-- **Tables**:
-  - `users` - User authentication
-  - `pipelines` - Stores pipeline configurations (nodes and edges as JSONB)
-  - `datasets` - Metadata for uploaded files (filename, path, dimensions)
-- **Migrations**: Managed via `drizzle-kit push`
+- **Schema**: Defined in `shared/schema.ts` for database tables like `users`, `pipelines`, and `datasets`.
+- **Migrations**: Managed by `drizzle-kit`.
 
 ### Key Design Patterns
-- **Shared Types**: The `shared/` directory contains schema definitions used by both frontend and backend
-- **API Client**: Centralized API functions in `client/src/lib/api.ts`
-- **Custom Hooks**: React Query hooks in `client/src/hooks/` for data fetching (usePipelines, useDatasets)
-- **Component Structure**: 
-  - `components/ui/` - Base shadcn components
-  - `components/pipeline/` - Flow editor and node components
-  - `components/dashboard/` - Forecast results dashboard
-  - `components/layout/` - Shell and navigation
+- **Shared Types**: `shared/` directory for common type definitions.
+- **API Client**: Centralized API call functions.
+- **Custom Hooks**: React Query hooks for data fetching.
+- **Component Structure**: Organized by function (UI, pipeline, dashboard, layout).
 
 ### Palette Organization & Color Coding
-Nodes are organized into 4 color-coded groups in the palette:
-- **Source** (blue): Data Source
-- **Prep** (yellow): Filter, Fill Missing, Remove Duplicates, Outlier Treatment, Sampling, Merge/Join, Column Transform, Date Gap Filler, Pivot/Unpivot, Python Script, SQL Transform
-- **Analysis** (emerald): Data Preview, Exploration, Report
-- **Model** (violet): Model Config, Output
+Nodes are categorized and color-coded:
+- **Source** (blue)
+- **Prep** (yellow)
+- **Analysis** (emerald)
+- **Model** (violet)
 
 ### Pipeline Node Types
-- **Data Source**: Import CSV files with automatic column detection
-- **Data Preview**: View head of dataframe with configurable row count (5-100 rows)
-- **Filter**: Filter rows with operators: eq, neq, gt, gte, lt, lte, contains, isin, notin, isnull, notnull
-  - isin/notin support multi-select with auto-populated categorical values
-  - Categorical columns (≤50 unique values) show dropdowns instead of text input
-- **Merge / Join**: Join datasets on key columns (inner, left, right, full outer)
-- **Sampling**: Stratified group sampling for meaningful time series analysis
-  - Select a group column (e.g., DFU, SKU, Product)
-  - Sample percentage slider (5-100% in 5% increments)
-  - Random seed input for repeatable sampling (same seed = same groups selected)
-  - Randomly samples X% of unique groups and returns ALL rows for each sampled group
-  - Ensures each sampled group has complete time series data for CV/ADI calculation
-  - Field names: `samplingColumn`, `samplePercent` (default: 100), `samplingSeed` (default: 42)
-- **Fill Missing Values**: Handle NaN/null values in selected columns
-  - Strategies: forward fill, backward fill, linear interpolation, mean, median, zero, constant
-  - Optional constant value input when "constant" strategy is selected
-  - Field names: `fillColumns` (array), `fillStrategy` (default: 'ffill'), `fillConstant`
-- **Date Gap Filler**: Insert missing time periods to ensure continuous date series
-  - Select date column, frequency (daily/weekly/monthly/quarterly), optional group column
-  - Fill strategy for new rows: zero, forward fill, interpolation
-  - Field names: `dateColumn`, `dateFrequency` (default: 'D'), `dateGroupColumn`, `gapFillStrategy` (default: 'zero')
-- **Outlier Treatment**: Detect and handle extreme values
-  - Detection methods: IQR, Z-Score, Percentile with configurable threshold
-  - Treatment actions: cap/floor (winsorize), replace with median/mean/null, remove rows
-  - Field names: `outlierColumn`, `outlierMethod` (default: 'iqr'), `outlierThreshold`, `outlierAction` (default: 'cap')
-- **Column Transform**: Column operations without code
-  - Operations: rename, drop, type cast (numeric/integer/string/datetime/boolean), calculated column
-  - Field names vary by operation: `colOperation`, `renameFrom`/`renameTo`, `dropColumns`, `castColumn`/`castType`, `calcColumnName`/`calcExpression`
-- **Remove Duplicates**: Deduplicate rows by selected key columns
-  - Keep strategy: first or last occurrence
-  - Field names: `dedupColumns` (array), `dedupKeep` (default: 'first')
-- **Pivot / Unpivot**: Reshape data between wide and long formats
-  - Pivot (long→wide): index column, columns to spread, values, aggregation function
-  - Unpivot (wide→long): ID columns, columns to melt, variable/value names
-  - Field names: `pivotMode` (default: 'pivot'), `pivotIndex`, `pivotColumns`, `pivotValues`, `pivotAggFunc`, `unpivotIdColumns`, `unpivotValueColumns`, `unpivotVarName`, `unpivotValName`
-- **Python Script**: Custom pandas transformations via Monaco editor
-  - Shows input data preview when connected to upstream data source
-  - Stats (rows/cols) update based on connected input
-- **SQL Transform**: DuckDB SQL-based transformations
-  - Shows input data preview when connected to upstream data source
-  - Stats (rows/cols) update based on connected input
-- **Validation (EDA)**: Exploratory data analysis dashboard with full transform support
-  - Uses all upstream transforms (Filter, Sampling, Python, SQL) when connected downstream
-  - For sampled data analysis, connect a Sampling node before the Validation node
-  - Real-time data analysis based on actual dataset columns
-  - Export Summary button downloads JSON analysis file
-  - Widgets: GeneralStats, TimeSeriesView, CategoryDistribution, DataCompletenessChart, DemandPatternAnalysis, OutlierTable
-- **Exploration**: Modular chart components for data exploration
-  - Individual chart type selection with conditional column configuration
-  - 13 chart types: Rich Text, Time Series, Histogram, Boxplot, Bar Chart, Scatter, Demand Classification (ADI×CV²), Pareto Analysis, Data Table, Summary Statistics, Seasonality, Data Quality, Outlier Detection
-  - **Rich Text**: Formatted text component with toolbar (bold, italic, underline, headings, font sizes, 8 colors, bullet/numbered lists)
-    - Uses contentEditable with document.execCommand for formatting
-    - Content stored as HTML in `chartConfig.richTextContent`
-    - Read-only rendering in report preview and HTML export
-    - Editable in exploration config panel with live toolbar
-  - Consistent teal/indigo color palette (PALETTE object in ExplorationCharts.tsx)
-  - Each exploration node has a takeaway/notes textarea for user annotations
-  - Chart preview rendered in the configuration panel when columns are selected
-  - Emerald color theme
-  - **Demand Classification (ADI×CV²)**: Rich quadrant dashboard
-    - 4 quadrant cards (Smooth, Intermittent, Erratic, Lumpy) with muted background bar charts
-    - Shows % of DFUs (count) and % of volume per quadrant
-    - MAPE computation when forecast column is provided (optional)
-    - Interactive ADI/CV² threshold sliders (drag to reclassify in real-time)
-    - Scatter plot with dynamic reference lines
-    - Config: idColumn, dateColumn, demandColumn, forecastColumn (optional)
-- **Report**: Combines multiple exploration charts into an HTML report
-  - Connect Exploration nodes to aggregate charts into report sections
-  - Drag-to-reorder explorations in config panel and report preview dialog
-  - Order persisted in `explorationOrder` array on report node data
-  - Up/down arrow buttons and native HTML drag-and-drop for reordering
-  - Report title configuration
-  - Export HTML Report with filename dialog and standalone HTML generation
-  - Export works without requiring preview dialog to be open (auto-loads data)
-  - Violet color theme
-- **Model Config**: AutoGluon forecast model configuration with planning workflow
-  - Train/Load toggle: Train (build new model) or Load (use existing model)
-  - Train mode: Training period date range (trainStart, trainEnd)
-  - Load mode: Model path input (modelPath)
-  - Data Frequency selector: Daily, Weekly, Monthly (default), Quarterly, Yearly (dataFrequency)
-    - All time-unit labels dynamically update based on selected frequency (e.g., "months ahead", "weeks between folds")
-  - Forecast Horizon: Always visible, shows "{frequency unit} ahead" (forecastHorizon, default: 12)
-  - Backtesting toggle with walk-forward time series cross-validation
-    - Number of folds (backtestFolds, default: 3)
-    - Step size between folds (backtestStepSize, defaults to forecast horizon with visual indicator)
-    - Gap between train and test (backtestGap, default: 0)
-  - Walk-Forward CV Visual Plan: Live bar chart showing proportional colored bars
-    - Green (emerald) = Training, Yellow (amber) = Backtesting, Blue = Inference
-    - One row per fold with expanding training window
-    - Updates in real-time as user changes settings
-  - Configure Pipeline button opens full-screen advanced settings dialog
-  - **Feature Engineering** (collapsible section):
-    - Dataset Schema: Target Variable, Timestamp Column, Item ID (DFU) — dropdowns populated from connected upstream dataset
-    - Static Features: multi-select checkboxes for columns that don't change over time per item (excludes schema columns)
-    - Known Covariates: multi-select checkboxes for columns whose future values are known (excludes schema columns)
-    - Holiday Features: toggle + country selector (US, GB, DE, FR, JP, CN, IN, BR, CA, AU)
-    - Note: Lag, rolling, and date-part features are handled internally by AutoGluon — not user-configured
-  - **Data Preprocessing** (collapsible section — applied within train/test folds to prevent data leakage):
-    - Fill Missing Values: toggle + strategy (ffill, bfill, interpolate, mean, median, zero, constant) + column selection
-    - Outlier Treatment: toggle + target column + method (IQR, Z-Score, Percentile) + threshold + action (cap, median, mean, null, remove)
-  - Node data fields: modelMode, trainStart, trainEnd, modelPath, dataFrequency, forecastHorizon, backtestEnabled, backtestFolds, backtestStepSize, backtestGap
-- **Output**: View forecast results
+- **Data Source**: Import CSV files.
+- **Data Preview**: View data head.
+- **Filter**: Apply row-level filters.
+- **Merge / Join**: Combine datasets.
+- **Sampling**: Stratified group sampling for time series.
+- **Fill Missing Values**: Handle nulls with various strategies.
+- **Date Gap Filler**: Ensure continuous date series.
+- **Outlier Treatment**: Detect and handle outliers.
+- **Column Transform**: Perform column operations (rename, drop, type cast, calculated columns).
+- **Remove Duplicates**: Deduplicate rows.
+- **Pivot / Unpivot**: Reshape data.
+- **Python Script**: Custom pandas transformations.
+- **SQL Transform**: DuckDB SQL-based transformations.
+- **Validation (EDA)**: Exploratory data analysis dashboard with widgets like GeneralStats, TimeSeriesView, etc.
+- **Exploration**: Modular chart components (e.g., Rich Text, Time Series, Demand Classification (ADI×CV²), Forecast vs Actual, Backtest Metrics). Features a consistent teal/indigo palette. 15 chart types total.
+- **Report**: Combines multiple exploration charts into an HTML report.
+- **Model Config**: AutoGluon forecast model configuration, including training/loading, data frequency, forecast horizon, backtesting with walk-forward cross-validation, feature engineering, and data preprocessing within folds. All config state persists to node data (save/load with pipeline). Per-column preprocessing: cfgFillConfigs (Record per column with strategy/constant), cfgOutlierConfigs (Record per column with method/threshold/action).
+- **Output**: View forecast results.
 
 ### Data Flow & Preview
-- Nodes trace back through edges to find source dataset ID using recursive edge traversal
-- Preview and column values are fetched dynamically from connected data sources
-- **Filtered Preview**: When a Data Preview node connects to a Filter node, it applies upstream filters
-- API endpoints:
-  - `GET /api/datasets/:id/preview` - Unfiltered dataset preview
-  - `POST /api/datasets/:id/filtered-preview` - Preview with filters applied (accepts filters array in body)
-  - `GET /api/datasets/:id/column/:column/values` - Unique values for a column (for filter dropdowns)
-  - `GET /api/datasets/:id/column/:column/date-range` - Min/max dates for a date column (for model config date pickers)
+- Nodes recursively trace upstream connections to identify data sources.
+- Previews and column values are dynamically fetched.
+- Specific API endpoints support unfiltered, filtered, and column-specific data retrieval.
 
 ### Filter Node Technical Details
-- Field names: `filterColumn`, `filterOp` (default: 'eq'), `filterValue`, `filterValues` (for isin/notin)
-- Operators: eq, neq, gt, gte, lt, lte, contains, isin, notin, isnull, notnull
-- Filter metadata updates when filter configuration changes via useEffect
-- `getUpstreamFilters()` recursively collects all filter configurations from upstream nodes
-
-### State Management Notes
-- Node metadata uses `data.stats.rows` and `data.stats.cols` structure
-- Preview fetch uses refs (nodesRef, edgesRef) to avoid dependency loops
-- previewKey computed from upstream connections and filter states to trigger re-fetches only on meaningful changes
+- Supports various operators and dynamic metadata updates.
 
 ### Build Process
-- Development: Vite dev server with HMR for frontend, tsx for backend
-- Production: esbuild bundles server code, Vite builds client to `dist/public`
-- Server serves static files from `dist/public` in production
+- **Development**: Vite for frontend, tsx for backend.
+- **Production**: esbuild for server, Vite for client, serving static files.
 
 ## External Dependencies
 
 ### Database
-- PostgreSQL (required, configured via `DATABASE_URL` environment variable)
-- Drizzle ORM for type-safe database queries
+- PostgreSQL
+- Drizzle ORM
 
 ### File Storage
-- Local filesystem (`uploads/` directory) for uploaded datasets
+- Local filesystem (`uploads/` directory)
 
 ### Key NPM Packages
-- `@xyflow/react` - Visual pipeline flow editor
-- `@monaco-editor/react` - In-browser code editing
-- `@tanstack/react-query` - Server state management
-- `recharts` - Data visualization charts
-- `react-dropzone` - File upload drag-and-drop
-- `framer-motion` - UI animations
-- `sonner` - Toast notifications
-- `drizzle-orm` / `drizzle-kit` - Database ORM and migrations
-- `multer` - File upload handling
-- `csv-parse` - CSV file parsing
+- `@xyflow/react`
+- `@monaco-editor/react`
+- `@tanstack/react-query`
+- `recharts`
+- `react-dropzone`
+- `framer-motion`
+- `sonner`
+- `drizzle-orm` / `drizzle-kit`
+- `multer`
+- `csv-parse`
 
 ### Replit-Specific
-- `@replit/vite-plugin-runtime-error-modal` - Error overlay in development
-- `@replit/vite-plugin-cartographer` - Development tooling
-- `@replit/vite-plugin-dev-banner` - Development banner
+- `@replit/vite-plugin-runtime-error-modal`
+- `@replit/vite-plugin-cartographer`
+- `@replit/vite-plugin-dev-banner`

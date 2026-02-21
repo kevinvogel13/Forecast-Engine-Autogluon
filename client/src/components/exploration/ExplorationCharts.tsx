@@ -53,6 +53,11 @@ interface ChartProps {
     cvThreshold?: number;
     richTextContent?: string;
     onRichTextChange?: (html: string) => void;
+    newForecastColumn?: string;
+    incumbentForecastColumn?: string;
+    foldColumn?: string;
+    lowerBoundColumn?: string;
+    upperBoundColumn?: string;
   };
 }
 
@@ -1140,6 +1145,359 @@ function RichTextChart({ config }: { data?: ChartProps['data']; config: ChartPro
   );
 }
 
+export function ForecastVsActualChart({ data, config }: ChartProps) {
+  const { dateColumn, actualColumn, newForecastColumn, incumbentForecastColumn, foldColumn, lowerBoundColumn, upperBoundColumn } = config;
+
+  const chartData = useMemo(() => {
+    if (!dateColumn || !actualColumn || !newForecastColumn || !data.rows.length) return [];
+
+    const sorted = [...data.rows].sort((a, b) => {
+      const da = String(a[dateColumn] || '');
+      const db = String(b[dateColumn] || '');
+      return da.localeCompare(db);
+    });
+
+    return sorted.map(row => ({
+      date: String(row[dateColumn] || ''),
+      actual: parseFloat(row[actualColumn]) || 0,
+      newForecast: parseFloat(row[newForecastColumn]) || 0,
+      incumbentForecast: incumbentForecastColumn ? (parseFloat(row[incumbentForecastColumn]) || 0) : undefined,
+      confidenceRange: (lowerBoundColumn && upperBoundColumn)
+        ? [parseFloat(row[lowerBoundColumn]) || 0, parseFloat(row[upperBoundColumn]) || 0] as [number, number]
+        : undefined,
+      fold: foldColumn ? String(row[foldColumn] || '') : undefined,
+    }));
+  }, [data.rows, dateColumn, actualColumn, newForecastColumn, incumbentForecastColumn, foldColumn, lowerBoundColumn, upperBoundColumn]);
+
+  const foldBoundaries = useMemo(() => {
+    if (!foldColumn || chartData.length === 0) return [];
+    const boundaries: number[] = [];
+    for (let i = 1; i < chartData.length; i++) {
+      if (chartData[i].fold !== chartData[i - 1].fold) {
+        boundaries.push(i);
+      }
+    }
+    return boundaries;
+  }, [chartData, foldColumn]);
+
+  if (!dateColumn || !actualColumn || !newForecastColumn) {
+    return <div className="text-sm text-muted-foreground p-4" data-testid="text-fva-placeholder">Select date, actual, and new forecast columns</div>;
+  }
+
+  const hasConfidenceInterval = lowerBoundColumn && upperBoundColumn;
+
+  return (
+    <ResponsiveContainer width="100%" height={350}>
+      <ComposedChart data={chartData}>
+        <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.gridStroke} />
+        <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+        <YAxis tick={{ fontSize: 10 }} />
+        <Tooltip />
+        <Legend />
+        {hasConfidenceInterval && (
+          <Area
+            type="monotone"
+            dataKey="confidenceRange"
+            stroke="none"
+            fill={PALETTE.secondary}
+            fillOpacity={0.12}
+            name="Confidence Interval"
+            connectNulls
+          />
+        )}
+        <Line type="monotone" dataKey="actual" stroke={PALETTE.primary} strokeWidth={2} dot={false} name="Actual" />
+        <Line type="monotone" dataKey="newForecast" stroke={PALETTE.secondary} strokeWidth={2} strokeDasharray="6 3" dot={false} name="New Forecast" />
+        {incumbentForecastColumn && (
+          <Line type="monotone" dataKey="incumbentForecast" stroke={PALETTE.accent} strokeWidth={2} strokeDasharray="6 3" dot={false} name="Incumbent" />
+        )}
+        {foldBoundaries.map((idx) => (
+          <ReferenceLine
+            key={`fold-${idx}`}
+            x={chartData[idx]?.date}
+            stroke={PALETTE.neutral}
+            strokeDasharray="4 4"
+            label={{ value: `Fold ${chartData[idx]?.fold}`, fontSize: 9, fill: PALETTE.textSecondary }}
+          />
+        ))}
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
+function computeMetrics(actuals: number[], forecasts: number[]) {
+  const n = actuals.length;
+  if (n === 0) return { mape: 0, rmse: 0, mae: 0, bias: 0, wmape: 0 };
+
+  let mapeSum = 0;
+  let mapeCount = 0;
+  let seSum = 0;
+  let aeSum = 0;
+  let biasSum = 0;
+  let absActualSum = 0;
+  let absErrorSum = 0;
+
+  for (let i = 0; i < n; i++) {
+    const a = actuals[i];
+    const f = forecasts[i];
+    const error = f - a;
+    const absError = Math.abs(error);
+
+    seSum += error * error;
+    aeSum += absError;
+    biasSum += error;
+    absActualSum += Math.abs(a);
+    absErrorSum += absError;
+
+    if (a !== 0) {
+      mapeSum += absError / Math.abs(a);
+      mapeCount++;
+    }
+  }
+
+  return {
+    mape: mapeCount > 0 ? (mapeSum / mapeCount) * 100 : 0,
+    rmse: Math.sqrt(seSum / n),
+    mae: aeSum / n,
+    bias: biasSum / n,
+    wmape: absActualSum > 0 ? (absErrorSum / absActualSum) * 100 : 0,
+  };
+}
+
+export function BacktestMetricsChart({ data, config }: ChartProps) {
+  const { actualColumn, newForecastColumn, incumbentForecastColumn, foldColumn, groupColumn } = config;
+
+  const metrics = useMemo(() => {
+    if (!actualColumn || !newForecastColumn || !data.rows.length) return null;
+
+    const actuals = data.rows.map(r => parseFloat(r[actualColumn]) || 0);
+    const newForecasts = data.rows.map(r => parseFloat(r[newForecastColumn]) || 0);
+    const newMetrics = computeMetrics(actuals, newForecasts);
+
+    let incumbentMetrics: ReturnType<typeof computeMetrics> | null = null;
+    if (incumbentForecastColumn) {
+      const incumbentForecasts = data.rows.map(r => parseFloat(r[incumbentForecastColumn]) || 0);
+      incumbentMetrics = computeMetrics(actuals, incumbentForecasts);
+    }
+
+    return { newMetrics, incumbentMetrics };
+  }, [data.rows, actualColumn, newForecastColumn, incumbentForecastColumn]);
+
+  const foldMetrics = useMemo(() => {
+    if (!foldColumn || !actualColumn || !newForecastColumn || !data.rows.length) return null;
+
+    const folds: Record<string, { actuals: number[]; newForecasts: number[]; incumbentForecasts: number[] }> = {};
+    data.rows.forEach(row => {
+      const fold = String(row[foldColumn] || '');
+      if (!folds[fold]) folds[fold] = { actuals: [], newForecasts: [], incumbentForecasts: [] };
+      folds[fold].actuals.push(parseFloat(row[actualColumn]) || 0);
+      folds[fold].newForecasts.push(parseFloat(row[newForecastColumn]) || 0);
+      if (incumbentForecastColumn) {
+        folds[fold].incumbentForecasts.push(parseFloat(row[incumbentForecastColumn]) || 0);
+      }
+    });
+
+    return Object.entries(folds).map(([fold, d]) => ({
+      fold,
+      newMetrics: computeMetrics(d.actuals, d.newForecasts),
+      incumbentMetrics: incumbentForecastColumn ? computeMetrics(d.actuals, d.incumbentForecasts) : null,
+    }));
+  }, [data.rows, foldColumn, actualColumn, newForecastColumn, incumbentForecastColumn]);
+
+  const groupMetrics = useMemo(() => {
+    if (!groupColumn || !actualColumn || !newForecastColumn || !data.rows.length) return null;
+
+    const groups: Record<string, { actuals: number[]; forecasts: number[] }> = {};
+    data.rows.forEach(row => {
+      const group = String(row[groupColumn] || '');
+      if (!groups[group]) groups[group] = { actuals: [], forecasts: [] };
+      groups[group].actuals.push(parseFloat(row[actualColumn]) || 0);
+      groups[group].forecasts.push(parseFloat(row[newForecastColumn]) || 0);
+    });
+
+    return Object.entries(groups)
+      .map(([group, d]) => ({ group, ...computeMetrics(d.actuals, d.forecasts) }))
+      .sort((a, b) => b.mape - a.mape)
+      .slice(0, 10);
+  }, [data.rows, groupColumn, actualColumn, newForecastColumn]);
+
+  const barChartData = useMemo(() => {
+    if (!metrics) return [];
+    const metricNames = ['MAPE', 'RMSE', 'MAE', 'wMAPE'];
+    const metricKeys: (keyof ReturnType<typeof computeMetrics>)[] = ['mape', 'rmse', 'mae', 'wmape'];
+    return metricNames.map((name, i) => {
+      const entry: any = { metric: name, new: metrics.newMetrics[metricKeys[i]] };
+      if (metrics.incumbentMetrics) {
+        entry.incumbent = metrics.incumbentMetrics[metricKeys[i]];
+      }
+      return entry;
+    });
+  }, [metrics]);
+
+  if (!actualColumn || !newForecastColumn) {
+    return <div className="text-sm text-muted-foreground p-4" data-testid="text-btm-placeholder">Select actual and new forecast columns</div>;
+  }
+
+  if (!metrics) {
+    return <div className="text-sm text-muted-foreground p-4">No data available</div>;
+  }
+
+  const hasIncumbent = !!metrics.incumbentMetrics;
+  const metricRows = [
+    { label: 'MAPE (%)', key: 'mape' as const, lowerBetter: true },
+    { label: 'RMSE', key: 'rmse' as const, lowerBetter: true },
+    { label: 'MAE', key: 'mae' as const, lowerBetter: true },
+    { label: 'Bias', key: 'bias' as const, lowerBetter: false },
+    { label: 'wMAPE (%)', key: 'wmape' as const, lowerBetter: true },
+  ];
+
+  const getDeltaDisplay = (newVal: number, incVal: number, _lowerBetter: boolean, isBias: boolean) => {
+    if (isBias) {
+      const delta = Math.abs(incVal) - Math.abs(newVal);
+      const isGood = delta > 0;
+      return {
+        value: delta.toFixed(2),
+        color: isGood ? '#16a34a' : '#dc2626',
+        arrow: isGood ? '↓' : '↑',
+      };
+    }
+    const delta = incVal - newVal;
+    const isGood = delta > 0;
+    return {
+      value: delta.toFixed(2),
+      color: isGood ? '#16a34a' : '#dc2626',
+      arrow: isGood ? '↓' : '↑',
+    };
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="py-2 px-3">
+          <CardTitle className="text-sm">Summary Metrics</CardTitle>
+        </CardHeader>
+        <CardContent className="px-3 pb-3">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="text-xs">Metric</TableHead>
+                <TableHead className="text-xs">New Forecast</TableHead>
+                {hasIncumbent && <TableHead className="text-xs">Incumbent</TableHead>}
+                {hasIncumbent && <TableHead className="text-xs">Delta</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {metricRows.map(({ label, key, lowerBetter }) => {
+                const newVal = metrics.newMetrics[key];
+                const incVal = hasIncumbent ? metrics.incumbentMetrics![key] : 0;
+                const delta = hasIncumbent ? getDeltaDisplay(newVal, incVal, lowerBetter, key === 'bias') : null;
+                return (
+                  <TableRow key={key}>
+                    <TableCell className="text-xs font-medium">{label}</TableCell>
+                    <TableCell className="text-xs font-mono">{newVal.toFixed(2)}</TableCell>
+                    {hasIncumbent && <TableCell className="text-xs font-mono">{incVal.toFixed(2)}</TableCell>}
+                    {hasIncumbent && delta && (
+                      <TableCell className="text-xs font-mono" style={{ color: delta.color }}>
+                        {delta.arrow} {delta.value}
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {hasIncumbent && (
+        <Card>
+          <CardHeader className="py-2 px-3">
+            <CardTitle className="text-sm">Metric Comparison</CardTitle>
+          </CardHeader>
+          <CardContent className="px-3 pb-3">
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={barChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.gridStroke} />
+                <XAxis dataKey="metric" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="new" fill={PALETTE.primary} name="New Forecast" />
+                <Bar dataKey="incumbent" fill={PALETTE.accent} name="Incumbent" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {foldMetrics && foldMetrics.length > 0 && (
+        <Card>
+          <CardHeader className="py-2 px-3">
+            <CardTitle className="text-sm">Per-Fold Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent className="px-3 pb-3">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-xs">Fold</TableHead>
+                  <TableHead className="text-xs">MAPE</TableHead>
+                  <TableHead className="text-xs">RMSE</TableHead>
+                  <TableHead className="text-xs">MAE</TableHead>
+                  <TableHead className="text-xs">Bias</TableHead>
+                  {hasIncumbent && <TableHead className="text-xs">Inc. MAPE</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {foldMetrics.map(({ fold, newMetrics: fm, incumbentMetrics: im }) => (
+                  <TableRow key={fold}>
+                    <TableCell className="text-xs font-medium">{fold}</TableCell>
+                    <TableCell className="text-xs font-mono">{fm.mape.toFixed(2)}%</TableCell>
+                    <TableCell className="text-xs font-mono">{fm.rmse.toFixed(2)}</TableCell>
+                    <TableCell className="text-xs font-mono">{fm.mae.toFixed(2)}</TableCell>
+                    <TableCell className="text-xs font-mono">{fm.bias.toFixed(2)}</TableCell>
+                    {hasIncumbent && im && <TableCell className="text-xs font-mono">{im.mape.toFixed(2)}%</TableCell>}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {groupMetrics && groupMetrics.length > 0 && (
+        <Card>
+          <CardHeader className="py-2 px-3">
+            <CardTitle className="text-sm">Top 10 Worst MAPE Groups</CardTitle>
+          </CardHeader>
+          <CardContent className="px-3 pb-3">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-xs">Group</TableHead>
+                  <TableHead className="text-xs">MAPE</TableHead>
+                  <TableHead className="text-xs">RMSE</TableHead>
+                  <TableHead className="text-xs">MAE</TableHead>
+                  <TableHead className="text-xs">Bias</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {groupMetrics.map(({ group, mape, rmse, mae, bias }) => (
+                  <TableRow key={group}>
+                    <TableCell className="text-xs font-medium truncate max-w-[120px]">{group}</TableCell>
+                    <TableCell className="text-xs font-mono" style={{ color: mape > 50 ? '#dc2626' : undefined }}>{mape.toFixed(2)}%</TableCell>
+                    <TableCell className="text-xs font-mono">{rmse.toFixed(2)}</TableCell>
+                    <TableCell className="text-xs font-mono">{mae.toFixed(2)}</TableCell>
+                    <TableCell className="text-xs font-mono">{bias.toFixed(2)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export const CHART_TYPES = [
   { value: 'richtext', label: 'Rich Text', description: 'Formatted text with styling' },
   { value: 'timeseries', label: 'Time Series', description: 'Trend analysis over time' },
@@ -1153,7 +1511,9 @@ export const CHART_TYPES = [
   { value: 'summary', label: 'Summary Statistics', description: 'Descriptive stats per column' },
   { value: 'seasonal', label: 'Seasonality', description: 'Monthly demand patterns' },
   { value: 'completeness', label: 'Data Quality', description: 'Missing value analysis' },
-  { value: 'outliers', label: 'Outlier Detection', description: 'Z-score anomaly scan' }
+  { value: 'outliers', label: 'Outlier Detection', description: 'Z-score anomaly scan' },
+  { value: 'forecast_actual', label: 'Forecast vs Actual', description: 'Compare forecasts against actuals' },
+  { value: 'backtest_metrics', label: 'Backtest Metrics', description: 'Error metrics for model evaluation' },
 ];
 
 export function renderChart(chartType: string, data: ChartProps['data'], config: ChartProps['config']) {
@@ -1171,6 +1531,8 @@ export function renderChart(chartType: string, data: ChartProps['data'], config:
     case 'seasonal': return <SeasonalPlotChart data={data} config={config} />;
     case 'completeness': return <CompletenessChart data={data} config={config} />;
     case 'outliers': return <OutlierTableChart data={data} config={config} />;
+    case 'forecast_actual': return <ForecastVsActualChart data={data} config={config} />;
+    case 'backtest_metrics': return <BacktestMetricsChart data={data} config={config} />;
     default: return <div className="text-muted-foreground p-4">Select a chart type</div>;
   }
 }

@@ -152,6 +152,7 @@ function FlowWithProvider() {
   const [cfgSelectedModels, setCfgSelectedModels] = useState<Record<string, boolean>>(getModelsForPreset("fast"));
 
   // Advanced config state (System)
+  const [cfgGpus, setCfgGpus] = useState("auto");
   const [cfgCpus, setCfgCpus] = useState("auto");
   const [cfgLogLevel, setCfgLogLevel] = useState("info");
   
@@ -161,6 +162,59 @@ function FlowWithProvider() {
     setCfgStaticFeatures(prev => prev.filter(c => !excluded.has(c)));
     setCfgKnownCovariates(prev => prev.filter(c => !excluded.has(c)));
   }, [cfgTargetVar, cfgTimeCol, cfgDfu]);
+
+  const isRestoringRef = useRef(false);
+
+  useEffect(() => {
+    if (selectedNode?.data?.type === 'model_config') {
+      isRestoringRef.current = true;
+      setCfgTargetVar(selectedNode.data.cfgTargetVar || '');
+      setCfgTimeCol(selectedNode.data.cfgTimeCol || '');
+      setCfgDfu(selectedNode.data.cfgDfu || '');
+      setCfgStaticFeatures(selectedNode.data.cfgStaticFeatures || []);
+      setCfgKnownCovariates(selectedNode.data.cfgKnownCovariates || []);
+      setCfgHolidayEnabled(selectedNode.data.cfgHolidayEnabled ?? true);
+      setCfgHolidayCountry(selectedNode.data.cfgHolidayCountry || 'US');
+      setCfgFillMissing(selectedNode.data.cfgFillMissing ?? false);
+      setCfgFillConfigs(selectedNode.data.cfgFillConfigs || {});
+      setCfgOutlierTreatment(selectedNode.data.cfgOutlierTreatment ?? false);
+      setCfgOutlierConfigs(selectedNode.data.cfgOutlierConfigs || {});
+      setCfgEvalMetric(selectedNode.data.cfgEvalMetric || 'MASE');
+      setCfgQuantiles(selectedNode.data.cfgQuantiles || ['0.1', '0.5', '0.9']);
+      setCfgRefitFull(selectedNode.data.cfgRefitFull ?? true);
+      setCfgSelectedModels(selectedNode.data.cfgSelectedModels || getModelsForPreset('fast'));
+      setCfgPreset(selectedNode.data.cfgPreset || 'fast');
+      setCfgTimeLimit(selectedNode.data.cfgTimeLimit || '600');
+      setCfgGpus(selectedNode.data.cfgGpus || 'auto');
+      setCfgCpus(selectedNode.data.cfgCpus || 'auto');
+      setCfgLogLevel(selectedNode.data.cfgLogLevel || 'info');
+      setTimeout(() => { isRestoringRef.current = false; }, 0);
+    }
+  }, [selectedNode?.id]);
+
+  useEffect(() => {
+    if (!selectedNode || selectedNode.data?.type !== 'model_config' || isRestoringRef.current) return;
+    updateNodeData('cfgTargetVar', cfgTargetVar);
+    updateNodeData('cfgTimeCol', cfgTimeCol);
+    updateNodeData('cfgDfu', cfgDfu);
+    updateNodeData('cfgStaticFeatures', cfgStaticFeatures);
+    updateNodeData('cfgKnownCovariates', cfgKnownCovariates);
+    updateNodeData('cfgHolidayEnabled', cfgHolidayEnabled);
+    updateNodeData('cfgHolidayCountry', cfgHolidayCountry);
+    updateNodeData('cfgFillMissing', cfgFillMissing);
+    updateNodeData('cfgFillConfigs', cfgFillConfigs);
+    updateNodeData('cfgOutlierTreatment', cfgOutlierTreatment);
+    updateNodeData('cfgOutlierConfigs', cfgOutlierConfigs);
+    updateNodeData('cfgEvalMetric', cfgEvalMetric);
+    updateNodeData('cfgQuantiles', cfgQuantiles);
+    updateNodeData('cfgRefitFull', cfgRefitFull);
+    updateNodeData('cfgSelectedModels', cfgSelectedModels);
+    updateNodeData('cfgPreset', cfgPreset);
+    updateNodeData('cfgTimeLimit', cfgTimeLimit);
+    updateNodeData('cfgGpus', cfgGpus);
+    updateNodeData('cfgCpus', cfgCpus);
+    updateNodeData('cfgLogLevel', cfgLogLevel);
+  }, [cfgTargetVar, cfgTimeCol, cfgDfu, cfgStaticFeatures, cfgKnownCovariates, cfgHolidayEnabled, cfgHolidayCountry, cfgFillMissing, cfgFillConfigs, cfgOutlierTreatment, cfgOutlierConfigs, cfgEvalMetric, cfgQuantiles, cfgRefitFull, cfgSelectedModels, cfgPreset, cfgTimeLimit, cfgGpus, cfgCpus, cfgLogLevel]);
 
   // Component palette toggle
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -4153,6 +4207,102 @@ function FlowWithProvider() {
                               {getSourceColumns(selectedNode.id).map(col => (
                                 <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
                               ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {selectedNode.data.chartType === 'forecast_actual' && (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-emerald-700">Date Column</Label>
+                          <Select value={selectedNode.data.chartConfig?.dateColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, dateColumn: val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-fva-date"><SelectValue placeholder="Select column..." /></SelectTrigger>
+                            <SelectContent>{getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}</SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Actual Column</Label>
+                          <Select value={selectedNode.data.chartConfig?.actualColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, actualColumn: val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-fva-actual"><SelectValue placeholder="Select column..." /></SelectTrigger>
+                            <SelectContent>{getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}</SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">New Forecast Column</Label>
+                          <Select value={selectedNode.data.chartConfig?.newForecastColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, newForecastColumn: val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-fva-new-forecast"><SelectValue placeholder="Select column..." /></SelectTrigger>
+                            <SelectContent>{getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}</SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Incumbent Forecast <span className="text-muted-foreground">(optional)</span></Label>
+                          <Select value={selectedNode.data.chartConfig?.incumbentForecastColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, incumbentForecastColumn: val === '__none__' ? undefined : val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-fva-incumbent"><SelectValue placeholder="Select column (optional)..." /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__" className="font-mono text-xs text-muted-foreground">None</SelectItem>
+                              {getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}
+                            </SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Fold Column <span className="text-muted-foreground">(optional)</span></Label>
+                          <Select value={selectedNode.data.chartConfig?.foldColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, foldColumn: val === '__none__' ? undefined : val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-fva-fold"><SelectValue placeholder="Select column (optional)..." /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__" className="font-mono text-xs text-muted-foreground">None</SelectItem>
+                              {getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}
+                            </SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Lower Bound <span className="text-muted-foreground">(optional)</span></Label>
+                          <Select value={selectedNode.data.chartConfig?.lowerBoundColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, lowerBoundColumn: val === '__none__' ? undefined : val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-fva-lower"><SelectValue placeholder="Select column (optional)..." /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__" className="font-mono text-xs text-muted-foreground">None</SelectItem>
+                              {getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}
+                            </SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Upper Bound <span className="text-muted-foreground">(optional)</span></Label>
+                          <Select value={selectedNode.data.chartConfig?.upperBoundColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, upperBoundColumn: val === '__none__' ? undefined : val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-fva-upper"><SelectValue placeholder="Select column (optional)..." /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__" className="font-mono text-xs text-muted-foreground">None</SelectItem>
+                              {getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {selectedNode.data.chartType === 'backtest_metrics' && (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-emerald-700">Date Column</Label>
+                          <Select value={selectedNode.data.chartConfig?.dateColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, dateColumn: val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-btm-date"><SelectValue placeholder="Select column..." /></SelectTrigger>
+                            <SelectContent>{getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}</SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Actual Column</Label>
+                          <Select value={selectedNode.data.chartConfig?.actualColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, actualColumn: val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-btm-actual"><SelectValue placeholder="Select column..." /></SelectTrigger>
+                            <SelectContent>{getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}</SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">New Forecast Column</Label>
+                          <Select value={selectedNode.data.chartConfig?.newForecastColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, newForecastColumn: val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-btm-new-forecast"><SelectValue placeholder="Select column..." /></SelectTrigger>
+                            <SelectContent>{getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}</SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Incumbent Forecast <span className="text-muted-foreground">(optional)</span></Label>
+                          <Select value={selectedNode.data.chartConfig?.incumbentForecastColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, incumbentForecastColumn: val === '__none__' ? undefined : val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-btm-incumbent"><SelectValue placeholder="Select column (optional)..." /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__" className="font-mono text-xs text-muted-foreground">None</SelectItem>
+                              {getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}
+                            </SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Fold Column <span className="text-muted-foreground">(optional, for per-fold breakdown)</span></Label>
+                          <Select value={selectedNode.data.chartConfig?.foldColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, foldColumn: val === '__none__' ? undefined : val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-btm-fold"><SelectValue placeholder="Select column (optional)..." /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__" className="font-mono text-xs text-muted-foreground">None</SelectItem>
+                              {getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}
+                            </SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Group Column <span className="text-muted-foreground">(optional, for per-item breakdown)</span></Label>
+                          <Select value={selectedNode.data.chartConfig?.groupColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, groupColumn: val === '__none__' ? undefined : val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-btm-group"><SelectValue placeholder="Select column (optional)..." /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__" className="font-mono text-xs text-muted-foreground">None</SelectItem>
+                              {getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}
                             </SelectContent>
                           </Select>
                         </div>
