@@ -114,7 +114,7 @@ function FlowWithProvider() {
   // Advanced config state (Model Specs)
   const [cfgEvalMetric, setCfgEvalMetric] = useState("MASE");
   const [cfgQuantiles, setCfgQuantiles] = useState<string[]>(["0.1", "0.5", "0.9"]);
-  const [cfgPreset, setCfgPreset] = useState("medium");
+  const [cfgPreset, setCfgPreset] = useState("fast");
   const [cfgTimeLimit, setCfgTimeLimit] = useState("600");
   const [cfgRefitFull, setCfgRefitFull] = useState(true);
 
@@ -129,16 +129,23 @@ function FlowWithProvider() {
   const [cfgRollingWindows, setCfgRollingWindows] = useState<string[]>(["4", "12"]);
   const [cfgHolidayCountry, setCfgHolidayCountry] = useState("US");
 
+  // Preset-to-models mapping
+  const PRESET_MODELS: Record<string, string[]> = {
+    fast: ["naive", "seasonal_naive", "ets", "arima", "auto_arima", "theta", "croston"],
+    medium: ["naive", "seasonal_naive", "ets", "arima", "auto_arima", "theta", "croston", "recursive_tabular", "direct_tabular", "simple_feed_forward", "weighted_ensemble"],
+    high: ["naive", "seasonal_naive", "ets", "arima", "auto_arima", "theta", "croston", "recursive_tabular", "direct_tabular", "simple_feed_forward", "weighted_ensemble", "deepar", "tft"],
+    best: Object.keys(ALL_MODELS),
+  };
+
+  const getModelsForPreset = (preset: string) => {
+    const models = PRESET_MODELS[preset] || PRESET_MODELS.fast;
+    const result: Record<string, boolean> = {};
+    Object.keys(ALL_MODELS).forEach(k => { result[k] = models.includes(k); });
+    return result;
+  };
+
   // Advanced config state (Models & Hyperparameters)
-  const [cfgSelectedModels, setCfgSelectedModels] = useState<Record<string, boolean>>({
-    deepar: true, tft: true, chronos: false, arima: true, ets: true, theta: true,
-    recursive_tabular: true, weighted_ensemble: true
-  });
-  const [cfgModelParams, setCfgModelParams] = useState<Record<string, Record<string, any>>>({
-    deepar: { epochs: 50, learning_rate: 0.001, context_length: 64, num_layers: 2, hidden_size: 40, dropout: 0.1 },
-    tft: { epochs: 100, learning_rate: 0.01, hidden_size: 32, attention_head_size: 4, dropout: 0.1 },
-    arima: { p: 5, d: 2, q: 5, seasonal: true, approximation: false },
-  });
+  const [cfgSelectedModels, setCfgSelectedModels] = useState<Record<string, boolean>>(getModelsForPreset("fast"));
 
   // Advanced config state (System)
   const [cfgCpus, setCfgCpus] = useState("auto");
@@ -2443,7 +2450,7 @@ function FlowWithProvider() {
                                  <Separator />
                                  <div className="space-y-1">
                                    <Label className="text-xs">Presets</Label>
-                                   <Select value={cfgPreset} onValueChange={setCfgPreset}>
+                                   <Select value={cfgPreset} onValueChange={(v) => { setCfgPreset(v); setCfgSelectedModels(getModelsForPreset(v)); }}>
                                      <SelectTrigger className="h-8 text-xs" data-testid="select-preset"><SelectValue /></SelectTrigger>
                                      <SelectContent>
                                        <SelectItem value="fast">Fast</SelectItem>
@@ -2466,7 +2473,7 @@ function FlowWithProvider() {
 
                              <details className="group border rounded-lg">
                                <summary className="flex items-center justify-between p-3 cursor-pointer text-xs font-semibold hover:bg-muted/50">
-                                 Models & Hyperparameters
+                                 Models
                                  <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
                                </summary>
                                <div className="px-3 pb-3 space-y-3">
@@ -2490,42 +2497,6 @@ function FlowWithProvider() {
                                      ))}
                                    </div>
                                  </div>
-
-                                 {Object.entries(cfgSelectedModels).filter(([_, v]) => v).map(([key]) => {
-                                   const params = cfgModelParams[key];
-                                   if (!params || Object.keys(params).length === 0) return null;
-                                   return (
-                                     <div key={key} className="space-y-1.5 border rounded-md p-2">
-                                       <div className="flex items-center justify-between">
-                                         <Label className="text-xs font-medium">{ALL_MODELS[key]?.label}</Label>
-                                         <span className="text-[9px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{ALL_MODELS[key]?.category}</span>
-                                       </div>
-                                       <div className="grid grid-cols-2 gap-2">
-                                         {Object.entries(params).map(([param, value]) => (
-                                           <div key={param} className="space-y-0.5">
-                                             <Label className="text-[10px] text-muted-foreground">{param}</Label>
-                                             {typeof value === 'boolean' ? (
-                                               <Switch
-                                                 checked={value}
-                                                 onCheckedChange={(v) => setCfgModelParams(prev => ({
-                                                   ...prev, [key]: { ...prev[key], [param]: v }
-                                                 }))}
-                                               />
-                                             ) : (
-                                               <Input
-                                                 className="h-7 text-xs"
-                                                 value={value as any}
-                                                 onChange={(e) => setCfgModelParams(prev => ({
-                                                   ...prev, [key]: { ...prev[key], [param]: e.target.value }
-                                                 }))}
-                                               />
-                                             )}
-                                           </div>
-                                         ))}
-                                       </div>
-                                     </div>
-                                   );
-                                 })}
 
                                  {Object.values(cfgSelectedModels).every(v => !v) && (
                                    <p className="text-xs text-muted-foreground italic text-center py-2">No models selected</p>
