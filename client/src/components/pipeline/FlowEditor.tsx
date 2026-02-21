@@ -2118,6 +2118,7 @@ function FlowWithProvider() {
                        {modelMode === 'train' ? (
                           <div className="space-y-3">
                              <Label className="text-xs font-medium">Training Period</Label>
+                             <p className="text-[10px] text-muted-foreground -mt-1">The model trains on data between these dates. Backtest folds are carved from within this window — the model never sees data beyond Train End.</p>
                              <div className="grid grid-cols-2 gap-3">
                                 <div>
                                    <Label className="text-[10px] text-muted-foreground mb-1 block">Train Start</Label>
@@ -2202,7 +2203,6 @@ function FlowWithProvider() {
                                    <Input
                                       type="number"
                                       min={1}
-                                      max={10}
                                       value={selectedNode.data.backtestFolds ?? 3}
                                       onChange={(e) => {
                                          const raw = e.target.value;
@@ -2213,7 +2213,7 @@ function FlowWithProvider() {
                                       onBlur={() => {
                                          const v = selectedNode.data.backtestFolds;
                                          if (v === '' || v === undefined || v === null) { updateNodeData('backtestFolds', 1); return; }
-                                         if (typeof v === 'number') updateNodeData('backtestFolds', Math.min(10, Math.max(1, v)));
+                                         if (typeof v === 'number') updateNodeData('backtestFolds', Math.max(1, v));
                                       }}
                                       className="h-8 text-xs w-20"
                                       data-testid="input-backtest-folds"
