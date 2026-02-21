@@ -233,6 +233,47 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/datasets/:id/column/:column/date-range", async (req, res) => {
+    try {
+      const dataset = await storage.getDataset(req.params.id);
+      if (!dataset) {
+        return res.status(404).json({ error: "Dataset not found" });
+      }
+
+      const columnName = req.params.column;
+      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const records = parse(fileContent, {
+        columns: true,
+        skip_empty_lines: true
+      });
+
+      if (records.length === 0 || !(columnName in records[0])) {
+        return res.status(404).json({ error: "Column not found" });
+      }
+
+      const dates = records
+        .map((r: any) => new Date(r[columnName]))
+        .filter((d: Date) => !isNaN(d.getTime()))
+        .sort((a: Date, b: Date) => a.getTime() - b.getTime());
+
+      if (dates.length === 0) {
+        return res.status(400).json({ error: "No valid dates found in column" });
+      }
+
+      const formatDate = (d: Date) => d.toISOString().split('T')[0];
+
+      res.json({
+        column: columnName,
+        minDate: formatDate(dates[0]),
+        maxDate: formatDate(dates[dates.length - 1]),
+        count: dates.length
+      });
+    } catch (error) {
+      console.error("Error fetching date range:", error);
+      res.status(500).json({ error: "Failed to fetch date range" });
+    }
+  });
+
   // Stratified sampling - sample X% of groups, return all rows for selected groups
   app.post("/api/datasets/:id/stratified-sample", async (req, res) => {
     try {

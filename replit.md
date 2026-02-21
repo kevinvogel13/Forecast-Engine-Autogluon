@@ -161,6 +161,7 @@ Nodes are organized into 4 color-coded groups in the palette:
   - `GET /api/datasets/:id/preview` - Unfiltered dataset preview
   - `POST /api/datasets/:id/filtered-preview` - Preview with filters applied (accepts filters array in body)
   - `GET /api/datasets/:id/column/:column/values` - Unique values for a column (for filter dropdowns)
+  - `GET /api/datasets/:id/column/:column/date-range` - Min/max dates for a date column (for model config date pickers)
 
 ### Filter Node Technical Details
 - Field names: `filterColumn`, `filterOp` (default: 'eq'), `filterValue`, `filterValues` (for isin/notin)

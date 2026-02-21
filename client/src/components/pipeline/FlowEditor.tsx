@@ -662,6 +662,11 @@ function FlowWithProvider() {
   } | null>(null);
   const [columnValuesLoading, setColumnValuesLoading] = useState(false);
 
+  const [configDateRange, setConfigDateRange] = useState<{
+    minDate: string;
+    maxDate: string;
+  } | null>(null);
+
   // State for preview data
   const [previewData, setPreviewData] = useState<{
     columns: string[];
@@ -710,6 +715,39 @@ function FlowWithProvider() {
       setColumnValues(null);
     }
   }, [selectedNode?.data.filterColumn, selectedNode?.data.type, fetchColumnValues]);
+
+  useEffect(() => {
+    if (!selectedNode || selectedNode.data.type !== 'config') { setConfigDateRange(null); return; }
+    if (selectedNode.data.modelMode === 'load') return;
+
+    const datasetId = getSourceDatasetId(selectedNode.id);
+    if (!datasetId) { setConfigDateRange(null); return; }
+
+    const columns = getNodeColumns(selectedNode.id);
+    const dateHints = ['date', 'time', 'period', 'month', 'year', 'day', 'week'];
+    const dateCol = selectedNode.data.configDateColumn ||
+      columns.find(c => dateHints.some(h => c.toLowerCase().includes(h))) || null;
+
+    if (!dateCol) { setConfigDateRange(null); return; }
+
+    if (!selectedNode.data.configDateColumn && dateCol) {
+      updateNodeData('configDateColumn', dateCol);
+    }
+
+    (async () => {
+      try {
+        const resp = await fetch(`/api/datasets/${datasetId}/column/${encodeURIComponent(dateCol)}/date-range`);
+        if (resp.ok) {
+          const data = await resp.json();
+          setConfigDateRange({ minDate: data.minDate, maxDate: data.maxDate });
+          if (!selectedNode.data.trainStart) updateNodeData('trainStart', data.minDate);
+          if (!selectedNode.data.trainEnd) updateNodeData('trainEnd', data.maxDate);
+        } else {
+          setConfigDateRange(null);
+        }
+      } catch { setConfigDateRange(null); }
+    })();
+  }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.configDateColumn, selectedNode?.data.modelMode, getSourceDatasetId, getNodeColumns]);
 
   // Effect to update filter node metadata when filter config changes
   useEffect(() => {
@@ -2035,7 +2073,24 @@ function FlowWithProvider() {
 
                        {modelMode === 'train' ? (
                           <div className="space-y-3">
+                             <div className="space-y-1.5">
+                                <Label className="text-xs font-medium">Date Column</Label>
+                                <select
+                                   value={selectedNode.data.configDateColumn || ''}
+                                   onChange={(e) => updateNodeData('configDateColumn', e.target.value)}
+                                   className="w-full h-8 text-xs rounded-md border border-input bg-background px-3 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                   data-testid="select-date-column"
+                                >
+                                   <option value="">Select date column...</option>
+                                   {getNodeColumns(selectedNode.id).map(col => (
+                                      <option key={col} value={col}>{col}</option>
+                                   ))}
+                                </select>
+                             </div>
                              <Label className="text-xs font-medium">Training Period</Label>
+                             {configDateRange && (
+                                <p className="text-[9px] text-purple-500">Data spans {configDateRange.minDate} to {configDateRange.maxDate}</p>
+                             )}
                              <div className="grid grid-cols-2 gap-3">
                                 <div>
                                    <Label className="text-[10px] text-muted-foreground mb-1 block">Train Start</Label>
@@ -2043,6 +2098,8 @@ function FlowWithProvider() {
                                       type="date"
                                       value={selectedNode.data.trainStart || ''}
                                       onChange={(e) => updateNodeData('trainStart', e.target.value)}
+                                      min={configDateRange?.minDate}
+                                      max={configDateRange?.maxDate}
                                       className="h-8 text-xs"
                                       data-testid="input-train-start"
                                    />
@@ -2053,6 +2110,8 @@ function FlowWithProvider() {
                                       type="date"
                                       value={selectedNode.data.trainEnd || ''}
                                       onChange={(e) => updateNodeData('trainEnd', e.target.value)}
+                                      min={configDateRange?.minDate}
+                                      max={configDateRange?.maxDate}
                                       className="h-8 text-xs"
                                       data-testid="input-train-end"
                                    />
@@ -2079,8 +2138,17 @@ function FlowWithProvider() {
                              <Input
                                 type="number"
                                 min={1}
-                                value={forecastHorizon}
-                                onChange={(e) => updateNodeData('forecastHorizon', parseInt(e.target.value) || 1)}
+                                value={selectedNode.data.forecastHorizon ?? 12}
+                                onChange={(e) => {
+                                   const raw = e.target.value;
+                                   if (raw === '') { updateNodeData('forecastHorizon', ''); return; }
+                                   const val = parseInt(raw);
+                                   if (!isNaN(val)) updateNodeData('forecastHorizon', val);
+                                }}
+                                onBlur={() => {
+                                   const v = selectedNode.data.forecastHorizon;
+                                   if (v === '' || v === undefined || v === null || (typeof v === 'number' && v < 1)) updateNodeData('forecastHorizon', 1);
+                                }}
                                 className="h-8 text-xs w-20"
                                 data-testid="input-forecast-horizon"
                              />
@@ -2108,8 +2176,18 @@ function FlowWithProvider() {
                                       type="number"
                                       min={1}
                                       max={10}
-                                      value={backtestFolds}
-                                      onChange={(e) => updateNodeData('backtestFolds', Math.min(10, Math.max(1, parseInt(e.target.value) || 1)))}
+                                      value={selectedNode.data.backtestFolds ?? 3}
+                                      onChange={(e) => {
+                                         const raw = e.target.value;
+                                         if (raw === '') { updateNodeData('backtestFolds', ''); return; }
+                                         const val = parseInt(raw);
+                                         if (!isNaN(val)) updateNodeData('backtestFolds', val);
+                                      }}
+                                      onBlur={() => {
+                                         const v = selectedNode.data.backtestFolds;
+                                         if (v === '' || v === undefined || v === null) { updateNodeData('backtestFolds', 1); return; }
+                                         if (typeof v === 'number') updateNodeData('backtestFolds', Math.min(10, Math.max(1, v)));
+                                      }}
                                       className="h-8 text-xs w-20"
                                       data-testid="input-backtest-folds"
                                    />
@@ -2120,8 +2198,17 @@ function FlowWithProvider() {
                                       <Input
                                          type="number"
                                          min={1}
-                                         value={backtestStepSize}
-                                         onChange={(e) => updateNodeData('backtestStepSize', parseInt(e.target.value) || 1)}
+                                         value={selectedNode.data.backtestStepSize ?? forecastHorizon}
+                                         onChange={(e) => {
+                                            const raw = e.target.value;
+                                            if (raw === '') { updateNodeData('backtestStepSize', ''); return; }
+                                            const val = parseInt(raw);
+                                            if (!isNaN(val)) updateNodeData('backtestStepSize', val);
+                                         }}
+                                         onBlur={() => {
+                                            const v = selectedNode.data.backtestStepSize;
+                                            if (v === '' || (typeof v === 'number' && v < 1)) updateNodeData('backtestStepSize', 1);
+                                         }}
                                          className="h-8 text-xs w-20"
                                          data-testid="input-backtest-step"
                                       />
@@ -2137,8 +2224,18 @@ function FlowWithProvider() {
                                       <Input
                                          type="number"
                                          min={0}
-                                         value={backtestGap}
-                                         onChange={(e) => updateNodeData('backtestGap', parseInt(e.target.value) || 0)}
+                                         value={selectedNode.data.backtestGap ?? 0}
+                                         onChange={(e) => {
+                                            const raw = e.target.value;
+                                            if (raw === '') { updateNodeData('backtestGap', ''); return; }
+                                            const val = parseInt(raw);
+                                            if (!isNaN(val)) updateNodeData('backtestGap', val);
+                                         }}
+                                         onBlur={() => {
+                                            const v = selectedNode.data.backtestGap;
+                                            if (v === '' || v === undefined || v === null) updateNodeData('backtestGap', 0);
+                                            if (typeof v === 'number' && v < 0) updateNodeData('backtestGap', 0);
+                                         }}
                                          className="h-8 text-xs w-20"
                                          data-testid="input-backtest-gap"
                                       />
