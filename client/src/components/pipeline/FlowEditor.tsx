@@ -1952,6 +1952,9 @@ function FlowWithProvider() {
 
                   {selectedNode.data.type === 'config' && (() => {
                     const modelMode = selectedNode.data.modelMode || 'train';
+                    const dataFrequency = selectedNode.data.dataFrequency || 'monthly';
+                    const freqUnitMap: Record<string, string> = { daily: 'days', weekly: 'weeks', monthly: 'months', quarterly: 'quarters', yearly: 'years' };
+                    const freqUnit = freqUnitMap[dataFrequency] || 'periods';
                     const forecastHorizon = selectedNode.data.forecastHorizon ?? 12;
                     const backtestEnabled = selectedNode.data.backtestEnabled ?? false;
                     const backtestFolds = selectedNode.data.backtestFolds ?? 3;
@@ -2014,6 +2017,22 @@ function FlowWithProvider() {
                           </p>
                        </div>
 
+                       <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Data Frequency</Label>
+                          <select
+                             value={dataFrequency}
+                             onChange={(e) => updateNodeData('dataFrequency', e.target.value)}
+                             className="w-full h-8 text-xs rounded-md border border-input bg-background px-3 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                             data-testid="select-data-frequency"
+                          >
+                             <option value="daily">Daily</option>
+                             <option value="weekly">Weekly</option>
+                             <option value="monthly">Monthly</option>
+                             <option value="quarterly">Quarterly</option>
+                             <option value="yearly">Yearly</option>
+                          </select>
+                       </div>
+
                        {modelMode === 'train' ? (
                           <div className="space-y-3">
                              <Label className="text-xs font-medium">Training Period</Label>
@@ -2065,7 +2084,7 @@ function FlowWithProvider() {
                                 className="h-8 text-xs w-20"
                                 data-testid="input-forecast-horizon"
                              />
-                             <span className="text-[10px] text-muted-foreground">periods ahead</span>
+                             <span className="text-[10px] text-muted-foreground">{freqUnit} ahead</span>
                           </div>
                        </div>
 
@@ -2106,8 +2125,11 @@ function FlowWithProvider() {
                                          className="h-8 text-xs w-20"
                                          data-testid="input-backtest-step"
                                       />
-                                      <span className="text-[10px] text-muted-foreground">periods between folds</span>
+                                      <span className="text-[10px] text-muted-foreground">{freqUnit} between folds</span>
                                    </div>
+                                   {(selectedNode.data.backtestStepSize === undefined || selectedNode.data.backtestStepSize === null) && (
+                                      <p className="text-[9px] text-purple-500">Defaults to forecast horizon ({forecastHorizon} {freqUnit})</p>
+                                   )}
                                 </div>
                                 <div className="space-y-1">
                                    <Label className="text-[10px] text-muted-foreground">Gap</Label>
@@ -2120,7 +2142,7 @@ function FlowWithProvider() {
                                          className="h-8 text-xs w-20"
                                          data-testid="input-backtest-gap"
                                       />
-                                      <span className="text-[10px] text-muted-foreground">periods gap between train and test</span>
+                                      <span className="text-[10px] text-muted-foreground">{freqUnit} gap between train and test</span>
                                    </div>
                                 </div>
                              </div>
@@ -2142,28 +2164,28 @@ function FlowWithProvider() {
                                          <div
                                             className="bg-emerald-400 h-full"
                                             style={{ width: `${(fold.train / maxTotal) * 100}%` }}
-                                            title={`Train: ${fold.train} periods`}
+                                            title={`Train: ${fold.train} ${freqUnit}`}
                                          />
                                       )}
                                       {fold.gap > 0 && (
                                          <div
                                             className="bg-slate-200 h-full"
                                             style={{ width: `${(fold.gap / maxTotal) * 100}%` }}
-                                            title={`Gap: ${fold.gap} periods`}
+                                            title={`Gap: ${fold.gap} ${freqUnit}`}
                                          />
                                       )}
                                       {fold.test > 0 && (
                                          <div
                                             className="bg-amber-400 h-full"
                                             style={{ width: `${(fold.test / maxTotal) * 100}%` }}
-                                            title={`Backtest: ${fold.test} periods`}
+                                            title={`Backtest: ${fold.test} ${freqUnit}`}
                                          />
                                       )}
                                       {fold.inference > 0 && (
                                          <div
                                             className="bg-blue-400 h-full"
                                             style={{ width: `${(fold.inference / maxTotal) * 100}%` }}
-                                            title={`Inference: ${fold.inference} periods`}
+                                            title={`Inference: ${fold.inference} ${freqUnit}`}
                                          />
                                       )}
                                    </div>

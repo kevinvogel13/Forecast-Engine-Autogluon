@@ -138,17 +138,19 @@ Nodes are organized into 4 color-coded groups in the palette:
   - Train/Load toggle: Train (build new model) or Load (use existing model)
   - Train mode: Training period date range (trainStart, trainEnd)
   - Load mode: Model path input (modelPath)
-  - Forecast Horizon: Always visible, periods ahead (forecastHorizon, default: 12)
+  - Data Frequency selector: Daily, Weekly, Monthly (default), Quarterly, Yearly (dataFrequency)
+    - All time-unit labels dynamically update based on selected frequency (e.g., "months ahead", "weeks between folds")
+  - Forecast Horizon: Always visible, shows "{frequency unit} ahead" (forecastHorizon, default: 12)
   - Backtesting toggle with walk-forward time series cross-validation
     - Number of folds (backtestFolds, default: 3)
-    - Step size between folds (backtestStepSize)
+    - Step size between folds (backtestStepSize, defaults to forecast horizon with visual indicator)
     - Gap between train and test (backtestGap, default: 0)
   - Walk-Forward CV Visual Plan: Live bar chart showing proportional colored bars
     - Green (emerald) = Training, Yellow (amber) = Backtesting, Blue = Inference
     - One row per fold with expanding training window
     - Updates in real-time as user changes settings
   - Configure Pipeline button opens full-screen advanced settings dialog
-  - Node data fields: modelMode, trainStart, trainEnd, modelPath, forecastHorizon, backtestEnabled, backtestFolds, backtestStepSize, backtestGap
+  - Node data fields: modelMode, trainStart, trainEnd, modelPath, dataFrequency, forecastHorizon, backtestEnabled, backtestFolds, backtestStepSize, backtestGap
 - **Output**: View forecast results
 
 ### Data Flow & Preview
