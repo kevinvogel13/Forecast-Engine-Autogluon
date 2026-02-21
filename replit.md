@@ -131,9 +131,24 @@ Nodes are organized into 4 color-coded groups in the palette:
   - Order persisted in `explorationOrder` array on report node data
   - Up/down arrow buttons and native HTML drag-and-drop for reordering
   - Report title configuration
-  - Export HTML Report button (pending implementation)
+  - Export HTML Report with filename dialog and standalone HTML generation
+  - Export works without requiring preview dialog to be open (auto-loads data)
   - Violet color theme
-- **Model Config**: AutoGluon forecast model configuration
+- **Model Config**: AutoGluon forecast model configuration with planning workflow
+  - Train/Load toggle: Train (build new model) or Load (use existing model)
+  - Train mode: Training period date range (trainStart, trainEnd)
+  - Load mode: Model path input (modelPath)
+  - Forecast Horizon: Always visible, periods ahead (forecastHorizon, default: 12)
+  - Backtesting toggle with walk-forward time series cross-validation
+    - Number of folds (backtestFolds, default: 3)
+    - Step size between folds (backtestStepSize)
+    - Gap between train and test (backtestGap, default: 0)
+  - Walk-Forward CV Visual Plan: Live bar chart showing proportional colored bars
+    - Green (emerald) = Training, Yellow (amber) = Backtesting, Blue = Inference
+    - One row per fold with expanding training window
+    - Updates in real-time as user changes settings
+  - Configure Pipeline button opens full-screen advanced settings dialog
+  - Node data fields: modelMode, trainStart, trainEnd, modelPath, forecastHorizon, backtestEnabled, backtestFolds, backtestStepSize, backtestGap
 - **Output**: View forecast results
 
 ### Data Flow & Preview

@@ -20,7 +20,8 @@ import {
  
 import '@xyflow/react/dist/style.css';
 import { Button } from '@/components/ui/button';
-import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown, GitMerge, FilePlus, GripVertical, ArrowUp, ArrowDown } from 'lucide-react';
+import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown, GitMerge, FilePlus, GripVertical, ArrowUp, ArrowDown, Upload, Cpu } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -1949,22 +1950,239 @@ function FlowWithProvider() {
                      </div>
                   )}
 
-                  {selectedNode.data.type === 'config' && (
-                    <div className="space-y-4 border rounded-md p-4 bg-purple-50/50 border-purple-100">
-                       <div className="flex flex-col items-center justify-center text-center space-y-3 py-2">
-                          <div className="bg-purple-100 p-3 rounded-full">
-                             <Settings2 className="w-6 h-6 text-purple-600" />
-                          </div>
-                          <div>
-                             <h4 className="text-sm font-semibold text-purple-900">Model Configuration</h4>
-                             <p className="text-xs text-purple-700 mt-1">Configure forecasting models, hyperparameters, and feature engineering.</p>
-                          </div>
-                          <Button className="w-full bg-purple-600 hover:bg-purple-700" onClick={() => setConfigOpen(true)}>
-                             Configure Pipeline
-                          </Button>
+                  {selectedNode.data.type === 'config' && (() => {
+                    const modelMode = selectedNode.data.modelMode || 'train';
+                    const forecastHorizon = selectedNode.data.forecastHorizon ?? 12;
+                    const backtestEnabled = selectedNode.data.backtestEnabled ?? false;
+                    const backtestFolds = selectedNode.data.backtestFolds ?? 3;
+                    const backtestStepSize = selectedNode.data.backtestStepSize ?? forecastHorizon;
+                    const backtestGap = selectedNode.data.backtestGap ?? 0;
+
+                    let trainPeriods = 24;
+                    if (selectedNode.data.trainStart && selectedNode.data.trainEnd) {
+                      const start = new Date(selectedNode.data.trainStart);
+                      const end = new Date(selectedNode.data.trainEnd);
+                      const diffMs = end.getTime() - start.getTime();
+                      trainPeriods = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24 * 30.44)));
+                    }
+
+                    const folds: Array<{ train: number; test: number; gap: number; inference: number }> = [];
+                    if (backtestEnabled && backtestFolds > 0) {
+                      for (let i = 0; i < backtestFolds; i++) {
+                        const foldTrain = trainPeriods - (backtestFolds - 1 - i) * backtestStepSize;
+                        const isLast = i === backtestFolds - 1;
+                        folds.push({
+                          train: Math.max(1, foldTrain),
+                          test: forecastHorizon,
+                          gap: backtestGap,
+                          inference: isLast ? forecastHorizon : 0,
+                        });
+                      }
+                    } else {
+                      folds.push({ train: trainPeriods, test: 0, gap: 0, inference: forecastHorizon });
+                    }
+
+                    const maxTotal = Math.max(...folds.map(f => f.train + f.gap + f.test + f.inference));
+
+                    return (
+                    <div className="space-y-5 border rounded-md p-4 bg-purple-50/50 border-purple-100">
+                       <div>
+                          <h4 className="text-sm font-semibold text-purple-900 mb-1">Model Configuration</h4>
+                          <p className="text-xs text-purple-700">Plan your model training, backtesting, and forecast strategy.</p>
                        </div>
+
+                       <div>
+                          <Label className="text-xs font-medium mb-1.5 block">Model Source</Label>
+                          <div className="flex rounded-md border overflow-hidden" data-testid="model-mode-toggle">
+                             <button
+                                className={cn("flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors", modelMode === 'train' ? "bg-purple-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50")}
+                                onClick={() => updateNodeData('modelMode', 'train')}
+                                data-testid="model-mode-train"
+                             >
+                                <Cpu className="w-3.5 h-3.5" /> Train
+                             </button>
+                             <button
+                                className={cn("flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-l", modelMode === 'load' ? "bg-purple-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50")}
+                                onClick={() => updateNodeData('modelMode', 'load')}
+                                data-testid="model-mode-load"
+                             >
+                                <Upload className="w-3.5 h-3.5" /> Load
+                             </button>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground mt-1">
+                             {modelMode === 'train' ? 'Build a new model from your data' : 'Use a previously trained model'}
+                          </p>
+                       </div>
+
+                       {modelMode === 'train' ? (
+                          <div className="space-y-3">
+                             <Label className="text-xs font-medium">Training Period</Label>
+                             <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                   <Label className="text-[10px] text-muted-foreground mb-1 block">Train Start</Label>
+                                   <Input
+                                      type="date"
+                                      value={selectedNode.data.trainStart || ''}
+                                      onChange={(e) => updateNodeData('trainStart', e.target.value)}
+                                      className="h-8 text-xs"
+                                      data-testid="input-train-start"
+                                   />
+                                </div>
+                                <div>
+                                   <Label className="text-[10px] text-muted-foreground mb-1 block">Train End</Label>
+                                   <Input
+                                      type="date"
+                                      value={selectedNode.data.trainEnd || ''}
+                                      onChange={(e) => updateNodeData('trainEnd', e.target.value)}
+                                      className="h-8 text-xs"
+                                      data-testid="input-train-end"
+                                   />
+                                </div>
+                             </div>
+                          </div>
+                       ) : (
+                          <div className="space-y-2">
+                             <Label className="text-xs font-medium">Model Path</Label>
+                             <Input
+                                type="text"
+                                placeholder="path/to/model"
+                                value={selectedNode.data.modelPath || ''}
+                                onChange={(e) => updateNodeData('modelPath', e.target.value)}
+                                className="h-8 text-xs"
+                                data-testid="input-model-path"
+                             />
+                          </div>
+                       )}
+
+                       <div className="space-y-2">
+                          <Label className="text-xs font-medium">Forecast Horizon</Label>
+                          <div className="flex items-center gap-2">
+                             <Input
+                                type="number"
+                                min={1}
+                                value={forecastHorizon}
+                                onChange={(e) => updateNodeData('forecastHorizon', parseInt(e.target.value) || 1)}
+                                className="h-8 text-xs w-20"
+                                data-testid="input-forecast-horizon"
+                             />
+                             <span className="text-[10px] text-muted-foreground">periods ahead</span>
+                          </div>
+                       </div>
+
+                       <Separator />
+
+                       <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                             <Label className="text-xs font-medium">Enable Backtesting</Label>
+                             <Switch
+                                checked={backtestEnabled}
+                                onCheckedChange={(checked) => updateNodeData('backtestEnabled', checked)}
+                                data-testid="switch-backtest"
+                             />
+                          </div>
+
+                          {backtestEnabled && (
+                             <div className="space-y-3 pl-1">
+                                <div className="space-y-1">
+                                   <Label className="text-[10px] text-muted-foreground">Number of Folds</Label>
+                                   <Input
+                                      type="number"
+                                      min={1}
+                                      max={10}
+                                      value={backtestFolds}
+                                      onChange={(e) => updateNodeData('backtestFolds', Math.min(10, Math.max(1, parseInt(e.target.value) || 1)))}
+                                      className="h-8 text-xs w-20"
+                                      data-testid="input-backtest-folds"
+                                   />
+                                </div>
+                                <div className="space-y-1">
+                                   <Label className="text-[10px] text-muted-foreground">Step Size</Label>
+                                   <div className="flex items-center gap-2">
+                                      <Input
+                                         type="number"
+                                         min={1}
+                                         value={backtestStepSize}
+                                         onChange={(e) => updateNodeData('backtestStepSize', parseInt(e.target.value) || 1)}
+                                         className="h-8 text-xs w-20"
+                                         data-testid="input-backtest-step"
+                                      />
+                                      <span className="text-[10px] text-muted-foreground">periods between folds</span>
+                                   </div>
+                                </div>
+                                <div className="space-y-1">
+                                   <Label className="text-[10px] text-muted-foreground">Gap</Label>
+                                   <div className="flex items-center gap-2">
+                                      <Input
+                                         type="number"
+                                         min={0}
+                                         value={backtestGap}
+                                         onChange={(e) => updateNodeData('backtestGap', parseInt(e.target.value) || 0)}
+                                         className="h-8 text-xs w-20"
+                                         data-testid="input-backtest-gap"
+                                      />
+                                      <span className="text-[10px] text-muted-foreground">periods gap between train and test</span>
+                                   </div>
+                                </div>
+                             </div>
+                          )}
+                       </div>
+
+                       <Separator />
+
+                       <div className="space-y-2">
+                          <Label className="text-xs font-medium">Walk-Forward Plan</Label>
+                          <div className="space-y-1.5 bg-white rounded-md border p-3">
+                             {folds.map((fold, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                   <span className="text-[9px] text-muted-foreground w-10 shrink-0 text-right">
+                                      {backtestEnabled ? `Fold ${i + 1}` : ''}
+                                   </span>
+                                   <div className="flex-1 flex h-5 rounded overflow-hidden bg-slate-100">
+                                      {fold.train > 0 && (
+                                         <div
+                                            className="bg-emerald-400 h-full"
+                                            style={{ width: `${(fold.train / maxTotal) * 100}%` }}
+                                            title={`Train: ${fold.train} periods`}
+                                         />
+                                      )}
+                                      {fold.gap > 0 && (
+                                         <div
+                                            className="bg-slate-200 h-full"
+                                            style={{ width: `${(fold.gap / maxTotal) * 100}%` }}
+                                            title={`Gap: ${fold.gap} periods`}
+                                         />
+                                      )}
+                                      {fold.test > 0 && (
+                                         <div
+                                            className="bg-amber-400 h-full"
+                                            style={{ width: `${(fold.test / maxTotal) * 100}%` }}
+                                            title={`Backtest: ${fold.test} periods`}
+                                         />
+                                      )}
+                                      {fold.inference > 0 && (
+                                         <div
+                                            className="bg-blue-400 h-full"
+                                            style={{ width: `${(fold.inference / maxTotal) * 100}%` }}
+                                            title={`Inference: ${fold.inference} periods`}
+                                         />
+                                      )}
+                                   </div>
+                                </div>
+                             ))}
+                          </div>
+                          <div className="flex items-center gap-3 text-[9px] text-muted-foreground pt-1">
+                             <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm bg-emerald-400" /> Training</div>
+                             <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm bg-amber-400" /> Backtesting</div>
+                             <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm bg-blue-400" /> Inference</div>
+                          </div>
+                       </div>
+
+                       <Button className="w-full bg-purple-600 hover:bg-purple-700" onClick={() => setConfigOpen(true)} data-testid="button-configure-pipeline">
+                          Configure Pipeline
+                       </Button>
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {selectedNode.data.type === 'output' && (
                     <div className="space-y-4 border rounded-md p-4 bg-green-50/50 border-green-100">
