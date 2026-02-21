@@ -79,6 +79,22 @@ const defaultEdgeStyle = {
 
 const initialEdges: any[] = [];
 
+const FREQ_LAG_DEFAULTS: Record<string, string[]> = {
+  daily: ["1", "7", "14", "28", "365"],
+  weekly: ["1", "4", "13", "26", "52"],
+  monthly: ["1", "3", "6", "12"],
+  quarterly: ["1", "2", "4"],
+  yearly: ["1", "2", "3"],
+};
+
+const FREQ_ROLLING_DEFAULTS: Record<string, string[]> = {
+  daily: ["7", "14", "30", "90"],
+  weekly: ["4", "13", "26", "52"],
+  monthly: ["3", "6", "12", "24"],
+  quarterly: ["2", "4"],
+  yearly: ["2", "3", "5"],
+};
+
 
 const getId = () => `node_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -119,14 +135,18 @@ function FlowWithProvider() {
   const [cfgRefitFull, setCfgRefitFull] = useState(true);
 
   // Advanced config state (Feature Engineering)
-  const [cfgTargetVar, setCfgTargetVar] = useState("sales");
-  const [cfgTimeCol, setCfgTimeCol] = useState("date");
-  const [cfgDfu, setCfgDfu] = useState("sku");
+  const [cfgTargetVar, setCfgTargetVar] = useState("");
+  const [cfgTimeCol, setCfgTimeCol] = useState("");
+  const [cfgDfu, setCfgDfu] = useState("");
+  const [cfgStaticFeatures, setCfgStaticFeatures] = useState<string[]>([]);
+  const [cfgKnownCovariates, setCfgKnownCovariates] = useState<string[]>([]);
   const [cfgFeatures, setCfgFeatures] = useState({ lagged: true, holidays: true, dateParts: true, rolling: true });
-  const [cfgLags, setCfgLags] = useState<string[]>(["1", "3", "6", "12"]);
+  const [cfgLagColumns, setCfgLagColumns] = useState<string[]>([]);
+  const [cfgLags, setCfgLags] = useState<string[]>([]);
   const [cfgDateParts, setCfgDateParts] = useState<string[]>(["year", "month", "dayofweek"]);
+  const [cfgRollingColumns, setCfgRollingColumns] = useState<string[]>([]);
   const [cfgRollingStats, setCfgRollingStats] = useState<string[]>(["mean", "std"]);
-  const [cfgRollingWindows, setCfgRollingWindows] = useState<string[]>(["4", "12"]);
+  const [cfgRollingWindows, setCfgRollingWindows] = useState<string[]>([]);
   const [cfgHolidayCountry, setCfgHolidayCountry] = useState("US");
 
   // Preset-to-models mapping
@@ -151,6 +171,22 @@ function FlowWithProvider() {
   const [cfgCpus, setCfgCpus] = useState("auto");
   const [cfgLogLevel, setCfgLogLevel] = useState("info");
   
+  // Update lag/rolling presets when data frequency changes
+  useEffect(() => {
+    if (selectedNode?.data?.type === 'config') {
+      const freq = selectedNode.data.dataFrequency || 'monthly';
+      setCfgLags(FREQ_LAG_DEFAULTS[freq] || FREQ_LAG_DEFAULTS.monthly);
+      setCfgRollingWindows(FREQ_ROLLING_DEFAULTS[freq] || FREQ_ROLLING_DEFAULTS.monthly);
+    }
+  }, [selectedNode?.data?.dataFrequency]);
+
+  // Clean up selected features when schema columns change
+  useEffect(() => {
+    const excluded = new Set([cfgTargetVar, cfgTimeCol, cfgDfu].filter(Boolean));
+    setCfgStaticFeatures(prev => prev.filter(c => !excluded.has(c)));
+    setCfgKnownCovariates(prev => prev.filter(c => !excluded.has(c)));
+  }, [cfgTargetVar, cfgTimeCol, cfgDfu]);
+
   // Component palette toggle
   const [paletteOpen, setPaletteOpen] = useState(false);
   
@@ -2511,54 +2547,100 @@ function FlowWithProvider() {
                                </summary>
                                <div className="px-3 pb-3 space-y-3">
                                  <div className="space-y-1">
+                                   <Label className="text-xs font-semibold">Dataset Schema</Label>
+                                   <p className="text-[10px] text-muted-foreground">Map your dataset columns to AutoGluon's expected inputs.</p>
+                                 </div>
+                                 <div className="space-y-1">
                                    <Label className="text-xs">Target Variable</Label>
-                                   <Select value={cfgTargetVar} onValueChange={setCfgTargetVar}>
-                                     <SelectTrigger className="h-8 text-xs" data-testid="select-target-var"><SelectValue /></SelectTrigger>
-                                     <SelectContent>
-                                       <SelectItem value="sales">sales_quantity</SelectItem>
-                                       <SelectItem value="revenue">revenue_amt</SelectItem>
-                                       <SelectItem value="units">units_sold</SelectItem>
-                                     </SelectContent>
-                                   </Select>
+                                   <select value={cfgTargetVar} onChange={e => setCfgTargetVar(e.target.value)} className="w-full h-8 text-xs rounded-md border border-input bg-background px-3 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" data-testid="select-target-var">
+                                     <option value="">Select column...</option>
+                                     {getNodeColumns(selectedNode.id).map(col => (
+                                       <option key={col} value={col}>{col}</option>
+                                     ))}
+                                   </select>
                                  </div>
                                  <div className="space-y-1">
-                                   <Label className="text-xs">Time Column</Label>
-                                   <Select value={cfgTimeCol} onValueChange={setCfgTimeCol}>
-                                     <SelectTrigger className="h-8 text-xs" data-testid="select-time-col"><SelectValue /></SelectTrigger>
-                                     <SelectContent>
-                                       <SelectItem value="date">transaction_date</SelectItem>
-                                       <SelectItem value="ts">timestamp</SelectItem>
-                                     </SelectContent>
-                                   </Select>
+                                   <Label className="text-xs">Timestamp Column</Label>
+                                   <select value={cfgTimeCol} onChange={e => setCfgTimeCol(e.target.value)} className="w-full h-8 text-xs rounded-md border border-input bg-background px-3 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" data-testid="select-time-col">
+                                     <option value="">Select column...</option>
+                                     {getNodeColumns(selectedNode.id).map(col => (
+                                       <option key={col} value={col}>{col}</option>
+                                     ))}
+                                   </select>
                                  </div>
                                  <div className="space-y-1">
-                                   <Label className="text-xs">DFU (ID Column)</Label>
-                                   <Select value={cfgDfu} onValueChange={setCfgDfu}>
-                                     <SelectTrigger className="h-8 text-xs" data-testid="select-dfu"><SelectValue /></SelectTrigger>
-                                     <SelectContent>
-                                       <SelectItem value="sku">product_sku</SelectItem>
-                                       <SelectItem value="store">store_id</SelectItem>
-                                       <SelectItem value="combo">sku_store_combo</SelectItem>
-                                     </SelectContent>
-                                   </Select>
+                                   <Label className="text-xs">Item ID (DFU)</Label>
+                                   <select value={cfgDfu} onChange={e => setCfgDfu(e.target.value)} className="w-full h-8 text-xs rounded-md border border-input bg-background px-3 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" data-testid="select-dfu">
+                                     <option value="">Select column...</option>
+                                     {getNodeColumns(selectedNode.id).map(col => (
+                                       <option key={col} value={col}>{col}</option>
+                                     ))}
+                                   </select>
                                  </div>
+
                                  <Separator />
+
+                                 <div className="space-y-1">
+                                   <Label className="text-xs font-semibold">Static Features</Label>
+                                   <p className="text-[10px] text-muted-foreground">Columns that don't change over time per item (e.g., category, region).</p>
+                                   <div className="border rounded-md max-h-28 overflow-y-auto p-1.5 space-y-0.5">
+                                     {getNodeColumns(selectedNode.id).filter(c => c !== cfgTargetVar && c !== cfgTimeCol && c !== cfgDfu).map(col => (
+                                       <label key={col} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
+                                         <Checkbox checked={cfgStaticFeatures.includes(col)} onCheckedChange={() => setCfgStaticFeatures(prev => prev.includes(col) ? prev.filter(v => v !== col) : [...prev, col])} className="h-3.5 w-3.5" />
+                                         {col}
+                                       </label>
+                                     ))}
+                                   </div>
+                                 </div>
+
+                                 <div className="space-y-1">
+                                   <Label className="text-xs font-semibold">Known Covariates</Label>
+                                   <p className="text-[10px] text-muted-foreground">Columns whose future values are known (e.g., promotions, price).</p>
+                                   <div className="border rounded-md max-h-28 overflow-y-auto p-1.5 space-y-0.5">
+                                     {getNodeColumns(selectedNode.id).filter(c => c !== cfgTargetVar && c !== cfgTimeCol && c !== cfgDfu).map(col => (
+                                       <label key={col} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
+                                         <Checkbox checked={cfgKnownCovariates.includes(col)} onCheckedChange={() => setCfgKnownCovariates(prev => prev.includes(col) ? prev.filter(v => v !== col) : [...prev, col])} className="h-3.5 w-3.5" />
+                                         {col}
+                                       </label>
+                                     ))}
+                                   </div>
+                                 </div>
+
+                                 <Separator />
+
                                  <div className="space-y-2">
                                    <div className="flex items-center justify-between">
                                      <Label className="text-xs font-semibold">Lagged Features</Label>
                                      <Switch checked={cfgFeatures.lagged} onCheckedChange={v => setCfgFeatures(p => ({ ...p, lagged: v }))} data-testid="switch-lagged" />
                                    </div>
                                    {cfgFeatures.lagged && (
-                                     <div className="border rounded-md max-h-28 overflow-y-auto p-1.5 space-y-0.5">
-                                       {LAG_OPTIONS.map(l => (
-                                         <label key={l.value} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
-                                           <Checkbox checked={cfgLags.includes(l.value)} onCheckedChange={() => setCfgLags(prev => toggleInArray(prev, l.value))} className="h-3.5 w-3.5" />
-                                           {l.label}
-                                         </label>
-                                       ))}
-                                     </div>
+                                     <>
+                                       <div className="space-y-1">
+                                         <Label className="text-[10px] text-muted-foreground">Apply to Columns</Label>
+                                         <div className="border rounded-md max-h-24 overflow-y-auto p-1.5 space-y-0.5">
+                                           {getNodeColumns(selectedNode.id).filter(c => c !== cfgTimeCol && c !== cfgDfu).map(col => (
+                                             <label key={col} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
+                                               <Checkbox checked={cfgLagColumns.includes(col)} onCheckedChange={() => setCfgLagColumns(prev => prev.includes(col) ? prev.filter(v => v !== col) : [...prev, col])} className="h-3.5 w-3.5" />
+                                               {col}
+                                             </label>
+                                           ))}
+                                         </div>
+                                       </div>
+                                       <div className="space-y-1">
+                                         <Label className="text-[10px] text-muted-foreground">Lag Periods</Label>
+                                         <div className="border rounded-md max-h-24 overflow-y-auto p-1.5 space-y-0.5">
+                                           {LAG_OPTIONS.map(l => (
+                                             <label key={l.value} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
+                                               <Checkbox checked={cfgLags.includes(l.value)} onCheckedChange={() => setCfgLags(prev => toggleInArray(prev, l.value))} className="h-3.5 w-3.5" />
+                                               {l.label}
+                                             </label>
+                                           ))}
+                                         </div>
+                                       </div>
+                                     </>
                                    )}
                                  </div>
+
                                  <div className="space-y-2">
                                    <div className="flex items-center justify-between">
                                      <Label className="text-xs font-semibold">Date Parts</Label>
@@ -2575,6 +2657,7 @@ function FlowWithProvider() {
                                      </div>
                                    )}
                                  </div>
+
                                  <div className="space-y-2">
                                    <div className="flex items-center justify-between">
                                      <Label className="text-xs font-semibold">Rolling Statistics</Label>
@@ -2582,6 +2665,17 @@ function FlowWithProvider() {
                                    </div>
                                    {cfgFeatures.rolling && (
                                      <>
+                                       <div className="space-y-1">
+                                         <Label className="text-[10px] text-muted-foreground">Apply to Columns</Label>
+                                         <div className="border rounded-md max-h-24 overflow-y-auto p-1.5 space-y-0.5">
+                                           {getNodeColumns(selectedNode.id).filter(c => c !== cfgTimeCol && c !== cfgDfu).map(col => (
+                                             <label key={col} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
+                                               <Checkbox checked={cfgRollingColumns.includes(col)} onCheckedChange={() => setCfgRollingColumns(prev => prev.includes(col) ? prev.filter(v => v !== col) : [...prev, col])} className="h-3.5 w-3.5" />
+                                               {col}
+                                             </label>
+                                           ))}
+                                         </div>
+                                       </div>
                                        <div className="space-y-1">
                                          <Label className="text-[10px] text-muted-foreground">Statistics</Label>
                                          <div className="border rounded-md max-h-24 overflow-y-auto p-1.5 space-y-0.5">
@@ -2607,6 +2701,7 @@ function FlowWithProvider() {
                                      </>
                                    )}
                                  </div>
+
                                  <div className="space-y-2">
                                    <div className="flex items-center justify-between">
                                      <Label className="text-xs font-semibold">Holiday Features</Label>
