@@ -79,22 +79,6 @@ const defaultEdgeStyle = {
 
 const initialEdges: any[] = [];
 
-const FREQ_LAG_DEFAULTS: Record<string, string[]> = {
-  daily: ["1", "7", "14", "28", "365"],
-  weekly: ["1", "4", "13", "26", "52"],
-  monthly: ["1", "3", "6", "12"],
-  quarterly: ["1", "2", "4"],
-  yearly: ["1", "2", "3"],
-};
-
-const FREQ_ROLLING_DEFAULTS: Record<string, string[]> = {
-  daily: ["7", "14", "30", "90"],
-  weekly: ["4", "13", "26", "52"],
-  monthly: ["3", "6", "12", "24"],
-  quarterly: ["2", "4"],
-  yearly: ["2", "3", "5"],
-};
-
 
 const getId = () => `node_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -140,14 +124,19 @@ function FlowWithProvider() {
   const [cfgDfu, setCfgDfu] = useState("");
   const [cfgStaticFeatures, setCfgStaticFeatures] = useState<string[]>([]);
   const [cfgKnownCovariates, setCfgKnownCovariates] = useState<string[]>([]);
-  const [cfgFeatures, setCfgFeatures] = useState({ lagged: true, holidays: true, dateParts: true, rolling: true });
-  const [cfgLagColumns, setCfgLagColumns] = useState<string[]>([]);
-  const [cfgLags, setCfgLags] = useState<string[]>([]);
-  const [cfgDateParts, setCfgDateParts] = useState<string[]>(["year", "month", "dayofweek"]);
-  const [cfgRollingColumns, setCfgRollingColumns] = useState<string[]>([]);
-  const [cfgRollingStats, setCfgRollingStats] = useState<string[]>(["mean", "std"]);
-  const [cfgRollingWindows, setCfgRollingWindows] = useState<string[]>([]);
+  const [cfgHolidayEnabled, setCfgHolidayEnabled] = useState(true);
   const [cfgHolidayCountry, setCfgHolidayCountry] = useState("US");
+
+  // Advanced config state (Data Preprocessing - applied within train/test splits)
+  const [cfgFillMissing, setCfgFillMissing] = useState(false);
+  const [cfgFillStrategy, setCfgFillStrategy] = useState("ffill");
+  const [cfgFillColumns, setCfgFillColumns] = useState<string[]>([]);
+  const [cfgFillConstant, setCfgFillConstant] = useState("");
+  const [cfgOutlierTreatment, setCfgOutlierTreatment] = useState(false);
+  const [cfgOutlierColumn, setCfgOutlierColumn] = useState("");
+  const [cfgOutlierMethod, setCfgOutlierMethod] = useState("iqr");
+  const [cfgOutlierThreshold, setCfgOutlierThreshold] = useState("1.5");
+  const [cfgOutlierAction, setCfgOutlierAction] = useState("cap");
 
   // Preset-to-models mapping
   const PRESET_MODELS: Record<string, string[]> = {
@@ -171,15 +160,6 @@ function FlowWithProvider() {
   const [cfgCpus, setCfgCpus] = useState("auto");
   const [cfgLogLevel, setCfgLogLevel] = useState("info");
   
-  // Update lag/rolling presets when data frequency changes
-  useEffect(() => {
-    if (selectedNode?.data?.type === 'config') {
-      const freq = selectedNode.data.dataFrequency || 'monthly';
-      setCfgLags(FREQ_LAG_DEFAULTS[freq] || FREQ_LAG_DEFAULTS.monthly);
-      setCfgRollingWindows(FREQ_ROLLING_DEFAULTS[freq] || FREQ_ROLLING_DEFAULTS.monthly);
-    }
-  }, [selectedNode?.data?.dataFrequency]);
-
   // Clean up selected features when schema columns change
   useEffect(() => {
     const excluded = new Set([cfgTargetVar, cfgTimeCol, cfgDfu].filter(Boolean));
@@ -2432,24 +2412,6 @@ function FlowWithProvider() {
                            { value: "0.9", label: "P90" }, { value: "0.95", label: "P95" },
                            { value: "0.99", label: "P99" },
                          ];
-                         const ROLLING_STATS = [
-                           { value: "mean", label: "Mean" }, { value: "std", label: "Std Dev" },
-                           { value: "min", label: "Min" }, { value: "max", label: "Max" },
-                           { value: "median", label: "Median" }, { value: "sum", label: "Sum" },
-                           { value: "skew", label: "Skew" }, { value: "kurtosis", label: "Kurtosis" },
-                           { value: "var", label: "Variance" },
-                         ];
-                         const DATE_PARTS = [
-                           { value: "year", label: "Year" }, { value: "quarter", label: "Quarter" },
-                           { value: "month", label: "Month" }, { value: "week", label: "Week" },
-                           { value: "day", label: "Day" }, { value: "dayofweek", label: "Day of Week" },
-                           { value: "dayofyear", label: "Day of Year" }, { value: "is_weekend", label: "Weekend" },
-                           { value: "is_month_start", label: "Month Start" }, { value: "is_month_end", label: "Month End" },
-                         ];
-                         const freqLabel = { Daily: "Days", Weekly: "Weeks", Monthly: "Months", Quarterly: "Quarters", Yearly: "Years", Hourly: "Hours" }[selectedNode.data.dataFrequency || "Monthly"] || "Periods";
-                         const ROLLING_WINDOWS = Array.from({ length: 24 }, (_, i) => ({ value: (i + 2).toString(), label: `${i + 2} ${freqLabel}` }));
-                         const LAG_OPTIONS = [{ value: "1", label: "Lag 1" }, ...Array.from({ length: 24 }, (_, i) => ({ value: (i + 2).toString(), label: `Lag ${i + 2}` }))];
-
                          const toggleInArray = (arr: string[], val: string) => arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val];
 
                          return (
@@ -2610,104 +2572,10 @@ function FlowWithProvider() {
 
                                  <div className="space-y-2">
                                    <div className="flex items-center justify-between">
-                                     <Label className="text-xs font-semibold">Lagged Features</Label>
-                                     <Switch checked={cfgFeatures.lagged} onCheckedChange={v => setCfgFeatures(p => ({ ...p, lagged: v }))} data-testid="switch-lagged" />
-                                   </div>
-                                   {cfgFeatures.lagged && (
-                                     <>
-                                       <div className="space-y-1">
-                                         <Label className="text-[10px] text-muted-foreground">Apply to Columns</Label>
-                                         <div className="border rounded-md max-h-24 overflow-y-auto p-1.5 space-y-0.5">
-                                           {getNodeColumns(selectedNode.id).filter(c => c !== cfgTimeCol && c !== cfgDfu).map(col => (
-                                             <label key={col} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
-                                               <Checkbox checked={cfgLagColumns.includes(col)} onCheckedChange={() => setCfgLagColumns(prev => prev.includes(col) ? prev.filter(v => v !== col) : [...prev, col])} className="h-3.5 w-3.5" />
-                                               {col}
-                                             </label>
-                                           ))}
-                                         </div>
-                                       </div>
-                                       <div className="space-y-1">
-                                         <Label className="text-[10px] text-muted-foreground">Lag Periods</Label>
-                                         <div className="border rounded-md max-h-24 overflow-y-auto p-1.5 space-y-0.5">
-                                           {LAG_OPTIONS.map(l => (
-                                             <label key={l.value} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
-                                               <Checkbox checked={cfgLags.includes(l.value)} onCheckedChange={() => setCfgLags(prev => toggleInArray(prev, l.value))} className="h-3.5 w-3.5" />
-                                               {l.label}
-                                             </label>
-                                           ))}
-                                         </div>
-                                       </div>
-                                     </>
-                                   )}
-                                 </div>
-
-                                 <div className="space-y-2">
-                                   <div className="flex items-center justify-between">
-                                     <Label className="text-xs font-semibold">Date Parts</Label>
-                                     <Switch checked={cfgFeatures.dateParts} onCheckedChange={v => setCfgFeatures(p => ({ ...p, dateParts: v }))} data-testid="switch-dateparts" />
-                                   </div>
-                                   {cfgFeatures.dateParts && (
-                                     <div className="border rounded-md max-h-28 overflow-y-auto p-1.5 space-y-0.5">
-                                       {DATE_PARTS.map(d => (
-                                         <label key={d.value} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
-                                           <Checkbox checked={cfgDateParts.includes(d.value)} onCheckedChange={() => setCfgDateParts(prev => toggleInArray(prev, d.value))} className="h-3.5 w-3.5" />
-                                           {d.label}
-                                         </label>
-                                       ))}
-                                     </div>
-                                   )}
-                                 </div>
-
-                                 <div className="space-y-2">
-                                   <div className="flex items-center justify-between">
-                                     <Label className="text-xs font-semibold">Rolling Statistics</Label>
-                                     <Switch checked={cfgFeatures.rolling} onCheckedChange={v => setCfgFeatures(p => ({ ...p, rolling: v }))} data-testid="switch-rolling" />
-                                   </div>
-                                   {cfgFeatures.rolling && (
-                                     <>
-                                       <div className="space-y-1">
-                                         <Label className="text-[10px] text-muted-foreground">Apply to Columns</Label>
-                                         <div className="border rounded-md max-h-24 overflow-y-auto p-1.5 space-y-0.5">
-                                           {getNodeColumns(selectedNode.id).filter(c => c !== cfgTimeCol && c !== cfgDfu).map(col => (
-                                             <label key={col} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
-                                               <Checkbox checked={cfgRollingColumns.includes(col)} onCheckedChange={() => setCfgRollingColumns(prev => prev.includes(col) ? prev.filter(v => v !== col) : [...prev, col])} className="h-3.5 w-3.5" />
-                                               {col}
-                                             </label>
-                                           ))}
-                                         </div>
-                                       </div>
-                                       <div className="space-y-1">
-                                         <Label className="text-[10px] text-muted-foreground">Statistics</Label>
-                                         <div className="border rounded-md max-h-24 overflow-y-auto p-1.5 space-y-0.5">
-                                           {ROLLING_STATS.map(s => (
-                                             <label key={s.value} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
-                                               <Checkbox checked={cfgRollingStats.includes(s.value)} onCheckedChange={() => setCfgRollingStats(prev => toggleInArray(prev, s.value))} className="h-3.5 w-3.5" />
-                                               {s.label}
-                                             </label>
-                                           ))}
-                                         </div>
-                                       </div>
-                                       <div className="space-y-1">
-                                         <Label className="text-[10px] text-muted-foreground">Windows</Label>
-                                         <div className="border rounded-md max-h-24 overflow-y-auto p-1.5 space-y-0.5">
-                                           {ROLLING_WINDOWS.map(w => (
-                                             <label key={w.value} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
-                                               <Checkbox checked={cfgRollingWindows.includes(w.value)} onCheckedChange={() => setCfgRollingWindows(prev => toggleInArray(prev, w.value))} className="h-3.5 w-3.5" />
-                                               {w.label}
-                                             </label>
-                                           ))}
-                                         </div>
-                                       </div>
-                                     </>
-                                   )}
-                                 </div>
-
-                                 <div className="space-y-2">
-                                   <div className="flex items-center justify-between">
                                      <Label className="text-xs font-semibold">Holiday Features</Label>
-                                     <Switch checked={cfgFeatures.holidays} onCheckedChange={v => setCfgFeatures(p => ({ ...p, holidays: v }))} data-testid="switch-holidays" />
+                                     <Switch checked={cfgHolidayEnabled} onCheckedChange={setCfgHolidayEnabled} data-testid="switch-holidays" />
                                    </div>
-                                   {cfgFeatures.holidays && (
+                                   {cfgHolidayEnabled && (
                                      <div className="space-y-1">
                                        <Label className="text-[10px] text-muted-foreground">Country</Label>
                                        <Select value={cfgHolidayCountry} onValueChange={setCfgHolidayCountry}>
@@ -2725,6 +2593,118 @@ function FlowWithProvider() {
                                            <SelectItem value="AU">Australia</SelectItem>
                                          </SelectContent>
                                        </Select>
+                                     </div>
+                                   )}
+                                 </div>
+                               </div>
+                             </details>
+
+                             <details className="group border rounded-lg">
+                               <summary className="flex items-center justify-between p-3 cursor-pointer text-xs font-semibold hover:bg-muted/50">
+                                 Data Preprocessing
+                                 <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
+                               </summary>
+                               <div className="px-3 pb-3 space-y-3">
+                                 <div className="text-[10px] text-muted-foreground bg-blue-50 p-2 rounded border border-blue-100">
+                                   These transforms are applied within each train/test fold to prevent data leakage. Unlike pipeline-level transforms, they only use training data statistics.
+                                 </div>
+
+                                 <div className="space-y-2">
+                                   <div className="flex items-center justify-between">
+                                     <Label className="text-xs font-semibold">Fill Missing Values</Label>
+                                     <Switch checked={cfgFillMissing} onCheckedChange={setCfgFillMissing} data-testid="switch-fill-missing" />
+                                   </div>
+                                   {cfgFillMissing && (
+                                     <div className="space-y-2 pl-1">
+                                       <div className="space-y-1">
+                                         <Label className="text-[10px] text-muted-foreground">Strategy</Label>
+                                         <Select value={cfgFillStrategy} onValueChange={setCfgFillStrategy}>
+                                           <SelectTrigger className="h-8 text-xs" data-testid="select-fill-strategy"><SelectValue /></SelectTrigger>
+                                           <SelectContent>
+                                             <SelectItem value="ffill">Forward Fill</SelectItem>
+                                             <SelectItem value="bfill">Backward Fill</SelectItem>
+                                             <SelectItem value="interpolate">Linear Interpolation</SelectItem>
+                                             <SelectItem value="mean">Mean (training set)</SelectItem>
+                                             <SelectItem value="median">Median (training set)</SelectItem>
+                                             <SelectItem value="zero">Fill with Zero</SelectItem>
+                                             <SelectItem value="constant">Constant Value</SelectItem>
+                                           </SelectContent>
+                                         </Select>
+                                       </div>
+                                       {cfgFillStrategy === 'constant' && (
+                                         <div className="space-y-1">
+                                           <Label className="text-[10px] text-muted-foreground">Constant Value</Label>
+                                           <Input value={cfgFillConstant} onChange={e => setCfgFillConstant(e.target.value)} className="h-8 text-xs" placeholder="Enter value..." data-testid="input-fill-constant" />
+                                         </div>
+                                       )}
+                                       <div className="space-y-1">
+                                         <Label className="text-[10px] text-muted-foreground">Apply to Columns</Label>
+                                         <div className="border rounded-md max-h-28 overflow-y-auto p-1.5 space-y-0.5">
+                                           {getNodeColumns(selectedNode.id).filter(c => c !== cfgTimeCol && c !== cfgDfu).length === 0 ? (
+                                             <p className="text-[10px] text-muted-foreground px-1 py-2">Connect a data source first</p>
+                                           ) : (
+                                             getNodeColumns(selectedNode.id).filter(c => c !== cfgTimeCol && c !== cfgDfu).map(col => (
+                                               <label key={col} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
+                                                 <Checkbox checked={cfgFillColumns.includes(col)} onCheckedChange={() => setCfgFillColumns(prev => prev.includes(col) ? prev.filter(v => v !== col) : [...prev, col])} className="h-3.5 w-3.5" />
+                                                 {col}
+                                               </label>
+                                             ))
+                                           )}
+                                         </div>
+                                       </div>
+                                     </div>
+                                   )}
+                                 </div>
+
+                                 <Separator />
+
+                                 <div className="space-y-2">
+                                   <div className="flex items-center justify-between">
+                                     <Label className="text-xs font-semibold">Outlier Treatment</Label>
+                                     <Switch checked={cfgOutlierTreatment} onCheckedChange={setCfgOutlierTreatment} data-testid="switch-outlier" />
+                                   </div>
+                                   {cfgOutlierTreatment && (
+                                     <div className="space-y-2 pl-1">
+                                       <div className="space-y-1">
+                                         <Label className="text-[10px] text-muted-foreground">Target Column</Label>
+                                         <select value={cfgOutlierColumn} onChange={e => setCfgOutlierColumn(e.target.value)} className="w-full h-8 text-xs rounded-md border border-input bg-background px-3 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" data-testid="select-outlier-column-cfg">
+                                           <option value="">Select column...</option>
+                                           {getNodeColumns(selectedNode.id).filter(c => c !== cfgTimeCol && c !== cfgDfu).map(col => (
+                                             <option key={col} value={col}>{col}</option>
+                                           ))}
+                                         </select>
+                                       </div>
+                                       <div className="space-y-1">
+                                         <Label className="text-[10px] text-muted-foreground">Detection Method</Label>
+                                         <Select value={cfgOutlierMethod} onValueChange={setCfgOutlierMethod}>
+                                           <SelectTrigger className="h-8 text-xs" data-testid="select-outlier-method-cfg"><SelectValue /></SelectTrigger>
+                                           <SelectContent>
+                                             <SelectItem value="iqr">IQR (Interquartile Range)</SelectItem>
+                                             <SelectItem value="zscore">Z-Score</SelectItem>
+                                             <SelectItem value="percentile">Percentile</SelectItem>
+                                           </SelectContent>
+                                         </Select>
+                                       </div>
+                                       <div className="space-y-1">
+                                         <Label className="text-[10px] text-muted-foreground">Threshold</Label>
+                                         <Input value={cfgOutlierThreshold} onChange={e => setCfgOutlierThreshold(e.target.value)} className="h-8 text-xs" placeholder={cfgOutlierMethod === 'iqr' ? '1.5' : cfgOutlierMethod === 'zscore' ? '3.0' : '0.01'} data-testid="input-outlier-threshold" />
+                                       </div>
+                                       <div className="space-y-1">
+                                         <Label className="text-[10px] text-muted-foreground">Treatment Action</Label>
+                                         <Select value={cfgOutlierAction} onValueChange={setCfgOutlierAction}>
+                                           <SelectTrigger className="h-8 text-xs" data-testid="select-outlier-action-cfg"><SelectValue /></SelectTrigger>
+                                           <SelectContent>
+                                             <SelectItem value="cap">Cap / Floor (Winsorize)</SelectItem>
+                                             <SelectItem value="median">Replace with Median</SelectItem>
+                                             <SelectItem value="mean">Replace with Mean</SelectItem>
+                                             <SelectItem value="null">Replace with Null</SelectItem>
+                                             <SelectItem value="remove">Remove Rows</SelectItem>
+                                           </SelectContent>
+                                         </Select>
+                                       </div>
+                                       <div className="text-[10px] text-blue-700 bg-blue-50 p-2 rounded border border-blue-100">
+                                         Outlier detection uses only training data statistics to avoid leakage. Test data is treated using thresholds computed from the training fold.
+                                       </div>
                                      </div>
                                    )}
                                  </div>
@@ -3263,55 +3243,6 @@ function FlowWithProvider() {
                       </div>
                       <div className="text-[10px] text-yellow-700 bg-yellow-100/50 p-2 rounded">
                         Inserts missing time periods to create a continuous date series. Essential for time series forecasting.
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedNode.data.type === 'aggregation' && (
-                    <div className="space-y-4 border rounded-md p-3 bg-yellow-50/50 border-yellow-100">
-                      <div className="space-y-2">
-                        <Label>Group By Columns</Label>
-                        <ColumnMultiSelect
-                          label="Group by"
-                          selectedCols={selectedNode.data.groupByColumns || []}
-                          availableCols={getSourceColumns(selectedNode.id)}
-                          onChange={(cols) => updateNodeData('groupByColumns', cols)}
-                          testId="select-groupby-columns"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Value Columns</Label>
-                        <ColumnMultiSelect
-                          label="Values"
-                          selectedCols={selectedNode.data.aggValueColumns || []}
-                          availableCols={getSourceColumns(selectedNode.id)}
-                          onChange={(cols) => updateNodeData('aggValueColumns', cols)}
-                          testId="select-agg-value-columns"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Aggregation Function</Label>
-                        <Select
-                          value={selectedNode.data.aggFunction || 'sum'}
-                          onValueChange={(val) => updateNodeData('aggFunction', val)}
-                        >
-                          <SelectTrigger className="h-8 text-xs" data-testid="select-agg-function">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="sum">Sum</SelectItem>
-                            <SelectItem value="mean">Mean / Average</SelectItem>
-                            <SelectItem value="median">Median</SelectItem>
-                            <SelectItem value="min">Minimum</SelectItem>
-                            <SelectItem value="max">Maximum</SelectItem>
-                            <SelectItem value="count">Count</SelectItem>
-                            <SelectItem value="first">First</SelectItem>
-                            <SelectItem value="last">Last</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="text-[10px] text-yellow-700 bg-yellow-100/50 p-2 rounded">
-                        Groups data by selected columns and computes aggregate values. Useful for rolling up daily data to weekly/monthly.
                       </div>
                     </div>
                   )}

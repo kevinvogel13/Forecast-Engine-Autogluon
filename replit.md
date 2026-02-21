@@ -50,7 +50,7 @@ Preferred communication style: Simple, everyday language.
 ### Palette Organization & Color Coding
 Nodes are organized into 4 color-coded groups in the palette:
 - **Source** (blue): Data Source
-- **Prep** (yellow): Filter, Fill Missing, Remove Duplicates, Outlier Treatment, Sampling, Merge/Join, Aggregation, Column Transform, Date Gap Filler, Pivot/Unpivot, Python Script, SQL Transform
+- **Prep** (yellow): Filter, Fill Missing, Remove Duplicates, Outlier Treatment, Sampling, Merge/Join, Column Transform, Date Gap Filler, Pivot/Unpivot, Python Script, SQL Transform
 - **Analysis** (emerald): Data Preview, Exploration, Report
 - **Model** (violet): Model Config, Output
 
@@ -76,10 +76,6 @@ Nodes are organized into 4 color-coded groups in the palette:
   - Select date column, frequency (daily/weekly/monthly/quarterly), optional group column
   - Fill strategy for new rows: zero, forward fill, interpolation
   - Field names: `dateColumn`, `dateFrequency` (default: 'D'), `dateGroupColumn`, `gapFillStrategy` (default: 'zero')
-- **Aggregation / Group By**: Group data and compute aggregate values
-  - Multi-select group-by columns, value columns, aggregation function
-  - Functions: sum, mean, median, min, max, count, first, last
-  - Field names: `groupByColumns` (array), `aggValueColumns` (array), `aggFunction` (default: 'sum')
 - **Outlier Treatment**: Detect and handle extreme values
   - Detection methods: IQR, Z-Score, Percentile with configurable threshold
   - Treatment actions: cap/floor (winsorize), replace with median/mean/null, remove rows
@@ -150,6 +146,15 @@ Nodes are organized into 4 color-coded groups in the palette:
     - One row per fold with expanding training window
     - Updates in real-time as user changes settings
   - Configure Pipeline button opens full-screen advanced settings dialog
+  - **Feature Engineering** (collapsible section):
+    - Dataset Schema: Target Variable, Timestamp Column, Item ID (DFU) — dropdowns populated from connected upstream dataset
+    - Static Features: multi-select checkboxes for columns that don't change over time per item (excludes schema columns)
+    - Known Covariates: multi-select checkboxes for columns whose future values are known (excludes schema columns)
+    - Holiday Features: toggle + country selector (US, GB, DE, FR, JP, CN, IN, BR, CA, AU)
+    - Note: Lag, rolling, and date-part features are handled internally by AutoGluon — not user-configured
+  - **Data Preprocessing** (collapsible section — applied within train/test folds to prevent data leakage):
+    - Fill Missing Values: toggle + strategy (ffill, bfill, interpolate, mean, median, zero, constant) + column selection
+    - Outlier Treatment: toggle + target column + method (IQR, Z-Score, Percentile) + threshold + action (cap, median, mean, null, remove)
   - Node data fields: modelMode, trainStart, trainEnd, modelPath, dataFrequency, forecastHorizon, backtestEnabled, backtestFolds, backtestStepSize, backtestGap
 - **Output**: View forecast results
 
