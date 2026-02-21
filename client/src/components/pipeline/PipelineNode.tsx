@@ -158,7 +158,7 @@ export default function PipelineNode({ data, selected }: PipelineNodeProps) {
         )}
       </div>
 
-      {data.type !== 'output' && (
+      {!['output', 'preview', 'report'].includes(data.type) && (
         <Handle 
           type="source" 
           position={Position.Right} 
