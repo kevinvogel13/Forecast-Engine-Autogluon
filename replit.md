@@ -44,8 +44,17 @@ Preferred communication style: Simple, everyday language.
 - **Component Structure**: 
   - `components/ui/` - Base shadcn components
   - `components/pipeline/` - Flow editor and node components
-  - `components/dashboard/` - EDA and validation widgets
+  - `components/dashboard/` - Forecast results dashboard
   - `components/layout/` - Shell and navigation
+
+### Palette Organization & Color Coding
+Nodes are organized into 6 color-coded groups in the palette:
+- **Data** (blue): Data Source
+- **Clean** (amber): Filter, Fill Missing, Remove Duplicates, Outlier Treatment, Sampling
+- **Reshape** (teal): Merge/Join, Aggregation, Column Transform, Date Gap Filler, Pivot/Unpivot
+- **Code** (slate): Python Script, SQL Transform
+- **Analysis** (emerald): Data Preview, Exploration, Report
+- **Model** (violet): Model Config, Output
 
 ### Pipeline Node Types
 - **Data Source**: Import CSV files with automatic column detection
