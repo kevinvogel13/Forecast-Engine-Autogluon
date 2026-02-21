@@ -2071,26 +2071,35 @@ function FlowWithProvider() {
                           </select>
                        </div>
 
+                       <div className={`space-y-2 p-3 rounded-lg border-2 ${selectedNode.data.configDateColumn ? 'border-violet-200 bg-violet-50/30' : 'border-amber-300 bg-amber-50/50'}`}>
+                          <div className="flex items-center gap-2">
+                             {!selectedNode.data.configDateColumn && (
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[10px] font-bold text-white shrink-0">!</span>
+                             )}
+                             <Label className="text-xs font-semibold">{selectedNode.data.configDateColumn ? 'Date Column' : 'Which column contains your dates?'}</Label>
+                          </div>
+                          {!selectedNode.data.configDateColumn && (
+                             <p className="text-[10px] text-muted-foreground">Select the column that holds your time series dates so the model knows the timeline.</p>
+                          )}
+                          <select
+                             value={selectedNode.data.configDateColumn || ''}
+                             onChange={(e) => updateNodeData('configDateColumn', e.target.value)}
+                             className={`w-full h-9 text-xs rounded-md border px-3 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 font-medium ${selectedNode.data.configDateColumn ? 'border-input bg-background' : 'border-amber-300 bg-white'}`}
+                             data-testid="select-date-column"
+                          >
+                             <option value="">Select date column...</option>
+                             {getNodeColumns(selectedNode.id).map(col => (
+                                <option key={col} value={col}>{col}</option>
+                             ))}
+                          </select>
+                          {configDateRange && (
+                             <p className="text-[10px] text-violet-600 font-medium">Data spans {configDateRange.minDate} to {configDateRange.maxDate}</p>
+                          )}
+                       </div>
+
                        {modelMode === 'train' ? (
                           <div className="space-y-3">
-                             <div className="space-y-1.5">
-                                <Label className="text-xs font-medium">Date Column</Label>
-                                <select
-                                   value={selectedNode.data.configDateColumn || ''}
-                                   onChange={(e) => updateNodeData('configDateColumn', e.target.value)}
-                                   className="w-full h-8 text-xs rounded-md border border-input bg-background px-3 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                                   data-testid="select-date-column"
-                                >
-                                   <option value="">Select date column...</option>
-                                   {getNodeColumns(selectedNode.id).map(col => (
-                                      <option key={col} value={col}>{col}</option>
-                                   ))}
-                                </select>
-                             </div>
                              <Label className="text-xs font-medium">Training Period</Label>
-                             {configDateRange && (
-                                <p className="text-[9px] text-purple-500">Data spans {configDateRange.minDate} to {configDateRange.maxDate}</p>
-                             )}
                              <div className="grid grid-cols-2 gap-3">
                                 <div>
                                    <Label className="text-[10px] text-muted-foreground mb-1 block">Train Start</Label>
