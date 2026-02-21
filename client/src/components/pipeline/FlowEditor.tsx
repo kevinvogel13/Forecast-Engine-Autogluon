@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef, useMemo, useEffect, useLayoutEffect } from 'react';
+import React, { useCallback, useState, useRef, useMemo, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   ReactFlow, 
@@ -129,14 +129,9 @@ function FlowWithProvider() {
 
   // Advanced config state (Data Preprocessing - applied within train/test splits)
   const [cfgFillMissing, setCfgFillMissing] = useState(false);
-  const [cfgFillStrategy, setCfgFillStrategy] = useState("ffill");
-  const [cfgFillColumns, setCfgFillColumns] = useState<string[]>([]);
-  const [cfgFillConstant, setCfgFillConstant] = useState("");
+  const [cfgFillConfigs, setCfgFillConfigs] = useState<Record<string, { strategy: string; constant: string }>>({});
   const [cfgOutlierTreatment, setCfgOutlierTreatment] = useState(false);
-  const [cfgOutlierColumn, setCfgOutlierColumn] = useState("");
-  const [cfgOutlierMethod, setCfgOutlierMethod] = useState("iqr");
-  const [cfgOutlierThreshold, setCfgOutlierThreshold] = useState("1.5");
-  const [cfgOutlierAction, setCfgOutlierAction] = useState("cap");
+  const [cfgOutlierConfigs, setCfgOutlierConfigs] = useState<Record<string, { method: string; threshold: string; action: string }>>({});
 
   // Preset-to-models mapping
   const PRESET_MODELS: Record<string, string[]> = {
@@ -2615,43 +2610,88 @@ function FlowWithProvider() {
                                      <Switch checked={cfgFillMissing} onCheckedChange={setCfgFillMissing} data-testid="switch-fill-missing" />
                                    </div>
                                    {cfgFillMissing && (
-                                     <div className="space-y-2 pl-1">
-                                       <div className="space-y-1">
-                                         <Label className="text-[10px] text-muted-foreground">Strategy</Label>
-                                         <Select value={cfgFillStrategy} onValueChange={setCfgFillStrategy}>
-                                           <SelectTrigger className="h-8 text-xs" data-testid="select-fill-strategy"><SelectValue /></SelectTrigger>
-                                           <SelectContent>
-                                             <SelectItem value="ffill">Forward Fill</SelectItem>
-                                             <SelectItem value="bfill">Backward Fill</SelectItem>
-                                             <SelectItem value="interpolate">Linear Interpolation</SelectItem>
-                                             <SelectItem value="mean">Mean (training set)</SelectItem>
-                                             <SelectItem value="median">Median (training set)</SelectItem>
-                                             <SelectItem value="zero">Fill with Zero</SelectItem>
-                                             <SelectItem value="constant">Constant Value</SelectItem>
-                                           </SelectContent>
-                                         </Select>
-                                       </div>
-                                       {cfgFillStrategy === 'constant' && (
-                                         <div className="space-y-1">
-                                           <Label className="text-[10px] text-muted-foreground">Constant Value</Label>
-                                           <Input value={cfgFillConstant} onChange={e => setCfgFillConstant(e.target.value)} className="h-8 text-xs" placeholder="Enter value..." data-testid="input-fill-constant" />
-                                         </div>
+                                     <div className="space-y-1">
+                                       {getNodeColumns(selectedNode.id).filter(c => c !== cfgTimeCol && c !== cfgDfu).length === 0 ? (
+                                         <p className="text-[10px] text-muted-foreground px-1 py-2">Connect a data source first</p>
+                                       ) : (
+                                         <table className="w-full text-xs">
+                                           <thead>
+                                             <tr className="bg-muted/30">
+                                               <th className="w-6 p-1"></th>
+                                               <th className="text-left p-1 font-medium">Column</th>
+                                               <th className="text-left p-1 font-medium">Strategy</th>
+                                             </tr>
+                                           </thead>
+                                           <tbody>
+                                             {getNodeColumns(selectedNode.id).filter(c => c !== cfgTimeCol && c !== cfgDfu).map(col => (
+                                               <React.Fragment key={col}>
+                                                 <tr className="hover:bg-muted/20 border-b">
+                                                   <td className="p-1 text-center">
+                                                     <Checkbox
+                                                       checked={!!cfgFillConfigs[col]}
+                                                       onCheckedChange={(checked) => {
+                                                         setCfgFillConfigs(prev => {
+                                                           if (checked) {
+                                                             return { ...prev, [col]: { strategy: 'ffill', constant: '' } };
+                                                           } else {
+                                                             const next = { ...prev };
+                                                             delete next[col];
+                                                             return next;
+                                                           }
+                                                         });
+                                                       }}
+                                                       className="h-3.5 w-3.5"
+                                                       data-testid={`checkbox-fill-${col}`}
+                                                     />
+                                                   </td>
+                                                   <td className="p-1 font-mono text-[11px]">{col}</td>
+                                                   <td className="p-1">
+                                                     <select
+                                                       value={cfgFillConfigs[col]?.strategy || 'ffill'}
+                                                       onChange={e => {
+                                                         setCfgFillConfigs(prev => ({
+                                                           ...prev,
+                                                           [col]: { ...prev[col], strategy: e.target.value }
+                                                         }));
+                                                       }}
+                                                       disabled={!cfgFillConfigs[col]}
+                                                       className="w-full h-6 text-[11px] rounded-md border border-input bg-background px-1 disabled:opacity-50"
+                                                       data-testid={`select-fill-strategy-${col}`}
+                                                     >
+                                                       <option value="ffill">Forward Fill</option>
+                                                       <option value="bfill">Backward Fill</option>
+                                                       <option value="interpolate">Interpolation</option>
+                                                       <option value="mean">Mean</option>
+                                                       <option value="median">Median</option>
+                                                       <option value="zero">Zero</option>
+                                                       <option value="constant">Constant</option>
+                                                     </select>
+                                                   </td>
+                                                 </tr>
+                                                 {cfgFillConfigs[col]?.strategy === 'constant' && (
+                                                   <tr className="border-b">
+                                                     <td></td>
+                                                     <td colSpan={2} className="p-1">
+                                                       <Input
+                                                         value={cfgFillConfigs[col]?.constant || ''}
+                                                         onChange={e => {
+                                                           setCfgFillConfigs(prev => ({
+                                                             ...prev,
+                                                             [col]: { ...prev[col], constant: e.target.value }
+                                                           }));
+                                                         }}
+                                                         className="h-6 text-[11px]"
+                                                         placeholder="Constant value..."
+                                                         data-testid={`input-fill-constant-${col}`}
+                                                       />
+                                                     </td>
+                                                   </tr>
+                                                 )}
+                                               </React.Fragment>
+                                             ))}
+                                           </tbody>
+                                         </table>
                                        )}
-                                       <div className="space-y-1">
-                                         <Label className="text-[10px] text-muted-foreground">Apply to Columns</Label>
-                                         <div className="border rounded-md max-h-28 overflow-y-auto p-1.5 space-y-0.5">
-                                           {getNodeColumns(selectedNode.id).filter(c => c !== cfgTimeCol && c !== cfgDfu).length === 0 ? (
-                                             <p className="text-[10px] text-muted-foreground px-1 py-2">Connect a data source first</p>
-                                           ) : (
-                                             getNodeColumns(selectedNode.id).filter(c => c !== cfgTimeCol && c !== cfgDfu).map(col => (
-                                               <label key={col} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
-                                                 <Checkbox checked={cfgFillColumns.includes(col)} onCheckedChange={() => setCfgFillColumns(prev => prev.includes(col) ? prev.filter(v => v !== col) : [...prev, col])} className="h-3.5 w-3.5" />
-                                                 {col}
-                                               </label>
-                                             ))
-                                           )}
-                                         </div>
-                                       </div>
                                      </div>
                                    )}
                                  </div>
@@ -2664,44 +2704,101 @@ function FlowWithProvider() {
                                      <Switch checked={cfgOutlierTreatment} onCheckedChange={setCfgOutlierTreatment} data-testid="switch-outlier" />
                                    </div>
                                    {cfgOutlierTreatment && (
-                                     <div className="space-y-2 pl-1">
-                                       <div className="space-y-1">
-                                         <Label className="text-[10px] text-muted-foreground">Target Column</Label>
-                                         <select value={cfgOutlierColumn} onChange={e => setCfgOutlierColumn(e.target.value)} className="w-full h-8 text-xs rounded-md border border-input bg-background px-3 ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" data-testid="select-outlier-column-cfg">
-                                           <option value="">Select column...</option>
-                                           {getNodeColumns(selectedNode.id).filter(c => c !== cfgTimeCol && c !== cfgDfu).map(col => (
-                                             <option key={col} value={col}>{col}</option>
-                                           ))}
-                                         </select>
-                                       </div>
-                                       <div className="space-y-1">
-                                         <Label className="text-[10px] text-muted-foreground">Detection Method</Label>
-                                         <Select value={cfgOutlierMethod} onValueChange={setCfgOutlierMethod}>
-                                           <SelectTrigger className="h-8 text-xs" data-testid="select-outlier-method-cfg"><SelectValue /></SelectTrigger>
-                                           <SelectContent>
-                                             <SelectItem value="iqr">IQR (Interquartile Range)</SelectItem>
-                                             <SelectItem value="zscore">Z-Score</SelectItem>
-                                             <SelectItem value="percentile">Percentile</SelectItem>
-                                           </SelectContent>
-                                         </Select>
-                                       </div>
-                                       <div className="space-y-1">
-                                         <Label className="text-[10px] text-muted-foreground">Threshold</Label>
-                                         <Input value={cfgOutlierThreshold} onChange={e => setCfgOutlierThreshold(e.target.value)} className="h-8 text-xs" placeholder={cfgOutlierMethod === 'iqr' ? '1.5' : cfgOutlierMethod === 'zscore' ? '3.0' : '0.01'} data-testid="input-outlier-threshold" />
-                                       </div>
-                                       <div className="space-y-1">
-                                         <Label className="text-[10px] text-muted-foreground">Treatment Action</Label>
-                                         <Select value={cfgOutlierAction} onValueChange={setCfgOutlierAction}>
-                                           <SelectTrigger className="h-8 text-xs" data-testid="select-outlier-action-cfg"><SelectValue /></SelectTrigger>
-                                           <SelectContent>
-                                             <SelectItem value="cap">Cap / Floor (Winsorize)</SelectItem>
-                                             <SelectItem value="median">Replace with Median</SelectItem>
-                                             <SelectItem value="mean">Replace with Mean</SelectItem>
-                                             <SelectItem value="null">Replace with Null</SelectItem>
-                                             <SelectItem value="remove">Remove Rows</SelectItem>
-                                           </SelectContent>
-                                         </Select>
-                                       </div>
+                                     <div className="space-y-1">
+                                       {getNodeColumns(selectedNode.id).filter(c => c !== cfgTimeCol && c !== cfgDfu).length === 0 ? (
+                                         <p className="text-[10px] text-muted-foreground px-1 py-2">Connect a data source first</p>
+                                       ) : (
+                                         <table className="w-full text-xs">
+                                           <thead>
+                                             <tr className="bg-muted/30">
+                                               <th className="w-6 p-1"></th>
+                                               <th className="text-left p-1 font-medium">Column</th>
+                                               <th className="text-left p-1 font-medium">Method</th>
+                                               <th className="text-left p-1 font-medium">Threshold</th>
+                                               <th className="text-left p-1 font-medium">Action</th>
+                                             </tr>
+                                           </thead>
+                                           <tbody>
+                                             {getNodeColumns(selectedNode.id).filter(c => c !== cfgTimeCol && c !== cfgDfu).map(col => (
+                                               <tr key={col} className="hover:bg-muted/20 border-b">
+                                                 <td className="p-1 text-center">
+                                                   <Checkbox
+                                                     checked={!!cfgOutlierConfigs[col]}
+                                                     onCheckedChange={(checked) => {
+                                                       setCfgOutlierConfigs(prev => {
+                                                         if (checked) {
+                                                           return { ...prev, [col]: { method: 'iqr', threshold: '1.5', action: 'cap' } };
+                                                         } else {
+                                                           const next = { ...prev };
+                                                           delete next[col];
+                                                           return next;
+                                                         }
+                                                       });
+                                                     }}
+                                                     className="h-3.5 w-3.5"
+                                                     data-testid={`checkbox-outlier-${col}`}
+                                                   />
+                                                 </td>
+                                                 <td className="p-1 font-mono text-[11px]">{col}</td>
+                                                 <td className="p-1">
+                                                   <select
+                                                     value={cfgOutlierConfigs[col]?.method || 'iqr'}
+                                                     onChange={e => {
+                                                       const method = e.target.value;
+                                                       const threshold = method === 'iqr' ? '1.5' : method === 'zscore' ? '3.0' : '0.01';
+                                                       setCfgOutlierConfigs(prev => ({
+                                                         ...prev,
+                                                         [col]: { ...prev[col], method, threshold }
+                                                       }));
+                                                     }}
+                                                     disabled={!cfgOutlierConfigs[col]}
+                                                     className="w-full h-6 text-[11px] rounded-md border border-input bg-background px-1 disabled:opacity-50"
+                                                     data-testid={`select-outlier-method-${col}`}
+                                                   >
+                                                     <option value="iqr">IQR</option>
+                                                     <option value="zscore">Z-Score</option>
+                                                     <option value="percentile">Percentile</option>
+                                                   </select>
+                                                 </td>
+                                                 <td className="p-1">
+                                                   <Input
+                                                     value={cfgOutlierConfigs[col]?.threshold || ''}
+                                                     onChange={e => {
+                                                       setCfgOutlierConfigs(prev => ({
+                                                         ...prev,
+                                                         [col]: { ...prev[col], threshold: e.target.value }
+                                                       }));
+                                                     }}
+                                                     disabled={!cfgOutlierConfigs[col]}
+                                                     className="h-6 text-[11px] w-16"
+                                                     data-testid={`input-outlier-threshold-${col}`}
+                                                   />
+                                                 </td>
+                                                 <td className="p-1">
+                                                   <select
+                                                     value={cfgOutlierConfigs[col]?.action || 'cap'}
+                                                     onChange={e => {
+                                                       setCfgOutlierConfigs(prev => ({
+                                                         ...prev,
+                                                         [col]: { ...prev[col], action: e.target.value }
+                                                       }));
+                                                     }}
+                                                     disabled={!cfgOutlierConfigs[col]}
+                                                     className="w-full h-6 text-[11px] rounded-md border border-input bg-background px-1 disabled:opacity-50"
+                                                     data-testid={`select-outlier-action-${col}`}
+                                                   >
+                                                     <option value="cap">Cap/Floor</option>
+                                                     <option value="median">Median</option>
+                                                     <option value="mean">Mean</option>
+                                                     <option value="null">Null</option>
+                                                     <option value="remove">Remove</option>
+                                                   </select>
+                                                 </td>
+                                               </tr>
+                                             ))}
+                                           </tbody>
+                                         </table>
+                                       )}
                                        <div className="text-[10px] text-blue-700 bg-blue-50 p-2 rounded border border-blue-100">
                                          Outlier detection uses only training data statistics to avoid leakage. Test data is treated using thresholds computed from the training fold.
                                        </div>
