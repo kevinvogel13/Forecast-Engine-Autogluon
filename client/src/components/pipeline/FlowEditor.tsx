@@ -33,7 +33,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import PipelineNode from './PipelineNode';
-import ConfigurationPanel from '@/components/configuration/ConfigurationPanel';
 import ForecastResultsDashboard from '@/components/dashboard/ForecastResultsDashboard';
 import NodePalette, { categories as nodeCategories } from './NodePalette';
 import { cn } from '@/lib/utils';
@@ -91,8 +90,29 @@ function FlowWithProvider() {
   const [nodeOutputShapes, setNodeOutputShapes] = useState<Record<string, { rows: number; cols: number }>>({});
   
   // Modal states for full views
-  const [configOpen, setConfigOpen] = useState(false);
   const [resultsOpen, setResultsOpen] = useState(false);
+
+  // Advanced config state (Model Specs)
+  const [cfgEvalMetric, setCfgEvalMetric] = useState("MASE");
+  const [cfgQuantiles, setCfgQuantiles] = useState<string[]>(["0.1", "0.5", "0.9"]);
+  const [cfgPreset, setCfgPreset] = useState("medium");
+  const [cfgTimeLimit, setCfgTimeLimit] = useState("600");
+  const [cfgRefitFull, setCfgRefitFull] = useState(true);
+
+  // Advanced config state (Feature Engineering)
+  const [cfgTargetVar, setCfgTargetVar] = useState("sales");
+  const [cfgTimeCol, setCfgTimeCol] = useState("date");
+  const [cfgDfu, setCfgDfu] = useState("sku");
+  const [cfgFeatures, setCfgFeatures] = useState({ lagged: true, holidays: true, dateParts: true, rolling: true });
+  const [cfgLags, setCfgLags] = useState<string[]>(["1", "3", "6", "12"]);
+  const [cfgDateParts, setCfgDateParts] = useState<string[]>(["year", "month", "dayofweek"]);
+  const [cfgRollingStats, setCfgRollingStats] = useState<string[]>(["mean", "std"]);
+  const [cfgRollingWindows, setCfgRollingWindows] = useState<string[]>(["4", "12"]);
+  const [cfgHolidayCountry, setCfgHolidayCountry] = useState("US");
+
+  // Advanced config state (System)
+  const [cfgCpus, setCfgCpus] = useState("auto");
+  const [cfgLogLevel, setCfgLogLevel] = useState("info");
   
   // Component palette toggle
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -2323,9 +2343,259 @@ function FlowWithProvider() {
                           </div>
                        </div>
 
-                       <Button className="w-full bg-purple-600 hover:bg-purple-700" onClick={() => setConfigOpen(true)} data-testid="button-configure-pipeline">
-                          Configure Pipeline
-                       </Button>
+                       {/* --- Inline Advanced Settings Sections --- */}
+                       {(() => {
+                         const QUANTILES = [
+                           { value: "0.01", label: "P1" }, { value: "0.05", label: "P5" },
+                           { value: "0.1", label: "P10" }, { value: "0.2", label: "P20" },
+                           { value: "0.25", label: "P25" }, { value: "0.3", label: "P30" },
+                           { value: "0.4", label: "P40" }, { value: "0.5", label: "P50" },
+                           { value: "0.6", label: "P60" }, { value: "0.7", label: "P70" },
+                           { value: "0.75", label: "P75" }, { value: "0.8", label: "P80" },
+                           { value: "0.9", label: "P90" }, { value: "0.95", label: "P95" },
+                           { value: "0.99", label: "P99" },
+                         ];
+                         const ROLLING_STATS = [
+                           { value: "mean", label: "Mean" }, { value: "std", label: "Std Dev" },
+                           { value: "min", label: "Min" }, { value: "max", label: "Max" },
+                           { value: "median", label: "Median" }, { value: "sum", label: "Sum" },
+                           { value: "skew", label: "Skew" }, { value: "kurtosis", label: "Kurtosis" },
+                           { value: "var", label: "Variance" },
+                         ];
+                         const DATE_PARTS = [
+                           { value: "year", label: "Year" }, { value: "quarter", label: "Quarter" },
+                           { value: "month", label: "Month" }, { value: "week", label: "Week" },
+                           { value: "day", label: "Day" }, { value: "dayofweek", label: "Day of Week" },
+                           { value: "dayofyear", label: "Day of Year" }, { value: "is_weekend", label: "Weekend" },
+                           { value: "is_month_start", label: "Month Start" }, { value: "is_month_end", label: "Month End" },
+                         ];
+                         const freqLabel = { Daily: "Days", Weekly: "Weeks", Monthly: "Months", Quarterly: "Quarters", Yearly: "Years", Hourly: "Hours" }[selectedNode.data.dataFrequency || "Monthly"] || "Periods";
+                         const ROLLING_WINDOWS = Array.from({ length: 24 }, (_, i) => ({ value: (i + 2).toString(), label: `${i + 2} ${freqLabel}` }));
+                         const LAG_OPTIONS = [{ value: "1", label: "Lag 1" }, ...Array.from({ length: 24 }, (_, i) => ({ value: (i + 2).toString(), label: `Lag ${i + 2}` }))];
+
+                         const toggleInArray = (arr: string[], val: string) => arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val];
+
+                         return (
+                           <div className="space-y-2 pt-1" data-testid="advanced-config-sections">
+                             <details className="group border rounded-lg">
+                               <summary className="flex items-center justify-between p-3 cursor-pointer text-xs font-semibold hover:bg-muted/50">
+                                 Model Specs
+                                 <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
+                               </summary>
+                               <div className="px-3 pb-3 space-y-3">
+                                 <div className="space-y-1">
+                                   <Label className="text-xs">Evaluation Metric</Label>
+                                   <Select value={cfgEvalMetric} onValueChange={setCfgEvalMetric}>
+                                     <SelectTrigger className="h-8 text-xs" data-testid="select-eval-metric"><SelectValue /></SelectTrigger>
+                                     <SelectContent>
+                                       <SelectItem value="MASE">MASE</SelectItem>
+                                       <SelectItem value="MAPE">MAPE</SelectItem>
+                                       <SelectItem value="RMSE">RMSE</SelectItem>
+                                       <SelectItem value="WQL">WQL</SelectItem>
+                                     </SelectContent>
+                                   </Select>
+                                 </div>
+                                 <div className="space-y-1">
+                                   <Label className="text-xs">Quantile Levels</Label>
+                                   <div className="border rounded-md max-h-32 overflow-y-auto p-1.5 space-y-0.5" data-testid="quantile-checkboxes">
+                                     {QUANTILES.map(q => (
+                                       <label key={q.value} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
+                                         <Checkbox checked={cfgQuantiles.includes(q.value)} onCheckedChange={() => setCfgQuantiles(prev => toggleInArray(prev, q.value))} className="h-3.5 w-3.5" />
+                                         {q.label}
+                                       </label>
+                                     ))}
+                                   </div>
+                                 </div>
+                                 <Separator />
+                                 <div className="space-y-1">
+                                   <Label className="text-xs">Presets</Label>
+                                   <Select value={cfgPreset} onValueChange={setCfgPreset}>
+                                     <SelectTrigger className="h-8 text-xs" data-testid="select-preset"><SelectValue /></SelectTrigger>
+                                     <SelectContent>
+                                       <SelectItem value="fast">Fast</SelectItem>
+                                       <SelectItem value="medium">Medium</SelectItem>
+                                       <SelectItem value="high">High</SelectItem>
+                                       <SelectItem value="best">Best</SelectItem>
+                                     </SelectContent>
+                                   </Select>
+                                 </div>
+                                 <div className="space-y-1">
+                                   <Label className="text-xs">Time Limit (seconds)</Label>
+                                   <Input type="number" value={cfgTimeLimit} onChange={e => setCfgTimeLimit(e.target.value)} className="h-8 text-xs" data-testid="input-time-limit" />
+                                 </div>
+                                 <div className="flex items-center justify-between py-1">
+                                   <Label className="text-xs">Refit Full</Label>
+                                   <Switch checked={cfgRefitFull} onCheckedChange={setCfgRefitFull} data-testid="switch-refit-full" />
+                                 </div>
+                               </div>
+                             </details>
+
+                             <details className="group border rounded-lg">
+                               <summary className="flex items-center justify-between p-3 cursor-pointer text-xs font-semibold hover:bg-muted/50">
+                                 Feature Engineering
+                                 <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
+                               </summary>
+                               <div className="px-3 pb-3 space-y-3">
+                                 <div className="space-y-1">
+                                   <Label className="text-xs">Target Variable</Label>
+                                   <Select value={cfgTargetVar} onValueChange={setCfgTargetVar}>
+                                     <SelectTrigger className="h-8 text-xs" data-testid="select-target-var"><SelectValue /></SelectTrigger>
+                                     <SelectContent>
+                                       <SelectItem value="sales">sales_quantity</SelectItem>
+                                       <SelectItem value="revenue">revenue_amt</SelectItem>
+                                       <SelectItem value="units">units_sold</SelectItem>
+                                     </SelectContent>
+                                   </Select>
+                                 </div>
+                                 <div className="space-y-1">
+                                   <Label className="text-xs">Time Column</Label>
+                                   <Select value={cfgTimeCol} onValueChange={setCfgTimeCol}>
+                                     <SelectTrigger className="h-8 text-xs" data-testid="select-time-col"><SelectValue /></SelectTrigger>
+                                     <SelectContent>
+                                       <SelectItem value="date">transaction_date</SelectItem>
+                                       <SelectItem value="ts">timestamp</SelectItem>
+                                     </SelectContent>
+                                   </Select>
+                                 </div>
+                                 <div className="space-y-1">
+                                   <Label className="text-xs">DFU (ID Column)</Label>
+                                   <Select value={cfgDfu} onValueChange={setCfgDfu}>
+                                     <SelectTrigger className="h-8 text-xs" data-testid="select-dfu"><SelectValue /></SelectTrigger>
+                                     <SelectContent>
+                                       <SelectItem value="sku">product_sku</SelectItem>
+                                       <SelectItem value="store">store_id</SelectItem>
+                                       <SelectItem value="combo">sku_store_combo</SelectItem>
+                                     </SelectContent>
+                                   </Select>
+                                 </div>
+                                 <Separator />
+                                 <div className="space-y-2">
+                                   <div className="flex items-center justify-between">
+                                     <Label className="text-xs font-semibold">Lagged Features</Label>
+                                     <Switch checked={cfgFeatures.lagged} onCheckedChange={v => setCfgFeatures(p => ({ ...p, lagged: v }))} data-testid="switch-lagged" />
+                                   </div>
+                                   {cfgFeatures.lagged && (
+                                     <div className="border rounded-md max-h-28 overflow-y-auto p-1.5 space-y-0.5">
+                                       {LAG_OPTIONS.map(l => (
+                                         <label key={l.value} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
+                                           <Checkbox checked={cfgLags.includes(l.value)} onCheckedChange={() => setCfgLags(prev => toggleInArray(prev, l.value))} className="h-3.5 w-3.5" />
+                                           {l.label}
+                                         </label>
+                                       ))}
+                                     </div>
+                                   )}
+                                 </div>
+                                 <div className="space-y-2">
+                                   <div className="flex items-center justify-between">
+                                     <Label className="text-xs font-semibold">Date Parts</Label>
+                                     <Switch checked={cfgFeatures.dateParts} onCheckedChange={v => setCfgFeatures(p => ({ ...p, dateParts: v }))} data-testid="switch-dateparts" />
+                                   </div>
+                                   {cfgFeatures.dateParts && (
+                                     <div className="border rounded-md max-h-28 overflow-y-auto p-1.5 space-y-0.5">
+                                       {DATE_PARTS.map(d => (
+                                         <label key={d.value} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
+                                           <Checkbox checked={cfgDateParts.includes(d.value)} onCheckedChange={() => setCfgDateParts(prev => toggleInArray(prev, d.value))} className="h-3.5 w-3.5" />
+                                           {d.label}
+                                         </label>
+                                       ))}
+                                     </div>
+                                   )}
+                                 </div>
+                                 <div className="space-y-2">
+                                   <div className="flex items-center justify-between">
+                                     <Label className="text-xs font-semibold">Rolling Statistics</Label>
+                                     <Switch checked={cfgFeatures.rolling} onCheckedChange={v => setCfgFeatures(p => ({ ...p, rolling: v }))} data-testid="switch-rolling" />
+                                   </div>
+                                   {cfgFeatures.rolling && (
+                                     <>
+                                       <div className="space-y-1">
+                                         <Label className="text-[10px] text-muted-foreground">Statistics</Label>
+                                         <div className="border rounded-md max-h-24 overflow-y-auto p-1.5 space-y-0.5">
+                                           {ROLLING_STATS.map(s => (
+                                             <label key={s.value} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
+                                               <Checkbox checked={cfgRollingStats.includes(s.value)} onCheckedChange={() => setCfgRollingStats(prev => toggleInArray(prev, s.value))} className="h-3.5 w-3.5" />
+                                               {s.label}
+                                             </label>
+                                           ))}
+                                         </div>
+                                       </div>
+                                       <div className="space-y-1">
+                                         <Label className="text-[10px] text-muted-foreground">Windows</Label>
+                                         <div className="border rounded-md max-h-24 overflow-y-auto p-1.5 space-y-0.5">
+                                           {ROLLING_WINDOWS.map(w => (
+                                             <label key={w.value} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
+                                               <Checkbox checked={cfgRollingWindows.includes(w.value)} onCheckedChange={() => setCfgRollingWindows(prev => toggleInArray(prev, w.value))} className="h-3.5 w-3.5" />
+                                               {w.label}
+                                             </label>
+                                           ))}
+                                         </div>
+                                       </div>
+                                     </>
+                                   )}
+                                 </div>
+                                 <div className="space-y-2">
+                                   <div className="flex items-center justify-between">
+                                     <Label className="text-xs font-semibold">Holiday Features</Label>
+                                     <Switch checked={cfgFeatures.holidays} onCheckedChange={v => setCfgFeatures(p => ({ ...p, holidays: v }))} data-testid="switch-holidays" />
+                                   </div>
+                                   {cfgFeatures.holidays && (
+                                     <div className="space-y-1">
+                                       <Label className="text-[10px] text-muted-foreground">Country</Label>
+                                       <Select value={cfgHolidayCountry} onValueChange={setCfgHolidayCountry}>
+                                         <SelectTrigger className="h-8 text-xs" data-testid="select-holiday-country"><SelectValue /></SelectTrigger>
+                                         <SelectContent>
+                                           <SelectItem value="US">United States</SelectItem>
+                                           <SelectItem value="GB">United Kingdom</SelectItem>
+                                           <SelectItem value="DE">Germany</SelectItem>
+                                           <SelectItem value="FR">France</SelectItem>
+                                           <SelectItem value="JP">Japan</SelectItem>
+                                           <SelectItem value="CN">China</SelectItem>
+                                           <SelectItem value="IN">India</SelectItem>
+                                           <SelectItem value="BR">Brazil</SelectItem>
+                                           <SelectItem value="CA">Canada</SelectItem>
+                                           <SelectItem value="AU">Australia</SelectItem>
+                                         </SelectContent>
+                                       </Select>
+                                     </div>
+                                   )}
+                                 </div>
+                               </div>
+                             </details>
+
+                             <details className="group border rounded-lg">
+                               <summary className="flex items-center justify-between p-3 cursor-pointer text-xs font-semibold hover:bg-muted/50">
+                                 System
+                                 <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
+                               </summary>
+                               <div className="px-3 pb-3 space-y-3">
+                                 <div className="space-y-1">
+                                   <Label className="text-xs">Number of CPUs</Label>
+                                   <Select value={cfgCpus} onValueChange={setCfgCpus}>
+                                     <SelectTrigger className="h-8 text-xs" data-testid="select-cpus"><SelectValue /></SelectTrigger>
+                                     <SelectContent>
+                                       <SelectItem value="auto">Auto (Detect)</SelectItem>
+                                       <SelectItem value="2">2 Cores</SelectItem>
+                                       <SelectItem value="4">4 Cores</SelectItem>
+                                       <SelectItem value="8">8 Cores</SelectItem>
+                                     </SelectContent>
+                                   </Select>
+                                 </div>
+                                 <div className="space-y-1">
+                                   <Label className="text-xs">Logging Level</Label>
+                                   <Select value={cfgLogLevel} onValueChange={setCfgLogLevel}>
+                                     <SelectTrigger className="h-8 text-xs" data-testid="select-log-level"><SelectValue /></SelectTrigger>
+                                     <SelectContent>
+                                       <SelectItem value="error">Error Only</SelectItem>
+                                       <SelectItem value="info">Info (Standard)</SelectItem>
+                                       <SelectItem value="debug">Debug (Verbose)</SelectItem>
+                                     </SelectContent>
+                                   </Select>
+                                 </div>
+                               </div>
+                             </details>
+                           </div>
+                         );
+                       })()}
                     </div>
                     );
                   })()}
@@ -4012,21 +4282,6 @@ function FlowWithProvider() {
           );
         })()}
       </div>
-
-      {/* Full Screen Dialog for Model Config */}
-      <Dialog open={configOpen} onOpenChange={setConfigOpen}>
-        <DialogContent className="max-w-[95vw] w-full h-[95vh] p-0 flex flex-col overflow-hidden">
-           <div className="p-6 border-b shrink-0 flex items-center justify-between">
-              <div>
-                 <DialogTitle className="text-xl">Model Configuration</DialogTitle>
-                 <DialogDescription>Setup your forecasting parameters.</DialogDescription>
-              </div>
-           </div>
-           <ScrollArea className="flex-1 p-6 bg-slate-50/50">
-              <ConfigurationPanel />
-           </ScrollArea>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={resultsOpen} onOpenChange={setResultsOpen}>
         <DialogContent className="max-w-[95vw] w-full h-[95vh] p-0 flex flex-col overflow-hidden">
