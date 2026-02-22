@@ -1,117 +1,177 @@
-# Forecaster - Data Pipeline Application
+# Forecaster - Data Pipeline & Forecasting Application
 
 ## Overview
 
-Forecaster is a visual data pipeline and forecasting application. It enables users to upload datasets, construct data transformation pipelines using a drag-and-drop interface, and apply forecasting models. The application provides tools for exploratory data analysis, data validation, and visualization of forecast results, aiming to simplify the process of preparing data and generating predictions.
+Forecaster is a visual data pipeline and forecasting application designed to allow users to upload CSV datasets, construct data transformation pipelines using a drag-and-drop editor, and execute forecasting models. It offers comprehensive exploratory data analysis, data validation tools, 16 distinct chart types for data visualization, and the capability to generate HTML reports. The application's backend leverages a Python engine for pipeline execution, adhering to 12-Factor app principles for flexible deployment across various environments like Replit, personal servers, or cloud platforms.
 
 ## User Preferences
 
-Preferred communication style: Simple, everyday language.
+- Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 
 ### Frontend
-- **Framework**: React 18 with TypeScript
-- **Routing**: Wouter
-- **State Management**: TanStack React Query
-- **UI Components**: shadcn/ui (built on Radix UI)
-- **Styling**: Tailwind CSS
-- **Visual Editor**: @xyflow/react for drag-and-drop pipeline building
-- **Code Editor**: Monaco Editor for Python/SQL
-- **Charts**: Recharts for data visualization
-- **Build Tool**: Vite
+
+The frontend is built with React 18 and TypeScript. It uses Wouter for routing, though currently only the pipeline editor route ("/") is active. State management is handled by TanStack React Query, and UI components are built with shadcn/ui (based on Radix UI primitives) and styled using Tailwind CSS. The visual pipeline editor utilizes @xyflow/react, while Monaco Editor is integrated for code editing within nodes. Recharts is used for rendering various chart types. Vite serves as the build tool.
 
 ### Backend
-- **Runtime**: Node.js with Express
-- **Language**: TypeScript
-- **API Style**: RESTful JSON API
-- **File Uploads**: Multer
-- **Data Parsing**: csv-parse
 
-### Data Storage
-- **Database**: PostgreSQL with Drizzle ORM
-- **Schema**: Defined in `shared/schema.ts` for database tables like `users`, `pipelines`, and `datasets`.
-- **Migrations**: Managed by `drizzle-kit`.
+The backend is developed with Node.js and Express in TypeScript, providing a RESTful JSON API. Multer is used for handling multipart/form-data file uploads, and csv-parse facilitates CSV parsing.
 
-### Key Design Patterns
-- **Shared Types**: `shared/` directory for common type definitions.
-- **API Client**: Centralized API call functions.
-- **Custom Hooks**: React Query hooks for data fetching.
-- **Component Structure**: Organized by function (UI, pipeline, dashboard, layout).
+### Database
 
-### Palette Organization & Color Coding
-Nodes are categorized and color-coded:
-- **Source** (blue)
-- **Prep** (yellow)
-- **Analysis** (emerald)
-- **Model** (violet)
+PostgreSQL, hosted on Neon (for Replit deployment), serves as the database. Drizzle ORM is used for database interactions, with drizzle-kit managing migrations. Data validation is performed using drizzle-zod and Zod.
 
-### Pipeline Node Types
-- **Data Source**: Import CSV files.
-- **Data Preview**: View data head.
-- **Filter**: Apply row-level filters.
-- **Merge / Join**: Combine datasets.
-- **Sampling**: Stratified group sampling for time series.
-- **Fill Missing Values**: Handle nulls with various strategies.
-- **Date Gap Filler**: Ensure continuous date series.
-- **Outlier Treatment**: Detect and handle outliers.
-- **Column Transform**: Perform column operations (rename, drop, type cast, calculated columns).
-- **Remove Duplicates**: Deduplicate rows.
-- **Pivot / Unpivot**: Reshape data.
-- **Python Script**: Custom pandas transformations.
-- **SQL Transform**: DuckDB SQL-based transformations.
-- **Validation (EDA)**: Exploratory data analysis dashboard with widgets like GeneralStats, TimeSeriesView, etc.
-- **Exploration**: Modular chart components (e.g., Rich Text, Time Series, Demand Classification (ADI×CV²), Forecast vs Actual, Backtest Metrics, Feature Importance). Features a consistent teal/indigo palette. 16 chart types total.
-- **Report**: Combines multiple exploration charts into an HTML report.
-- **Model Config**: AutoGluon forecast model configuration, including training/loading, data frequency, forecast horizon, backtesting with walk-forward cross-validation, feature engineering, and data preprocessing within folds. All config state persists to node data (save/load with pipeline). Per-column preprocessing: cfgFillConfigs (Record per column with strategy/constant), cfgOutlierConfigs (Record per column with method/threshold/action).
-- **Output**: View forecast results.
+#### Database Schema
 
-### Data Flow & Preview
-- Nodes recursively trace upstream connections to identify data sources.
-- Previews and column values are dynamically fetched.
-- Specific API endpoints support unfiltered, filtered, and column-specific data retrieval.
+The database includes `users`, `pipelines`, and `datasets` tables.
+- `users`: Stores user credentials (`id`, `username`, `password`).
+- `pipelines`: Stores pipeline definitions (`id`, `name`, `description`, `nodes`, `edges`, `createdAt`, `updatedAt`).
+- `datasets`: Stores metadata about uploaded datasets (`id`, `filename`, `filepath`, `rows`, `cols`, `size`, `columns`, `uploadedAt`).
 
-### Filter Node Technical Details
-- Supports various operators and dynamic metadata updates.
+### Pipeline Engine (Python)
 
-### Python Pipeline Engine (`engine/`)
-- **Entry Point**: `engine/pipeline.py` — receives pipeline JSON, resolves topological order, runs handlers
-- **12-Factor Principles**: Config via env vars (`STORAGE_TYPE`, `STORAGE_PATH`, `MODEL_PATH`, `LOG_LEVEL`), structured JSON logs to stdout, stateless execution
-- **Storage Adapter**: `engine/adapters/storage.py` — abstract interface with `LocalStorageAdapter` (swappable for S3/GCS)
-- **Handler Registry**: `engine/handlers/registry.py` — decorator-based `@register(node_type)` pattern
-- **Data Handlers**: `data_source`, `data_preview`, `filter` — CSV loading, preview, row filtering
-- **Prep Handlers**: `fill_missing`, `column_transform`, `remove_duplicates`, `merge`, `sampling`, `date_gap_filler`, `outlier_treatment`, `pivot`
-- **Code Handlers**: `python_script` (sandboxed exec), `sql_transform` (DuckDB in-memory)
-- **Model Handler**: `model_config` — AutoGluon TimeSeriesPredictor with statistical fallback, per-column preprocessing within folds, permutation-based feature importance
-- **Python Packages**: pandas, numpy, scikit-learn, scipy, duckdb
-- **Execution Bridge**: Express route spawns `python3 -m engine.pipeline` with pipeline JSON, config via env vars, streams progress/results back
+The Python pipeline execution engine adheres to 12-Factor app principles, using environment variables for configuration and structured JSON logging to stdout. It operates statelessly and manages dependencies via `pyproject.toml`.
 
-### Build Process
-- **Development**: Vite for frontend, tsx for backend.
-- **Production**: esbuild for server, Vite for client, serving static files.
+#### Execution Flow
+
+The engine receives pipeline definitions via a POST request to `/api/pipelines/:id/execute`. It processes the pipeline by resolving the topological order of nodes and executing handlers for each node. Progress and results are emitted as structured JSON.
+
+#### Node Types
+
+The pipeline supports various node types, categorized and color-coded:
+- **Source (Blue):** Data Source (CSV import), Data Preview.
+- **Prep (Yellow):** Filter, Merge/Join, Sampling, Fill Missing Values, Date Gap Filler, Outlier Treatment, Column Transform, Remove Duplicates, Pivot/Unpivot.
+- **Analysis (Emerald):** Python Script (sandboxed pandas transforms), SQL Transform (DuckDB queries), Validation (EDA dashboard), Exploration (modular chart builder), Report (HTML report generation).
+- **Model (Violet):** Model Config (forecasting model configuration), Output (forecast results).
+
+#### Exploration Chart Types (16 total)
+
+The application provides a comprehensive set of 16 chart types for data exploration, including Time Series, Histogram, Box Plot, Bar Chart, Scatter Plot, Demand Classification (ADI x CV-squared), Pareto Chart, Data Table, Summary Statistics, Seasonal Plot, Data Completeness, Outlier Table, Forecast vs Actual, Backtest Metrics, Feature Importance, and Rich Text annotations.
+
+#### Model Handling
+
+The primary forecasting model uses AutoGluon TimeSeriesPredictor, with statistical models as a fallback. It includes features for data leakage prevention, permutation-based feature importance, and walk-forward cross-validation.
+
+#### Python Script Sandboxing
+
+To ensure security, the Python script execution environment is sandboxed. It restricts built-ins to a whitelist, blocks sensitive imports (e.g., `os`, `sys`, `subprocess`), and prevents patterns that could allow class hierarchy traversal.
 
 ## External Dependencies
 
-### Database
-- PostgreSQL
-- Drizzle ORM
+### Python Packages
 
-### File Storage
-- Local filesystem (`uploads/` directory)
+Key Python dependencies include `pandas`, `numpy`, `scikit-learn`, `scipy`, and `duckdb`. AutoGluon is an optional runtime dependency for forecasting models.
 
-### Key NPM Packages
-- `@xyflow/react`
-- `@monaco-editor/react`
-- `@tanstack/react-query`
-- `recharts`
-- `react-dropzone`
-- `framer-motion`
-- `sonner`
-- `drizzle-orm` / `drizzle-kit`
-- `multer`
-- `csv-parse`
+### Node.js Packages
 
-### Replit-Specific
-- `@replit/vite-plugin-runtime-error-modal`
-- `@replit/vite-plugin-cartographer`
-- `@replit/vite-plugin-dev-banner`
+Frontend and backend rely on several key NPM packages:
+- **Frontend:** `@xyflow/react` (visual editor), `@monaco-editor/react` (code editor), `@tanstack/react-query` (state management), `recharts` (charts), `react-dropzone` (file upload), `framer-motion` (animations), `sonner` (toast notifications).
+- **Backend/ORM:** `drizzle-orm`, `drizzle-kit`, `multer` (file uploads), `csv-parse` (CSV parsing).
+- **Replit-Specific:** `@replit/vite-plugin-runtime-error-modal`, `@replit/vite-plugin-cartographer`, `@replit/vite-plugin-dev-banner`.
+
+## Project File Structure
+
+```
+client/src/
+  App.tsx                             Root (only "/" route active, others exist but unwired)
+  components/pipeline/FlowEditor.tsx  Main canvas, execution logic, save/load dialogs
+  components/pipeline/NodePalette.tsx Draggable node types (left sidebar)
+  components/pipeline/PipelineNode.tsx Node rendering with status indicators
+  components/configuration/ConfigurationPanel.tsx  Right sidebar config forms
+  components/exploration/ExplorationCharts.tsx      All 16 chart components
+  components/dashboard/               EDA widgets (GeneralStats, TimeSeriesView, etc.)
+  components/file-upload/FileDropzone.tsx           CSV drag-and-drop upload
+  hooks/useDatasets.ts                React Query for datasets
+  hooks/usePipelines.ts               React Query for pipelines
+  lib/api.ts                          Centralized API client
+  pages/pipeline.tsx                  Active pipeline editor page
+
+server/
+  index.ts                            Entry point, binds to port
+  routes.ts                           All 18 REST API route handlers
+  storage.ts                          IStorage interface + DbStorage implementation
+  vite.ts                             Vite dev middleware
+  static.ts                           Production static serving
+
+shared/schema.ts                      Drizzle tables, Zod schemas, TypeScript types
+
+engine/
+  pipeline.py                         Entry: reads JSON, topological sort, runs handlers
+  config.py                           Env var config + JSON logger setup
+  adapters/storage.py                 StorageAdapter ABC + LocalStorageAdapter
+  handlers/registry.py                @register decorator pattern
+  handlers/data_handlers.py           data_source, data_preview, filter (3 handlers)
+  handlers/prep_handlers.py           fill_missing, column_transform, remove_duplicates,
+                                      merge, sampling, date_gap_filler, outlier_treatment, pivot (8)
+  handlers/code_handlers.py           python_script (sandboxed), sql_transform (DuckDB) (2)
+  handlers/model_handler.py           model_config (AutoGluon + statistical fallback) (1)
+```
+
+## API Reference
+
+### Pipeline Endpoints
+- `GET /api/pipelines` — List all
+- `GET /api/pipelines/:id` — Get by ID
+- `POST /api/pipelines` — Create (body: name, description, nodes, edges)
+- `PATCH /api/pipelines/:id` — Update fields
+- `DELETE /api/pipelines/:id` — Delete
+- `POST /api/pipelines/:id/execute` — Execute via Python engine
+
+### Dataset Endpoints
+- `GET /api/datasets` — List all
+- `GET /api/datasets/:id` — Get metadata
+- `POST /api/datasets/upload` — Upload CSV (multipart, field: file)
+- `DELETE /api/datasets/:id` — Delete dataset + file
+- `GET /api/datasets/:id/preview` — Row preview (?rows=N)
+- `GET /api/datasets/:id/column/:column/values` — Unique column values
+- `GET /api/datasets/:id/column/:column/date-range` — Date min/max
+- `POST /api/datasets/:id/stratified-sample` — Group sampling
+- `POST /api/datasets/:id/filtered-preview` — Filtered preview
+- `POST /api/datasets/:id/transform` — Column transforms
+- `POST /api/datasets/:id/python-transform` — Python pandas transform
+- `POST /api/datasets/:id/sql-transform` — DuckDB SQL transform
+
+## Engine Environment Variables
+
+- `STORAGE_TYPE` (default: local) — Storage backend (future: s3, gcs)
+- `STORAGE_PATH` (default: ./uploads) — File storage base path
+- `MODEL_PATH` (default: ./models) — Model artifacts path
+- `DATABASE_URL` — PostgreSQL connection string
+- `LOG_LEVEL` (default: INFO) — DEBUG/INFO/WARNING/ERROR
+- `MAX_ROWS_PREVIEW` (default: 1000) — Max preview rows
+- `MAX_EXECUTION_TIME` (default: 3600) — Timeout in seconds
+
+## Engine Handler Details
+
+14 handlers registered via `@register(node_type)` decorator. Engine status values: running, completed, error, skipped. Frontend maps to: processing, success, error.
+
+### Storage Adapter
+Abstract `StorageAdapter` ABC with: read_file, write_file, file_exists, list_files, get_full_path. `LocalStorageAdapter` resolves paths relative to STORAGE_PATH. Designed for swap to S3/GCS without handler changes.
+
+### Model Config Handler
+- AutoGluon TimeSeriesPredictor (optional, not in pyproject.toml, used when installed)
+- Statistical model fallback when AutoGluon unavailable
+- Per-column preprocessing within train/test folds (prevents data leakage)
+- cfgFillConfigs: Record per column with strategy + constant value
+- cfgOutlierConfigs: Record per column with method/threshold/action
+- Permutation-based feature importance via scikit-learn
+- Walk-forward cross-validation for backtesting
+
+### Python Script Security
+- Builtins restricted to safe whitelist (no open, eval, exec, compile, __import__, getattr)
+- Blocked imports: os, sys, subprocess, shutil, pathlib, socket, http, urllib, requests, importlib, ctypes, signal
+- Blocked class traversal: __subclasses__, __bases__, __class__
+- User code gets: df, pd, np, input_data, result
+- Defense-in-depth only; containerized execution needed for untrusted code
+
+## Build Process
+
+- Development: Vite (HMR) + tsx (watch)
+- Production: Vite build to dist/public/, esbuild to dist/index.js
+
+## Recent Changes
+
+- 2026-02-22: Hardened sandbox with restricted builtins whitelist. Improved DataSource file resolution.
+- 2026-02-21: Added Feature Importance chart (16th). Express execution bridge. Frontend progress events.
+- 2026-02-21: Built Python engine with 14 handlers, 12-Factor config, storage adapter, handler registry.
