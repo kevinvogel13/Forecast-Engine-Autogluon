@@ -218,9 +218,25 @@ function FlowWithProvider() {
   // Advanced config state (Model Specs)
   const [cfgEvalMetric, setCfgEvalMetric] = useState("MASE");
   const [cfgQuantiles, setCfgQuantiles] = useState<string[]>(["0.1", "0.5", "0.9"]);
+  const [cfgCIPreset, setCfgCIPreset] = useState<"80"|"90"|"95"|"99"|"custom">("80");
   const [cfgPreset, setCfgPreset] = useState("fast");
   const [cfgTimeLimit, setCfgTimeLimit] = useState("600");
   const [cfgRefitFull, setCfgRefitFull] = useState(true);
+
+  const CI_PRESETS: Record<string, { label: string; desc: string; quantiles: string[] }> = {
+    "80": { label: "80% CI", desc: "Wider intervals, higher coverage", quantiles: ["0.1", "0.5", "0.9"] },
+    "90": { label: "90% CI", desc: "Balanced — good default", quantiles: ["0.05", "0.5", "0.95"] },
+    "95": { label: "95% CI", desc: "Narrower bands, lower miss rate", quantiles: ["0.025", "0.5", "0.975"] },
+    "99": { label: "99% CI", desc: "Very tight — use with caution", quantiles: ["0.005", "0.5", "0.995"] },
+    "custom": { label: "Custom", desc: "Pick individual quantile levels", quantiles: [] },
+  };
+
+  const PRESET_CARDS = [
+    { value: "fast", label: "⚡ Fast", time: "≤60s", quality: "Good for exploration" },
+    { value: "medium_quality", label: "⚖ Medium", time: "≤5 min", quality: "Balanced quality" },
+    { value: "high_quality", label: "🎯 High", time: "≤20 min", quality: "Strong accuracy" },
+    { value: "best_quality", label: "🏆 Best", time: "Unlimited", quality: "Maximum accuracy" },
+  ];
 
   // Advanced config state (Feature Engineering)
   const [cfgTargetVar, setCfgTargetVar] = useState("");
@@ -285,6 +301,7 @@ function FlowWithProvider() {
       setCfgOutlierConfigs(selectedNode.data.cfgOutlierConfigs || {});
       setCfgEvalMetric(selectedNode.data.cfgEvalMetric || 'MASE');
       setCfgQuantiles(selectedNode.data.cfgQuantiles || ['0.1', '0.5', '0.9']);
+      setCfgCIPreset(selectedNode.data.cfgCIPreset || '80');
       setCfgRefitFull(selectedNode.data.cfgRefitFull ?? true);
       setCfgSelectedModels(selectedNode.data.cfgSelectedModels || getModelsForPreset('fast'));
       setCfgPreset(selectedNode.data.cfgPreset || 'fast');
@@ -311,6 +328,7 @@ function FlowWithProvider() {
     updateNodeData('cfgOutlierConfigs', cfgOutlierConfigs);
     updateNodeData('cfgEvalMetric', cfgEvalMetric);
     updateNodeData('cfgQuantiles', cfgQuantiles);
+    updateNodeData('cfgCIPreset', cfgCIPreset);
     updateNodeData('cfgRefitFull', cfgRefitFull);
     updateNodeData('cfgSelectedModels', cfgSelectedModels);
     updateNodeData('cfgPreset', cfgPreset);
@@ -318,7 +336,7 @@ function FlowWithProvider() {
     updateNodeData('cfgGpus', cfgGpus);
     updateNodeData('cfgCpus', cfgCpus);
     updateNodeData('cfgLogLevel', cfgLogLevel);
-  }, [cfgTargetVar, cfgTimeCol, cfgDfu, cfgStaticFeatures, cfgKnownCovariates, cfgHolidayEnabled, cfgHolidayCountry, cfgFillMissing, cfgFillConfigs, cfgOutlierTreatment, cfgOutlierConfigs, cfgEvalMetric, cfgQuantiles, cfgRefitFull, cfgSelectedModels, cfgPreset, cfgTimeLimit, cfgGpus, cfgCpus, cfgLogLevel]);
+  }, [cfgTargetVar, cfgTimeCol, cfgDfu, cfgStaticFeatures, cfgKnownCovariates, cfgHolidayEnabled, cfgHolidayCountry, cfgFillMissing, cfgFillConfigs, cfgOutlierTreatment, cfgOutlierConfigs, cfgEvalMetric, cfgQuantiles, cfgCIPreset, cfgRefitFull, cfgSelectedModels, cfgPreset, cfgTimeLimit, cfgGpus, cfgCpus, cfgLogLevel]);
 
   // Component palette toggle
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -1920,7 +1938,7 @@ function FlowWithProvider() {
               setNodes((nds) =>
                 nds.map(n => {
                   if (n.id !== parsed.nodeId) return n;
-                  return { ...n, data: { ...n.data, status: newStatus, ...(newStats ? { stats: newStats } : {}), ...(errorMessage !== undefined ? { errorMessage } : {}) } };
+                  return { ...n, data: { ...n.data, status: newStatus, ...(newStats ? { stats: newStats } : {}), ...(errorMessage !== undefined ? { errorMessage } : {}), ...(parsed.resultInfo ? { resultInfo: parsed.resultInfo } : {}) } };
                 })
               );
 
@@ -2853,7 +2871,45 @@ function FlowWithProvider() {
                        </div>
 
                        <div className="space-y-1.5">
-                          <Label className="text-xs font-medium">Data Frequency</Label>
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs font-medium">Data Frequency</Label>
+                            <Button
+                              size="sm" variant="ghost"
+                              className="h-5 text-[10px] px-1.5 gap-1 text-violet-600 hover:text-violet-700 hover:bg-violet-50"
+                              onClick={async () => {
+                                const timeCol = selectedNode.data.cfgTimeCol || selectedNode.data.configDateColumn;
+                                if (!timeCol) { toast.error('Set the timestamp column first'); return; }
+                                const upstreamEdge = edgesRef.current.find(e => e.target === selectedNode.id);
+                                const upstreamNode = upstreamEdge ? nodesRef.current.find(n => n.id === upstreamEdge.source) : null;
+                                const datasetId = upstreamNode?.data?.datasetId;
+                                if (!datasetId) { toast.error('Connect a data source upstream first'); return; }
+                                try {
+                                  const res = await fetch(`/api/datasets/${datasetId}/preview?rows=200`);
+                                  if (!res.ok) throw new Error();
+                                  const data = await res.json();
+                                  const vals: number[] = (data.rows || [])
+                                    .map((r: any) => new Date(r[timeCol]).getTime())
+                                    .filter((v: number) => !isNaN(v))
+                                    .sort((a: number, b: number) => a - b);
+                                  if (vals.length < 2) { toast.error('Not enough date values to detect'); return; }
+                                  const diffs = vals.slice(1).map((v, i) => v - vals[i]);
+                                  const medianDiff = diffs.sort((a, b) => a - b)[Math.floor(diffs.length / 2)];
+                                  const days = medianDiff / 86400000;
+                                  let detected = 'monthly';
+                                  if (days <= 2) detected = 'daily';
+                                  else if (days <= 10) detected = 'weekly';
+                                  else if (days <= 50) detected = 'monthly';
+                                  else if (days <= 120) detected = 'quarterly';
+                                  else detected = 'yearly';
+                                  updateNodeData('dataFrequency', detected);
+                                  toast.success(`Detected: ${detected} (median gap ${Math.round(days)}d)`);
+                                } catch { toast.error('Could not detect frequency'); }
+                              }}
+                              data-testid="button-detect-frequency"
+                            >
+                              <CheckCircle2 className="w-3 h-3" /> Detect
+                            </Button>
+                          </div>
                           <select
                              value={dataFrequency}
                              onChange={(e) => updateNodeData('dataFrequency', e.target.value)}
@@ -3106,12 +3162,10 @@ function FlowWithProvider() {
 
                        {/* --- Inline Advanced Settings Sections --- */}
                        {(() => {
-                         const QUANTILES = [
+                         const QUANTILES_ALL = [
                            { value: "0.01", label: "P1" }, { value: "0.05", label: "P5" },
                            { value: "0.1", label: "P10" }, { value: "0.2", label: "P20" },
-                           { value: "0.25", label: "P25" }, { value: "0.3", label: "P30" },
-                           { value: "0.4", label: "P40" }, { value: "0.5", label: "P50" },
-                           { value: "0.6", label: "P60" }, { value: "0.7", label: "P70" },
+                           { value: "0.25", label: "P25" }, { value: "0.5", label: "P50" },
                            { value: "0.75", label: "P75" }, { value: "0.8", label: "P80" },
                            { value: "0.9", label: "P90" }, { value: "0.95", label: "P95" },
                            { value: "0.99", label: "P99" },
@@ -3131,36 +3185,64 @@ function FlowWithProvider() {
                                    <Select value={cfgEvalMetric} onValueChange={setCfgEvalMetric}>
                                      <SelectTrigger className="h-8 text-xs" data-testid="select-eval-metric"><SelectValue /></SelectTrigger>
                                      <SelectContent>
-                                       <SelectItem value="MASE">MASE</SelectItem>
-                                       <SelectItem value="MAPE">MAPE</SelectItem>
-                                       <SelectItem value="RMSE">RMSE</SelectItem>
-                                       <SelectItem value="WQL">WQL</SelectItem>
+                                       <SelectItem value="MASE">MASE — Mean Absolute Scaled Error</SelectItem>
+                                       <SelectItem value="MAPE">MAPE — Mean Absolute Percentage Error</SelectItem>
+                                       <SelectItem value="RMSE">RMSE — Root Mean Square Error</SelectItem>
+                                       <SelectItem value="WQL">WQL — Weighted Quantile Loss</SelectItem>
                                      </SelectContent>
                                    </Select>
                                  </div>
-                                 <div className="space-y-1">
-                                   <Label className="text-xs">Quantile Levels</Label>
-                                   <div className="border rounded-md max-h-32 overflow-y-auto p-1.5 space-y-0.5" data-testid="quantile-checkboxes">
-                                     {QUANTILES.map(q => (
-                                       <label key={q.value} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
-                                         <Checkbox checked={cfgQuantiles.includes(q.value)} onCheckedChange={() => setCfgQuantiles(prev => toggleInArray(prev, q.value))} className="h-3.5 w-3.5" />
-                                         {q.label}
-                                       </label>
+                                 {/* Confidence Interval Presets */}
+                                 <div className="space-y-2">
+                                   <Label className="text-xs">Prediction Interval</Label>
+                                   <div className="grid grid-cols-2 gap-1.5" data-testid="ci-preset-buttons">
+                                     {Object.entries(CI_PRESETS).map(([key, ci]) => (
+                                       <button
+                                         key={key}
+                                         onClick={() => {
+                                           setCfgCIPreset(key as any);
+                                           if (key !== 'custom') setCfgQuantiles(ci.quantiles);
+                                         }}
+                                         className={`text-left p-2 rounded-md border text-[10px] transition-all ${cfgCIPreset === key ? 'border-violet-500 bg-violet-50 text-violet-800' : 'border-muted hover:border-violet-300 bg-white'}`}
+                                         data-testid={`ci-preset-${key}`}
+                                       >
+                                         <div className="font-semibold">{ci.label}</div>
+                                         <div className="text-muted-foreground leading-tight mt-0.5">{ci.desc}</div>
+                                       </button>
                                      ))}
                                    </div>
+                                   {cfgCIPreset === 'custom' && (
+                                     <div className="border rounded-md max-h-32 overflow-y-auto p-1.5 space-y-0.5 mt-1">
+                                       {QUANTILES_ALL.map(q => (
+                                         <label key={q.value} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-muted/30 rounded px-1 py-0.5">
+                                           <Checkbox checked={cfgQuantiles.includes(q.value)} onCheckedChange={() => setCfgQuantiles(prev => toggleInArray(prev, q.value))} className="h-3.5 w-3.5" />
+                                           {q.label}
+                                         </label>
+                                       ))}
+                                     </div>
+                                   )}
+                                   {cfgCIPreset !== 'custom' && (
+                                     <p className="text-[10px] text-muted-foreground">Quantiles: {cfgQuantiles.join(', ')}</p>
+                                   )}
                                  </div>
                                  <Separator />
-                                 <div className="space-y-1">
-                                   <Label className="text-xs">Presets</Label>
-                                   <Select value={cfgPreset} onValueChange={(v) => { setCfgPreset(v); setCfgSelectedModels(getModelsForPreset(v)); }}>
-                                     <SelectTrigger className="h-8 text-xs" data-testid="select-preset"><SelectValue /></SelectTrigger>
-                                     <SelectContent>
-                                       <SelectItem value="fast">Fast</SelectItem>
-                                       <SelectItem value="medium">Medium</SelectItem>
-                                       <SelectItem value="high">High</SelectItem>
-                                       <SelectItem value="best">Best</SelectItem>
-                                     </SelectContent>
-                                   </Select>
+                                 {/* Visual preset cards */}
+                                 <div className="space-y-1.5">
+                                   <Label className="text-xs">Training Preset</Label>
+                                   <div className="grid grid-cols-2 gap-1.5" data-testid="preset-cards">
+                                     {PRESET_CARDS.map(p => (
+                                       <button
+                                         key={p.value}
+                                         onClick={() => { setCfgPreset(p.value); setCfgSelectedModels(getModelsForPreset(p.value)); }}
+                                         className={`text-left p-2 rounded-md border transition-all ${cfgPreset === p.value ? 'border-violet-500 bg-violet-50 text-violet-800' : 'border-muted hover:border-violet-300 bg-white'}`}
+                                         data-testid={`preset-card-${p.value}`}
+                                       >
+                                         <div className="text-[11px] font-semibold">{p.label}</div>
+                                         <div className="text-[9px] text-muted-foreground font-mono">{p.time}</div>
+                                         <div className="text-[9px] text-slate-500">{p.quality}</div>
+                                       </button>
+                                     ))}
+                                   </div>
                                  </div>
                                  <div className="space-y-1">
                                    <Label className="text-xs">Time Limit (seconds)</Label>
@@ -3551,40 +3633,141 @@ function FlowWithProvider() {
                            </div>
                          );
                        })()}
+
+                       {/* ── Model Leaderboard (shown after execution) ── */}
+                       {(() => {
+                         const lb: Array<{model_name?: string; score?: number; fit_time?: number}> = selectedNode.data.resultInfo?.leaderboard || [];
+                         if (!lb.length) return null;
+                         const sorted = [...lb].sort((a, b) => (a.score ?? 999) - (b.score ?? 999));
+                         return (
+                           <div className="border rounded-lg overflow-hidden mt-2" data-testid="model-leaderboard">
+                             <div className="bg-violet-50 px-3 py-1.5 text-[10px] font-semibold text-violet-700 uppercase tracking-wide flex items-center gap-1.5">
+                               <Cpu className="w-3 h-3" /> Model Leaderboard
+                             </div>
+                             {sorted.slice(0, 8).map((row, i) => (
+                               <div key={i} className={`flex items-center gap-2 px-3 py-1.5 text-[11px] border-t ${i === 0 ? 'bg-violet-50/60 font-semibold' : 'hover:bg-muted/30'}`}>
+                                 <span className={`w-4 text-center text-[9px] font-bold ${i === 0 ? 'text-violet-600' : 'text-muted-foreground'}`}>{i + 1}</span>
+                                 <span className="flex-1 truncate font-mono">{row.model_name || 'Unknown'}</span>
+                                 <span className={`text-[10px] font-mono ${i === 0 ? 'text-violet-700' : 'text-slate-600'}`}>{typeof row.score === 'number' ? row.score.toFixed(4) : '—'}</span>
+                                 {i === 0 && <span className="text-[9px] bg-violet-200 text-violet-700 px-1 rounded">Best</span>}
+                               </div>
+                             ))}
+                           </div>
+                         );
+                       })()}
                     </div>
                     );
                   })()}
 
-                  {selectedNode.data.type === 'output' && (
-                    <div className="space-y-4 border rounded-md p-4 bg-green-50/50 border-green-100">
-                       <div className="flex flex-col items-center justify-center text-center space-y-3 py-2">
+                  {selectedNode.data.type === 'output' && (() => {
+                    // Find upstream model_config node for its resultInfo
+                    const upEdge = edgesRef.current.find(e => e.target === selectedNode.id);
+                    const modelNode = upEdge ? nodesRef.current.find(n => n.id === upEdge.source && n.data.type === 'model_config') : null;
+                    const ri = modelNode?.data?.resultInfo || selectedNode.data.resultInfo;
+                    const hasMape = typeof ri?.mape === 'number';
+                    const hasRmse = typeof ri?.rmse === 'number';
+                    const hasMae  = typeof ri?.mae  === 'number';
+                    const hasMetrics = hasMape || hasRmse || hasMae;
+                    const forecastRows = ri?.forecast_rows ?? 0;
+                    const forecastData = modelNode?.data?.resultInfo?.forecast || null;
+
+                    const downloadForecast = () => {
+                      if (!forecastData || !forecastData.length) { toast.error('No forecast data — run the pipeline first'); return; }
+                      const headers = Object.keys(forecastData[0]);
+                      const csv = [headers.join(','), ...forecastData.map((r: any) => headers.map(h => JSON.stringify(r[h] ?? '')).join(','))].join('\n');
+                      const blob = new Blob([csv], { type: 'text/csv' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a'); a.href = url; a.download = 'forecast.csv'; a.click();
+                      URL.revokeObjectURL(url);
+                      toast.success('Forecast downloaded');
+                    };
+
+                    return (
+                    <div className="space-y-3 border rounded-md p-4 bg-green-50/50 border-green-100">
+                       {hasMetrics && (
+                         <div className="space-y-1.5">
+                           <p className="text-[10px] font-semibold text-green-700 uppercase tracking-wide">Backtest Accuracy</p>
+                           <div className="grid grid-cols-3 gap-1.5" data-testid="output-metrics-card">
+                             {hasMape && (
+                               <div className="bg-white rounded-md p-2 border border-green-100 text-center">
+                                 <p className="text-[10px] text-muted-foreground">MAPE</p>
+                                 <p className="text-sm font-bold text-green-700">{ri.mape.toFixed(1)}%</p>
+                               </div>
+                             )}
+                             {hasRmse && (
+                               <div className="bg-white rounded-md p-2 border border-green-100 text-center">
+                                 <p className="text-[10px] text-muted-foreground">RMSE</p>
+                                 <p className="text-sm font-bold text-green-700">{ri.rmse.toFixed(2)}</p>
+                               </div>
+                             )}
+                             {hasMae && (
+                               <div className="bg-white rounded-md p-2 border border-green-100 text-center">
+                                 <p className="text-[10px] text-muted-foreground">MAE</p>
+                                 <p className="text-sm font-bold text-green-700">{ri.mae.toFixed(2)}</p>
+                               </div>
+                             )}
+                           </div>
+                         </div>
+                       )}
+                       {forecastRows > 0 && (
+                         <div className="flex items-center justify-between bg-white rounded-md px-3 py-2 border border-green-100">
+                           <div>
+                             <p className="text-xs font-medium text-green-800">Forecast Ready</p>
+                             <p className="text-[10px] text-green-600">{forecastRows.toLocaleString()} forecast rows generated</p>
+                           </div>
+                           <CheckCircle2 className="w-5 h-5 text-green-500" />
+                         </div>
+                       )}
+                       {/* Per-series accuracy breakdown */}
+                       {(() => {
+                         const perSeries: Array<Record<string, any>> = ri?.per_series_metrics || [];
+                         if (!perSeries.length) return null;
+                         const idKey = Object.keys(perSeries[0]).find(k => !['n','mape','rmse','mae'].includes(k)) || 'series';
+                         return (
+                           <details className="group border rounded-lg overflow-hidden">
+                             <summary className="flex items-center justify-between px-3 py-2 cursor-pointer text-[10px] font-semibold text-green-700 bg-green-50 hover:bg-green-100">
+                               Per-Series Accuracy
+                               <ChevronDown className="w-3 h-3 transition-transform group-open:rotate-180" />
+                             </summary>
+                             <ScrollArea className="max-h-40">
+                               <div className="text-[10px]">
+                                 <div className="flex gap-1 bg-slate-50 px-2 py-1 font-semibold text-slate-500 border-b">
+                                   <span className="flex-1 truncate">{idKey}</span>
+                                   <span className="w-10 text-right">MAPE%</span>
+                                   <span className="w-10 text-right">RMSE</span>
+                                 </div>
+                                 {perSeries.slice(0, 20).map((row, i) => (
+                                   <div key={i} className="flex gap-1 px-2 py-1 border-b hover:bg-muted/20">
+                                     <span className="flex-1 truncate font-mono" title={String(row[idKey])}>{row[idKey]}</span>
+                                     <span className={`w-10 text-right font-mono ${(row.mape ?? 100) > 20 ? 'text-orange-600 font-semibold' : 'text-slate-600'}`}>
+                                       {typeof row.mape === 'number' ? row.mape.toFixed(1) : '—'}
+                                     </span>
+                                     <span className="w-10 text-right font-mono text-slate-600">{typeof row.rmse === 'number' ? row.rmse.toFixed(1) : '—'}</span>
+                                   </div>
+                                 ))}
+                               </div>
+                             </ScrollArea>
+                           </details>
+                         );
+                       })()}
+                       <div className="flex flex-col items-center justify-center text-center space-y-2 py-1">
                           <div className="bg-green-100 p-3 rounded-full">
                              <Activity className="w-6 h-6 text-green-600" />
                           </div>
                           <div>
                              <h4 className="text-sm font-semibold text-green-900">Forecast Output & Analysis</h4>
-                             <p className="text-xs text-green-700 mt-1">Compare actual vs predicted values, view accuracy metrics, pattern classification (CV/ADI), and export results.</p>
-                          </div>
-                          <div className="w-full grid grid-cols-2 gap-2 text-xs">
-                             <div className="bg-white/70 rounded p-2 border border-green-100 text-left">
-                                <p className="text-green-800 font-medium">Accuracy Metrics</p>
-                                <p className="text-green-600 text-[10px]">MAE, RMSE, MAPE</p>
-                             </div>
-                             <div className="bg-white/70 rounded p-2 border border-green-100 text-left">
-                                <p className="text-green-800 font-medium">Pattern Analysis</p>
-                                <p className="text-green-600 text-[10px]">CV vs ADI Classification</p>
-                             </div>
-                             <div className="bg-white/70 rounded p-2 border border-green-100 text-left col-span-2">
-                                <p className="text-green-800 font-medium">Lag Comparison</p>
-                                <p className="text-green-600 text-[10px]">Actual vs Forecast at specified lags</p>
-                             </div>
+                             <p className="text-xs text-green-700 mt-1">Compare actual vs predicted, view pattern classification, and explore results.</p>
                           </div>
                           <Button className="w-full bg-green-600 hover:bg-green-700" onClick={() => setResultsOpen(true)} data-testid="button-view-results">
                              View Results & Analysis
                           </Button>
+                          <Button variant="outline" className="w-full border-green-300 text-green-700 hover:bg-green-50" onClick={downloadForecast} data-testid="button-download-forecast">
+                             <Download className="w-3.5 h-3.5 mr-1.5" /> Export Forecast CSV
+                          </Button>
                        </div>
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {selectedNode.data.type === 'merge' && (
                     <div className="space-y-4 border rounded-md p-3 bg-muted/20">

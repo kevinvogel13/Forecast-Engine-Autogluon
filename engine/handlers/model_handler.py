@@ -301,6 +301,22 @@ def run_statistical_forecast(df, node_data, fill_configs, outlier_configs):
             results['info']['mape'] = round(float(np.mean(np.abs((actuals[non_zero] - forecasts[non_zero]) / actuals[non_zero])) * 100), 2)
         results['info']['rmse'] = round(float(np.sqrt(np.mean((actuals - forecasts) ** 2))), 2)
         results['info']['mae'] = round(float(np.mean(np.abs(actuals - forecasts))), 2)
+
+        # Per-series accuracy breakdown
+        if id_col and id_col in backtest_df.columns:
+            per_series = []
+            for grp_name, grp_df in backtest_df.groupby(id_col):
+                a = grp_df['actual'].values
+                f = grp_df['forecast'].values
+                nz = a != 0
+                row = {id_col: str(grp_name), 'n': len(a),
+                       'rmse': round(float(np.sqrt(np.mean((a - f) ** 2))), 2),
+                       'mae': round(float(np.mean(np.abs(a - f))), 2)}
+                if nz.any():
+                    row['mape'] = round(float(np.mean(np.abs((a[nz] - f[nz]) / a[nz])) * 100), 2)
+                per_series.append(row)
+            per_series.sort(key=lambda x: x.get('mape', x.get('rmse', 0)), reverse=True)
+            results['per_series_metrics'] = per_series
     
     return results
 

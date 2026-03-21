@@ -123,7 +123,20 @@ def execute_pipeline(pipeline_json: dict) -> dict:
                 node_outputs[node_id] = result
                 if 'dataframe' in result:
                     results[node_id] = result['dataframe']
-                result_info = result.get('info', {})
+                result_info = result.get('info', {}).copy()
+                # Propagate small auxiliary payloads through SSE for the frontend
+                if 'leaderboard' in result:
+                    result_info['leaderboard'] = result['leaderboard']
+                if 'feature_importance' in result:
+                    result_info['feature_importance'] = result['feature_importance']
+                if 'per_series_metrics' in result:
+                    result_info['per_series_metrics'] = result['per_series_metrics']
+                # Include forecast rows (capped at 5000) so the frontend can offer CSV export
+                if 'forecast' in result:
+                    fc = result['forecast']
+                    if isinstance(fc, list):
+                        result_info['forecast'] = fc[:5000]
+                        result_info['forecast_rows'] = len(fc)
                 emit_progress(node_id, node_label, 'completed', result.get('message', 'Done'), result_info)
             else:
                 emit_progress(node_id, node_label, 'completed', 'Done')
