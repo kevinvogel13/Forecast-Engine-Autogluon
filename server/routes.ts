@@ -1298,7 +1298,7 @@ except Exception as e:
     }
   });
 
-  // Pipeline execution route
+  // Pipeline execution route — streams progress via Server-Sent Events
   app.post("/api/pipelines/:id/execute", async (req, res) => {
     try {
       const pipeline = await storage.getPipeline(req.params.id);
@@ -1306,8 +1306,17 @@ except Exception as e:
         return res.status(404).json({ error: "Pipeline not found" });
       }
 
+      // SSE headers
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
+
+      const sendEvent = (data: any) => {
+        try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch (_) {}
+      };
+
       const pipelineData = { nodes: pipeline.nodes || [], edges: pipeline.edges || [] };
-      
       const tmpFile = path.join(process.cwd(), 'uploads', `pipeline_exec_${Date.now()}.json`);
       await fs.writeFile(tmpFile, JSON.stringify(pipelineData));
 
@@ -1326,73 +1335,67 @@ except Exception as e:
 
       let stdout = '';
       let stderr = '';
-      const progressLines: any[] = [];
 
       python.stdout.on('data', (data) => {
         const text = data.toString();
         stdout += text;
-        
         const lines = text.split('\n').filter((l: string) => l.trim());
         for (const line of lines) {
           try {
             const parsed = JSON.parse(line);
-            if (parsed.type === 'progress') {
-              progressLines.push(parsed);
-            }
-          } catch (e) {
-          }
+            if (parsed.type === 'progress') sendEvent(parsed);
+          } catch (_) {}
         }
       });
 
-      python.stderr.on('data', (data) => {
-        stderr += data.toString();
-      });
+      python.stderr.on('data', (data) => { stderr += data.toString(); });
 
-      const result = await new Promise<any>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          python.kill();
-          reject(new Error('Pipeline execution timed out after 30 minutes'));
-        }, 30 * 60 * 1000);
+      const timeout = setTimeout(() => {
+        python.kill();
+        sendEvent({ type: 'result', success: false, error: 'Pipeline execution timed out after 30 minutes' });
+        res.end();
+      }, 30 * 60 * 1000);
 
-        python.on('close', (code) => {
-          clearTimeout(timeout);
-          
-          fs.unlink(tmpFile).catch(() => {});
-          
-          if (code !== 0 && !stdout.includes('"type": "result"')) {
-            resolve({ success: false, error: stderr || `Process exited with code ${code}` });
-            return;
-          }
+      python.on('close', (code) => {
+        clearTimeout(timeout);
+        fs.unlink(tmpFile).catch(() => {});
 
-          const allLines = stdout.split('\n').filter((l: string) => l.trim());
-          for (let i = allLines.length - 1; i >= 0; i--) {
-            try {
-              const parsed = JSON.parse(allLines[i]);
-              if (parsed.type === 'result') {
-                resolve(parsed);
-                return;
-              }
-            } catch (e) {
+        if (code !== 0 && !stdout.includes('"type": "result"')) {
+          sendEvent({ type: 'result', success: false, error: stderr || `Process exited with code ${code}` });
+          res.end();
+          return;
+        }
+
+        const allLines = stdout.split('\n').filter((l: string) => l.trim());
+        for (let i = allLines.length - 1; i >= 0; i--) {
+          try {
+            const parsed = JSON.parse(allLines[i]);
+            if (parsed.type === 'result') {
+              sendEvent(parsed);
+              res.end();
+              return;
             }
-          }
-          
-          resolve({ success: false, error: 'No result received from pipeline engine' });
-        });
+          } catch (_) {}
+        }
 
-        python.on('error', (err) => {
-          clearTimeout(timeout);
-          fs.unlink(tmpFile).catch(() => {});
-          reject(err);
-        });
+        sendEvent({ type: 'result', success: false, error: 'No result received from pipeline engine' });
+        res.end();
       });
 
-      res.json({
-        ...result,
-        progress: progressLines,
+      python.on('error', (err) => {
+        clearTimeout(timeout);
+        fs.unlink(tmpFile).catch(() => {});
+        sendEvent({ type: 'result', success: false, error: err.message });
+        res.end();
       });
+
+      req.on('close', () => { clearTimeout(timeout); python.kill(); });
+
     } catch (error: any) {
       console.error("Error executing pipeline:", error);
-      res.status(500).json({ error: error.message || "Failed to execute pipeline" });
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message || "Failed to execute pipeline" });
+      }
     }
   });
 

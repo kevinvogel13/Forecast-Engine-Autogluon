@@ -20,7 +20,7 @@ import {
  
 import '@xyflow/react/dist/style.css';
 import { Button } from '@/components/ui/button';
-import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown, GitMerge, FilePlus, GripVertical, ArrowUp, ArrowDown, Upload, Cpu } from 'lucide-react';
+import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown, GitMerge, FilePlus, GripVertical, ArrowUp, ArrowDown, Upload, Cpu, Undo2, Redo2, Download, AlertCircle, LayoutTemplate } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -45,6 +45,7 @@ const nodeTypes: NodeTypes = {
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Editor from '@monaco-editor/react';
 import { CHART_TYPES, renderChart } from '@/components/exploration/ExplorationCharts';
 import { HEADER_PORTAL_ID } from '@/components/layout/Shell';
@@ -69,6 +70,67 @@ const ALL_MODELS: Record<string, {label: string, category: string}> = {
   chronos_bolt: { label: "ChronosBolt", category: "Foundation" },
   weighted_ensemble: { label: "WeightedEnsemble", category: "Ensemble" },
 };
+
+const PIPELINE_TEMPLATES = [
+  {
+    id: 'basic-forecast',
+    name: 'Basic Forecast',
+    description: 'Upload a CSV, configure your model, and generate a forecast.',
+    nodes: [
+      { id: 'tpl_1', type: 'custom', position: { x: 80, y: 200 }, data: { label: 'Data Source', type: 'input', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_2', type: 'custom', position: { x: 320, y: 200 }, data: { label: 'Preview', type: 'preview', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_3', type: 'custom', position: { x: 560, y: 200 }, data: { label: 'Model Config', type: 'model_config', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_4', type: 'custom', position: { x: 800, y: 200 }, data: { label: 'Output', type: 'output', status: 'pending', stats: { rows: 0, cols: 0 } } },
+    ],
+    edges: [
+      { id: 'te1', source: 'tpl_1', target: 'tpl_2', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+      { id: 'te2', source: 'tpl_2', target: 'tpl_3', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+      { id: 'te3', source: 'tpl_3', target: 'tpl_4', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+    ],
+  },
+  {
+    id: 'eda-cleaning',
+    name: 'EDA + Data Cleaning',
+    description: 'Profile your data, fill missing values, remove outliers, then explore with charts.',
+    nodes: [
+      { id: 'tpl_1', type: 'custom', position: { x: 80, y: 200 }, data: { label: 'Data Source', type: 'input', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_2', type: 'custom', position: { x: 300, y: 100 }, data: { label: 'Fill Missing', type: 'fillMissing', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_3', type: 'custom', position: { x: 300, y: 300 }, data: { label: 'Remove Duplicates', type: 'removeDuplicates', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_4', type: 'custom', position: { x: 520, y: 200 }, data: { label: 'Outlier Treatment', type: 'outlierTreatment', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_5', type: 'custom', position: { x: 740, y: 100 }, data: { label: 'Validation', type: 'validation', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_6', type: 'custom', position: { x: 740, y: 300 }, data: { label: 'Exploration', type: 'exploration', status: 'pending', stats: { rows: 0, cols: 0 } } },
+    ],
+    edges: [
+      { id: 'te1', source: 'tpl_1', target: 'tpl_2', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+      { id: 'te2', source: 'tpl_1', target: 'tpl_3', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+      { id: 'te3', source: 'tpl_2', target: 'tpl_4', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+      { id: 'te4', source: 'tpl_3', target: 'tpl_4', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+      { id: 'te5', source: 'tpl_4', target: 'tpl_5', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+      { id: 'te6', source: 'tpl_4', target: 'tpl_6', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+    ],
+  },
+  {
+    id: 'backtest-pipeline',
+    name: 'Backtest Pipeline',
+    description: 'Clean your data, train a model with walk-forward backtesting, and review results.',
+    nodes: [
+      { id: 'tpl_1', type: 'custom', position: { x: 60, y: 200 }, data: { label: 'Data Source', type: 'input', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_2', type: 'custom', position: { x: 280, y: 120 }, data: { label: 'Fill Missing', type: 'fillMissing', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_3', type: 'custom', position: { x: 280, y: 280 }, data: { label: 'Date Gap Fill', type: 'dateGapFill', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_4', type: 'custom', position: { x: 500, y: 200 }, data: { label: 'Model Config', type: 'model_config', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_5', type: 'custom', position: { x: 720, y: 120 }, data: { label: 'Output', type: 'output', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_6', type: 'custom', position: { x: 720, y: 280 }, data: { label: 'Backtest Results', type: 'exploration', status: 'pending', stats: { rows: 0, cols: 0 } } },
+    ],
+    edges: [
+      { id: 'te1', source: 'tpl_1', target: 'tpl_2', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+      { id: 'te2', source: 'tpl_1', target: 'tpl_3', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+      { id: 'te3', source: 'tpl_2', target: 'tpl_4', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+      { id: 'te4', source: 'tpl_3', target: 'tpl_4', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+      { id: 'te5', source: 'tpl_4', target: 'tpl_5', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+      { id: 'te6', source: 'tpl_4', target: 'tpl_6', animated: true, style: { stroke: '#64748b', strokeWidth: 2 }, markerEnd: { type: 'arrowclosed', color: '#64748b' } },
+    ],
+  },
+];
 
 const initialNodes: any[] = [];
 
@@ -99,8 +161,25 @@ function FlowWithProvider() {
   const { data: datasets = [] } = useDatasets();
   const createPipeline = useCreatePipeline();
   const updatePipeline = useUpdatePipeline();
-  const executePipeline = useExecutePipeline();
   const deletePipeline = useDeletePipeline();
+
+  // Undo / Redo history
+  const historyRef = useRef<{ nodes: any[]; edges: any[] }[]>([]);
+  const historyIndexRef = useRef(-1);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  // Hidden file input for JSON import
+  const importFileRef = useRef<HTMLInputElement>(null);
+
+  // Load-dialog tab: 'saved' | 'templates'
+  const [loadDialogTab, setLoadDialogTab] = useState<'saved' | 'templates'>('saved');
+
+  // Refs to always have latest nodes/edges for history snapshots
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  useEffect(() => { edgesRef.current = edges; }, [edges]);
   
   // Edge click popover state
   const [selectedEdgeData, setSelectedEdgeData] = useState<{ id: string, x: number, y: number, sourceNode: any, targetNode: any } | null>(null);
@@ -264,14 +343,64 @@ function FlowWithProvider() {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportFilename, setExportFilename] = useState('');
 
+  // ---- Undo / Redo ----
+  const pushHistory = useCallback((snapshotNodes: any[], snapshotEdges: any[]) => {
+    const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
+    newHistory.push({ nodes: JSON.parse(JSON.stringify(snapshotNodes)), edges: JSON.parse(JSON.stringify(snapshotEdges)) });
+    if (newHistory.length > 50) newHistory.shift();
+    historyRef.current = newHistory;
+    historyIndexRef.current = newHistory.length - 1;
+    setCanUndo(historyIndexRef.current > 0);
+    setCanRedo(false);
+  }, []);
+
+  const undo = useCallback(() => {
+    if (historyIndexRef.current <= 0) return;
+    historyIndexRef.current -= 1;
+    const state = historyRef.current[historyIndexRef.current];
+    setNodes(state.nodes);
+    setEdges(state.edges);
+    setSelectedNode(null);
+    setCanUndo(historyIndexRef.current > 0);
+    setCanRedo(true);
+  }, [setNodes, setEdges]);
+
+  const redo = useCallback(() => {
+    if (historyIndexRef.current >= historyRef.current.length - 1) return;
+    historyIndexRef.current += 1;
+    const state = historyRef.current[historyIndexRef.current];
+    setNodes(state.nodes);
+    setEdges(state.edges);
+    setSelectedNode(null);
+    setCanUndo(true);
+    setCanRedo(historyIndexRef.current < historyRef.current.length - 1);
+  }, [setNodes, setEdges]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || (active as HTMLElement).isContentEditable)) return;
+      const isMac = navigator.platform.toUpperCase().includes('MAC');
+      const ctrl = isMac ? e.metaKey : e.ctrlKey;
+      if (!ctrl) return;
+      if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+      if ((e.key === 'z' && e.shiftKey) || e.key === 'y') { e.preventDefault(); redo(); }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo]);
+
   const onConnect = useCallback(
-    (params: Connection) => setEdges((eds) => addEdge({
-      ...params,
-      animated: true,
-      style: defaultEdgeStyle,
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' }
-    }, eds)),
-    [setEdges],
+    (params: Connection) => {
+      pushHistory(nodesRef.current, edgesRef.current);
+      setEdges((eds) => addEdge({
+        ...params,
+        animated: true,
+        style: defaultEdgeStyle,
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' }
+      }, eds));
+    },
+    [setEdges, pushHistory],
   );
 
   const onConnectStart = useCallback((_: any, params: { nodeId: string | null; handleType: string | null }) => {
@@ -306,12 +435,12 @@ function FlowWithProvider() {
   const onQuickConnectSelect = useCallback((nodeType: string, label: string) => {
     if (!quickConnectMenu) return;
 
-    const sourceNode = nodes.find(n => n.id === quickConnectMenu.sourceNodeId);
     const position = screenToFlowPosition({
       x: quickConnectMenu.x,
       y: quickConnectMenu.y,
     });
 
+    pushHistory(nodesRef.current, edgesRef.current);
     const newNode = {
       id: getId(),
       type: 'custom',
@@ -334,7 +463,7 @@ function FlowWithProvider() {
     }, eds));
     setSelectedNode(newNode);
     setQuickConnectMenu(null);
-  }, [quickConnectMenu, nodes, screenToFlowPosition, setNodes, setEdges]);
+  }, [quickConnectMenu, screenToFlowPosition, setNodes, setEdges, pushHistory]);
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -357,6 +486,7 @@ function FlowWithProvider() {
         y: event.clientY,
       });
 
+      pushHistory(nodesRef.current, edgesRef.current);
       const newNode = {
         id: getId(),
         type: 'custom', 
@@ -372,7 +502,7 @@ function FlowWithProvider() {
       setNodes((nds) => nds.concat(newNode));
       setSelectedNode(newNode);
     },
-    [screenToFlowPosition, setNodes],
+    [screenToFlowPosition, setNodes, pushHistory],
   );
 
   const onNodeClick = useCallback((event: React.MouseEvent, node: any) => {
@@ -419,6 +549,7 @@ function FlowWithProvider() {
 
   const deleteSelectedNode = () => {
     if (!selectedNode) return;
+    pushHistory(nodesRef.current, edgesRef.current);
     setNodes((nds) => nds.filter((node) => node.id !== selectedNode.id));
     setEdges((eds) => eds.filter((edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id));
     setSelectedNode(null);
@@ -471,6 +602,11 @@ function FlowWithProvider() {
   };
 
   const loadPipeline = (pipeline: any) => {
+    // Reset history when loading a new pipeline
+    historyRef.current = [{ nodes: pipeline.nodes || [], edges: pipeline.edges || [] }];
+    historyIndexRef.current = 0;
+    setCanUndo(false);
+    setCanRedo(false);
     setNodes(pipeline.nodes || []);
     setEdges(pipeline.edges || []);
     setCurrentPipelineId(pipeline.id);
@@ -546,14 +682,66 @@ function FlowWithProvider() {
     setSelectedNode((prev: any) => ({ ...prev, data: { ...prev.data, [key]: value } }));
   };
 
+
+  // ---- JSON Export / Import ----
+  const exportPipelineJson = useCallback(() => {
+    const data = {
+      name: pipelineName || 'Untitled Pipeline',
+      description: pipelineDescription,
+      nodes,
+      edges,
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(pipelineName || 'pipeline').replace(/\s+/g, '_').toLowerCase()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [pipelineName, pipelineDescription, nodes, edges]);
+
+  const importPipelineJson = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string);
+        if (!Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
+          toast.error('Invalid pipeline JSON: missing nodes or edges');
+          return;
+        }
+        // Push before AND after states so undo is always available after import
+        const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
+        newHistory.push({ nodes: JSON.parse(JSON.stringify(nodesRef.current)), edges: JSON.parse(JSON.stringify(edgesRef.current)) });
+        newHistory.push({ nodes: JSON.parse(JSON.stringify(data.nodes)), edges: JSON.parse(JSON.stringify(data.edges)) });
+        if (newHistory.length > 50) newHistory.splice(0, newHistory.length - 50);
+        historyRef.current = newHistory;
+        historyIndexRef.current = newHistory.length - 1;
+        setCanUndo(true);
+        setCanRedo(false);
+        setNodes(data.nodes);
+        setEdges(data.edges);
+        setCurrentPipelineId(null);
+        setPipelineName(data.name ? `${data.name} (imported)` : 'Imported Pipeline');
+        setPipelineDescription(data.description || '');
+        setSelectedNode(null);
+        toast.success('Pipeline imported successfully');
+      } catch {
+        toast.error('Failed to parse JSON file');
+      }
+    };
+    reader.readAsText(file);
+  }, [setNodes, setEdges]);
+
   // Connect a source node to the currently selected node
   const connectFromNode = useCallback((sourceId: string) => {
     if (!selectedNode || sourceId === selectedNode.id) return;
     
     // Check if this connection already exists
-    const existingEdge = edges.find(e => e.source === sourceId && e.target === selectedNode.id);
+    const existingEdge = edgesRef.current.find(e => e.source === sourceId && e.target === selectedNode.id);
     if (existingEdge) return;
     
+    pushHistory(nodesRef.current, edgesRef.current);
     const newEdge = {
       id: `e${sourceId}-${selectedNode.id}`,
       source: sourceId,
@@ -564,7 +752,7 @@ function FlowWithProvider() {
     };
     
     setEdges((eds) => [...eds, newEdge]);
-  }, [selectedNode, edges, setEdges]);
+  }, [selectedNode, setEdges, pushHistory]);
 
   // Get available source nodes (nodes that can connect to current node)
   const getAvailableSourceNodes = useCallback(() => {
@@ -585,8 +773,9 @@ function FlowWithProvider() {
 
   // Disconnect a source from the current node
   const disconnectSource = useCallback((edgeId: string) => {
+    pushHistory(nodesRef.current, edgesRef.current);
     setEdges((eds) => eds.filter(e => e.id !== edgeId));
-  }, [setEdges]);
+  }, [setEdges, pushHistory]);
   
   // Recursively get columns from a node, tracing through the graph
   const getNodeColumns = useCallback((nodeId: string, visited: Set<string> = new Set()): string[] => {
@@ -1223,9 +1412,7 @@ function FlowWithProvider() {
     }
   }, [selectedNode, loadReportData]);
 
-  // Keep refs for nodes/edges to avoid dependency issues
-  const nodesRef = useRef(nodes);
-  const edgesRef = useRef(edges);
+  // Keep refs up-to-date for callbacks that capture them
   nodesRef.current = nodes;
   edgesRef.current = edges;
 
@@ -1606,7 +1793,7 @@ function FlowWithProvider() {
     );
   };
   
-  const runPipeline = () => {
+  const runPipeline = async () => {
     if (isRunning) return;
     
     if (!currentPipelineId) {
@@ -1617,68 +1804,72 @@ function FlowWithProvider() {
     setIsRunning(true);
     toast.info("Pipeline started...");
 
-    // Reset all statuses first (except inputs which stay success)
+    // Reset all statuses (except inputs which stay success)
     setNodes((nds) => 
       nds.map(n => ({
         ...n,
         data: {
           ...n.data,
-          status: n.data.type === 'input' ? 'success' : 'pending'
+          status: n.data.type === 'input' ? 'success' : 'pending',
+          errorMessage: undefined,
         }
       }))
     );
-
-    // Turn on edge animations
     setEdges((eds) => eds.map(e => ({ ...e, animated: true })));
 
-    executePipeline.mutate(currentPipelineId, {
-      onSuccess: (result: any) => {
-        const progress = result.progress || [];
-        
-        let delay = 0;
-        progress.forEach((p: any, index: number) => {
-          setTimeout(() => {
-            setNodes((nds) =>
-              nds.map(n => {
-                if (n.id === p.nodeId) {
-                  const newStatus = p.status === 'completed' ? 'success' : p.status === 'error' ? 'error' : 'processing';
-                  const newStats = p.resultInfo ? { rows: p.resultInfo.rows || 0, cols: (p.resultInfo.columns || []).length } : n.data.stats;
-                  return { ...n, data: { ...n.data, status: newStatus, stats: newStats } };
-                }
-                return n;
-              })
-            );
-
-            if (index === progress.length - 1) {
-              setIsRunning(false);
-              setEdges((eds) => eds.map(e => ({ ...e, animated: false })));
-              
-              if (result.success) {
-                toast.success(`Pipeline completed: ${Object.keys(result.results || {}).length} nodes processed`);
-              } else {
-                toast.error(result.error || 'Pipeline execution failed');
-              }
-            }
-          }, delay);
-          delay += 300;
-        });
-        
-        if (progress.length === 0) {
-          setIsRunning(false);
-          setEdges((eds) => eds.map(e => ({ ...e, animated: false })));
-          if (result.success) {
-            toast.success('Pipeline completed');
-          } else {
-            toast.error(result.error || 'Pipeline execution failed');
-          }
-        }
-      },
-      onError: (error: any) => {
-        setIsRunning(false);
-        setEdges((eds) => eds.map(e => ({ ...e, animated: false })));
-        toast.error(error.message || 'Pipeline execution failed');
+    const finishRun = (success: boolean, message?: string, resultCount?: number) => {
+      setIsRunning(false);
+      setEdges((eds) => eds.map(e => ({ ...e, animated: false })));
+      if (success) {
+        toast.success(`Pipeline completed${resultCount !== undefined ? `: ${resultCount} nodes processed` : ''}`);
+      } else {
+        toast.error(message || 'Pipeline execution failed');
       }
-    });
+    };
+
+    try {
+      const response = await fetch(`/api/pipelines/${currentPipelineId}/execute`, { method: 'POST' });
+
+      if (!response.ok || !response.body) {
+        throw new Error('Failed to start pipeline execution');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split('\n\n');
+        buffer = events.pop() ?? '';
+
+        for (const event of events) {
+          if (!event.startsWith('data: ')) continue;
+          try {
+            const parsed = JSON.parse(event.slice(6));
+
+            if (parsed.type === 'progress') {
+              setNodes((nds) =>
+                nds.map(n => {
+                  if (n.id !== parsed.nodeId) return n;
+                  const newStatus = parsed.status === 'completed' ? 'success' : parsed.status === 'error' ? 'error' : 'processing';
+                  const newStats = parsed.resultInfo ? { rows: parsed.resultInfo.rows || 0, cols: (parsed.resultInfo.columns || []).length } : n.data.stats;
+                  const errorMessage = parsed.status === 'error' ? parsed.message : undefined;
+                  return { ...n, data: { ...n.data, status: newStatus, stats: newStats, ...(errorMessage !== undefined ? { errorMessage } : {}) } };
+                })
+              );
+            } else if (parsed.type === 'result') {
+              finishRun(parsed.success, parsed.error, Object.keys(parsed.results || {}).length);
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (error: any) {
+      finishRun(false, error.message || 'Pipeline execution failed');
+    }
   };
   
   const onNodeDragStart = (event: React.DragEvent, nodeType: string, label: string) => {
@@ -1696,8 +1887,9 @@ function FlowWithProvider() {
     });
     
     // Offset each new node slightly to avoid stacking
-    const offset = nodes.length * 30;
-    
+    const offset = nodesRef.current.length * 30;
+
+    pushHistory(nodesRef.current, edgesRef.current);
     const newNode = {
       id: getId(),
       type: 'custom',
@@ -1712,11 +1904,23 @@ function FlowWithProvider() {
 
     setNodes((nds) => nds.concat(newNode));
     setSelectedNode(newNode);
-  }, [screenToFlowPosition, setNodes, nodes.length]);
+  }, [screenToFlowPosition, setNodes, pushHistory]);
 
   return (
     <div className="flex h-full w-full bg-slate-50 overflow-hidden relative">
       <div className="flex-1 relative h-full" ref={reactFlowWrapper}>
+        {/* Hidden file input for JSON import */}
+        <input
+          ref={importFileRef}
+          type="file"
+          accept=".json"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) { importPipelineJson(file); e.target.value = ''; }
+          }}
+        />
+
         {/* Header Actions Portal */}
         {headerPortal && createPortal(
           <>
@@ -1725,6 +1929,13 @@ function FlowWithProvider() {
                 {pipelineName}
               </span>
             )}
+            {/* Undo / Redo */}
+            <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)" data-testid="button-undo">
+              <Undo2 className="w-3.5 h-3.5" />
+            </Button>
+            <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)" data-testid="button-redo">
+              <Redo2 className="w-3.5 h-3.5" />
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" variant="ghost" className="h-8 gap-1.5 text-xs" data-testid="button-file-menu">
@@ -1733,8 +1944,12 @@ function FlowWithProvider() {
                   <ChevronDown className="w-3 h-3" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" className="w-52">
                 <DropdownMenuItem onClick={() => {
+                  historyRef.current = [];
+                  historyIndexRef.current = -1;
+                  setCanUndo(false);
+                  setCanRedo(false);
                   setNodes([]);
                   setEdges([]);
                   setCurrentPipelineId(null);
@@ -1746,10 +1961,15 @@ function FlowWithProvider() {
                   <FilePlus className="w-4 h-4 mr-2" />
                   New Pipeline
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setLoadDialogOpen(true)} data-testid="menu-load">
+                <DropdownMenuItem onClick={() => { setLoadDialogTab('saved'); setLoadDialogOpen(true); }} data-testid="menu-load">
                   <FolderOpen className="w-4 h-4 mr-2" />
                   Open Pipeline
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setLoadDialogTab('templates'); setLoadDialogOpen(true); }} data-testid="menu-templates">
+                  <LayoutTemplate className="w-4 h-4 mr-2" />
+                  New from Template
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => {
                   if (currentPipelineId) {
                     updatePipeline.mutate({ id: currentPipelineId, data: { name: pipelineName, description: pipelineDescription, nodes, edges } });
@@ -1760,7 +1980,6 @@ function FlowWithProvider() {
                   <Save className="w-4 h-4 mr-2" />
                   {currentPipelineId ? 'Save Pipeline' : 'Save As...'}
                 </DropdownMenuItem>
-                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => {
                   setSaveAsNew(true);
                   setStashedPipelineName(pipelineName);
@@ -1771,6 +1990,15 @@ function FlowWithProvider() {
                 }} data-testid="menu-save-as">
                   <Save className="w-4 h-4 mr-2" />
                   Save As New...
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={exportPipelineJson} data-testid="menu-export-json">
+                  <Download className="w-4 h-4 mr-2" />
+                  Export as JSON
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => importFileRef.current?.click()} data-testid="menu-import-json">
+                  <Upload className="w-4 h-4 mr-2" />
+                  Import from JSON
                 </DropdownMenuItem>
                 {currentPipelineId && (
                   <>
@@ -1818,71 +2046,128 @@ function FlowWithProvider() {
 
         {/* Load Pipeline Dialog */}
         <Dialog open={loadDialogOpen} onOpenChange={setLoadDialogOpen}>
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className="sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>Open Pipeline</DialogTitle>
               <DialogDescription>
-                Select a saved pipeline configuration to load.
+                Load a saved pipeline or start from a template.
               </DialogDescription>
             </DialogHeader>
-            <ScrollArea className="h-[300px] mt-4 pr-4">
-               <div className="space-y-2">
-                  {pipelinesLoading ? (
-                    <div className="text-center py-4 text-muted-foreground">Loading pipelines...</div>
-                  ) : savedPipelines.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <FolderOpen className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                      <p>No saved pipelines yet</p>
-                      <p className="text-xs mt-1">Create and save your first pipeline</p>
-                    </div>
-                  ) : (
-                    savedPipelines.map((pipeline) => (
-                     <button
-                        key={pipeline.id}
-                        className="w-full text-left p-3 rounded-lg border border-border hover:bg-accent hover:border-primary/50 transition-all group relative"
-                        onClick={() => loadPipeline(pipeline)}
-                        data-testid={`button-load-pipeline-${pipeline.id}`}
-                     >
-                        <div className="flex items-center justify-between mb-1">
-                           <span className="font-medium group-hover:text-primary transition-colors">{pipeline.name}</span>
-                           <div className="flex items-center gap-2">
-                             <span className="text-xs text-muted-foreground">{new Date(pipeline.updatedAt).toLocaleDateString()}</span>
-                             <Button
-                               variant="ghost"
-                               size="icon"
-                               className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                               onClick={(e) => {
-                                 e.stopPropagation();
-                                 if (window.confirm('Are you sure you want to delete this pipeline?')) {
-                                   deletePipeline.mutate(pipeline.id, {
-                                     onSuccess: () => {
-                                       if (currentPipelineId === pipeline.id) {
-                                         setNodes([]);
-                                         setEdges([]);
-                                         setCurrentPipelineId(null);
-                                         setPipelineName('');
-                                         setPipelineDescription('');
-                                         setSelectedNode(null);
-                                       }
-                                     },
-                                   });
-                                 }
-                               }}
-                               data-testid={`button-delete-pipeline-${pipeline.id}`}
-                             >
-                               <Trash2 className="w-3.5 h-3.5" />
-                             </Button>
-                           </div>
+            <Tabs value={loadDialogTab} onValueChange={(v) => setLoadDialogTab(v as 'saved' | 'templates')} className="mt-2">
+              <TabsList className="w-full">
+                <TabsTrigger value="saved" className="flex-1" data-testid="tab-saved-pipelines">
+                  <FolderOpen className="w-3.5 h-3.5 mr-1.5" />Saved
+                </TabsTrigger>
+                <TabsTrigger value="templates" className="flex-1" data-testid="tab-templates">
+                  <LayoutTemplate className="w-3.5 h-3.5 mr-1.5" />Templates
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="saved">
+                <ScrollArea className="h-[320px] mt-2 pr-4">
+                   <div className="space-y-2">
+                      {pipelinesLoading ? (
+                        <div className="text-center py-4 text-muted-foreground">Loading pipelines...</div>
+                      ) : savedPipelines.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <FolderOpen className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                          <p>No saved pipelines yet</p>
+                          <p className="text-xs mt-1">Create and save your first pipeline</p>
                         </div>
-                        <p className="text-xs text-muted-foreground line-clamp-1">{pipeline.description}</p>
-                        <div className="mt-2 text-xs flex gap-2">
-                           <span className="bg-secondary px-1.5 py-0.5 rounded">{Array.isArray(pipeline.nodes) ? pipeline.nodes.length : 0} Nodes</span>
+                      ) : (
+                        savedPipelines.map((pipeline) => (
+                         <button
+                            key={pipeline.id}
+                            className="w-full text-left p-3 rounded-lg border border-border hover:bg-accent hover:border-primary/50 transition-all group relative"
+                            onClick={() => loadPipeline(pipeline)}
+                            data-testid={`button-load-pipeline-${pipeline.id}`}
+                         >
+                            <div className="flex items-center justify-between mb-1">
+                               <span className="font-medium group-hover:text-primary transition-colors">{pipeline.name}</span>
+                               <div className="flex items-center gap-2">
+                                 <span className="text-xs text-muted-foreground">{new Date(pipeline.updatedAt).toLocaleDateString()}</span>
+                                 <Button
+                                   variant="ghost"
+                                   size="icon"
+                                   className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                                   onClick={(e) => {
+                                     e.stopPropagation();
+                                     if (window.confirm('Are you sure you want to delete this pipeline?')) {
+                                       deletePipeline.mutate(pipeline.id, {
+                                         onSuccess: () => {
+                                           if (currentPipelineId === pipeline.id) {
+                                             setNodes([]);
+                                             setEdges([]);
+                                             setCurrentPipelineId(null);
+                                             setPipelineName('');
+                                             setPipelineDescription('');
+                                             setSelectedNode(null);
+                                           }
+                                         },
+                                       });
+                                     }
+                                   }}
+                                   data-testid={`button-delete-pipeline-${pipeline.id}`}
+                                 >
+                                   <Trash2 className="w-3.5 h-3.5" />
+                                 </Button>
+                               </div>
+                            </div>
+                            <p className="text-xs text-muted-foreground line-clamp-1">{pipeline.description}</p>
+                            <div className="mt-2 text-xs flex gap-2">
+                               <span className="bg-secondary px-1.5 py-0.5 rounded">{Array.isArray(pipeline.nodes) ? pipeline.nodes.length : 0} Nodes</span>
+                            </div>
+                         </button>
+                        ))
+                      )}
+                   </div>
+                </ScrollArea>
+              </TabsContent>
+
+              <TabsContent value="templates">
+                <ScrollArea className="h-[320px] mt-2 pr-4">
+                  <div className="space-y-2">
+                    {PIPELINE_TEMPLATES.map((tmpl) => (
+                      <button
+                        key={tmpl.name}
+                        className="w-full text-left p-3 rounded-lg border border-border hover:bg-accent hover:border-primary/50 transition-all group"
+                        onClick={() => {
+                          // Push before state, then also push the template state so undo works
+                          const beforeNodes = JSON.parse(JSON.stringify(nodesRef.current));
+                          const beforeEdges = JSON.parse(JSON.stringify(edgesRef.current));
+                          const afterNodes = JSON.parse(JSON.stringify(tmpl.nodes));
+                          const afterEdges = JSON.parse(JSON.stringify(tmpl.edges));
+                          const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
+                          newHistory.push({ nodes: beforeNodes, edges: beforeEdges });
+                          newHistory.push({ nodes: afterNodes, edges: afterEdges });
+                          if (newHistory.length > 50) newHistory.splice(0, newHistory.length - 50);
+                          historyRef.current = newHistory;
+                          historyIndexRef.current = newHistory.length - 1;
+                          setCanUndo(true);
+                          setCanRedo(false);
+                          setNodes(tmpl.nodes as any);
+                          setEdges(tmpl.edges as any);
+                          setCurrentPipelineId(null);
+                          setPipelineName(tmpl.name);
+                          setPipelineDescription(tmpl.description);
+                          setSelectedNode(null);
+                          setLoadDialogOpen(false);
+                          toast.success(`Template "${tmpl.name}" loaded`);
+                        }}
+                        data-testid={`button-load-template-${tmpl.name.replace(/\s+/g, '-').toLowerCase()}`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <LayoutTemplate className="w-4 h-4 text-violet-500" />
+                          <span className="font-medium group-hover:text-primary transition-colors">{tmpl.name}</span>
+                          <span className="ml-auto text-xs bg-secondary px-1.5 py-0.5 rounded">{tmpl.nodes.length} Nodes</span>
                         </div>
-                     </button>
-                    ))
-                  )}
-               </div>
-            </ScrollArea>
+                        <p className="text-xs text-muted-foreground">{tmpl.description}</p>
+                      </button>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </TabsContent>
+            </Tabs>
           </DialogContent>
         </Dialog>
 
@@ -2014,6 +2299,17 @@ function FlowWithProvider() {
                     </div>
                   )}
                   
+                  {/* Error message banner */}
+                  {selectedNode.data.status === 'error' && selectedNode.data.errorMessage && (
+                    <div className="rounded-md bg-red-50 border border-red-200 p-3 flex gap-2 items-start" data-testid="node-error-banner">
+                      <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-red-700 mb-0.5">Execution Error</p>
+                        <p className="text-xs text-red-600 font-mono break-all whitespace-pre-wrap">{selectedNode.data.errorMessage}</p>
+                      </div>
+                    </div>
+                  )}
+
                   {(selectedNode.data.type === 'input') && (
                      <div className="space-y-4">
                         <div className="space-y-2">
