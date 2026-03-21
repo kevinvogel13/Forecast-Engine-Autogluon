@@ -235,73 +235,130 @@ def compute_feature_importance(model, train_df: pd.DataFrame, target_col: str,
         return []
 
 
-def _compute_backtest_metrics_from_predictions(predictions_df, ts_df, target_col, id_col):
+def _holdout_backtest(predictor, ts_input_df: pd.DataFrame, static_df,
+                      target_col: str, time_col: str, id_col: str, horizon: int,
+                      quantiles: list, freq: str,
+                      TimeSeriesDataFrame, known_covariates_cols: list = None):
     """
-    Extract MAPE/RMSE/MAE from AutoGluon predictions vs actual data.
-    predictions_df has the forecast horizon rows; ts_df has actuals.
+    Proper holdout backtest: remove the last `horizon` rows per series, predict,
+    then compare predictions to the held-out actuals.
     Returns (mape, rmse, mae, per_series_metrics, backtest_rows).
     """
     try:
-        # Flatten predictions to a comparable form
-        pred_reset = predictions_df.reset_index() if hasattr(predictions_df, 'reset_index') else predictions_df
+        # ── Build holdout training set (remove last horizon rows per series) ──
+        if id_col and id_col in ts_input_df.columns:
+            train_parts, actual_parts = [], []
+            for _, grp in ts_input_df.groupby(id_col):
+                grp_sorted = grp.sort_values(time_col)
+                if len(grp_sorted) <= horizon:
+                    continue
+                train_parts.append(grp_sorted.iloc[:-horizon])
+                actual_parts.append(grp_sorted.iloc[-horizon:])
+            if not train_parts:
+                return None, None, None, None, None
+            holdout_train_df = pd.concat(train_parts, ignore_index=True)
+            holdout_actual_df = pd.concat(actual_parts, ignore_index=True)
+        else:
+            sorted_df = ts_input_df.sort_values(time_col)
+            if len(sorted_df) <= horizon:
+                return None, None, None, None, None
+            holdout_train_df = sorted_df.iloc[:-horizon]
+            holdout_actual_df = sorted_df.iloc[-horizon:]
 
-        # Try to join with actuals by item_id + timestamp
-        actual_reset = ts_df.reset_index() if hasattr(ts_df, 'reset_index') else ts_df.copy()
+        holdout_ts = TimeSeriesDataFrame.from_data_frame(
+            holdout_train_df,
+            id_column=id_col if id_col else None,
+            timestamp_column=time_col,
+            static_features_df=static_df,
+        )
 
-        # Normalise column names
-        ts_col = [c for c in actual_reset.columns if 'timestamp' in c.lower() or 'date' in c.lower() or 'time' in c.lower()]
-        item_col = [c for c in actual_reset.columns if 'item_id' in c.lower() or (id_col and c == id_col)]
+        # ── Predict from holdout training set ───────────────────────────────
+        predict_kwargs = dict(quantile_levels=quantiles)
+        if known_covariates_cols:
+            try:
+                if id_col and id_col in holdout_train_df.columns:
+                    cov_frames = []
+                    for item, grp in holdout_train_df.groupby(id_col):
+                        grp = grp.sort_values(time_col)
+                        last_date = grp[time_col].max()
+                        future_dates = pd.date_range(start=last_date, periods=horizon + 1, freq=freq)[1:]
+                        last_row = grp.iloc[-1]
+                        cov_rows = pd.DataFrame({
+                            id_col: item, time_col: future_dates,
+                            **{c: last_row[c] for c in known_covariates_cols if c in grp.columns},
+                        })
+                        cov_frames.append(cov_rows)
+                    if cov_frames:
+                        future_cov_ts = TimeSeriesDataFrame.from_data_frame(
+                            pd.concat(cov_frames, ignore_index=True),
+                            id_column=id_col, timestamp_column=time_col
+                        )
+                        predict_kwargs['known_covariates'] = future_cov_ts
+            except Exception as e:
+                logger.warning(f"Could not build known_covariates for holdout predict: {e}")
 
-        if not ts_col:
+        holdout_preds = predictor.predict(holdout_ts, **predict_kwargs)
+        pred_reset = holdout_preds.reset_index()
+
+        # ── Identify the median/point-forecast column ────────────────────────
+        non_key_cols = [c for c in pred_reset.columns if c not in ['item_id', 'timestamp']]
+        if '0.5' in pred_reset.columns:
+            pred_col = '0.5'
+        elif 'mean' in pred_reset.columns:
+            pred_col = 'mean'
+        elif non_key_cols:
+            pred_col = non_key_cols[len(non_key_cols) // 2]
+        else:
             return None, None, None, None, None
 
-        ts_col = ts_col[0]
-        item_col = item_col[0] if item_col else None
-
-        merge_keys = [ts_col]
-        if item_col and item_col in pred_reset.columns:
-            merge_keys = [item_col, ts_col]
-
-        pred_col = '0.5' if '0.5' in pred_reset.columns else 'mean' if 'mean' in pred_reset.columns else None
-        if pred_col is None:
-            # Take the column closest to median
-            num_cols = [c for c in pred_reset.columns if c not in merge_keys]
-            pred_col = num_cols[len(num_cols) // 2] if num_cols else None
-
-        if pred_col is None or target_col not in actual_reset.columns:
-            return None, None, None, None, None
-
-        merged = pd.merge(actual_reset[[*merge_keys, target_col]],
-                          pred_reset[[*merge_keys, pred_col]],
-                          on=merge_keys, how='inner')
+        # ── Join predictions with holdout actuals ────────────────────────────
+        # pred_reset has: item_id, timestamp, <quantile cols>
+        # holdout_actual_df has: id_col, time_col, target_col, ...
+        if id_col and id_col in holdout_actual_df.columns:
+            actual_subset = holdout_actual_df[[id_col, time_col, target_col]].copy()
+            actual_subset['_item'] = actual_subset[id_col].astype(str)
+            pred_reset['_item'] = pred_reset['item_id'].astype(str)
+            pred_reset['_ts'] = pd.to_datetime(pred_reset['timestamp'])
+            actual_subset['_ts'] = pd.to_datetime(actual_subset[time_col])
+            merged = pd.merge(actual_subset, pred_reset[['_item', '_ts', pred_col]],
+                              on=['_item', '_ts'], how='inner')
+        else:
+            actual_subset = holdout_actual_df[[time_col, target_col]].copy()
+            actual_subset['_ts'] = pd.to_datetime(actual_subset[time_col])
+            pred_reset['_ts'] = pd.to_datetime(pred_reset['timestamp'])
+            merged = pd.merge(actual_subset, pred_reset[['_ts', pred_col]],
+                              on=['_ts'], how='inner')
 
         if merged.empty:
+            logger.warning("Holdout backtest: merged DataFrame is empty — timestamp/id mismatch?")
             return None, None, None, None, None
 
-        actuals = merged[target_col].values
-        forecasts = merged[pred_col].values
+        actuals = merged[target_col].values.astype(float)
+        forecasts = merged[pred_col].values.astype(float)
         non_zero = actuals != 0
 
         mape = round(float(np.mean(np.abs((actuals[non_zero] - forecasts[non_zero]) / actuals[non_zero])) * 100), 2) if non_zero.any() else None
         rmse = round(float(np.sqrt(np.mean((actuals - forecasts) ** 2))), 2)
-        mae = round(float(np.mean(np.abs(actuals - forecasts))), 2)
+        mae  = round(float(np.mean(np.abs(actuals - forecasts))), 2)
 
+        # ── Build backtest rows list ─────────────────────────────────────────
         backtest_rows = []
         for _, row in merged.iterrows():
-            br = {ts_col: row[ts_col], 'actual': float(row[target_col]), 'forecast': float(row[pred_col])}
-            if item_col and item_col in row:
-                br[item_col] = row[item_col]
+            br = {'timestamp': str(row['_ts']), 'actual': float(row[target_col]), 'forecast': float(row[pred_col])}
+            if id_col and '_item' in row:
+                br[id_col] = str(row['_item'])
             backtest_rows.append(br)
 
+        # ── Per-series breakdown ─────────────────────────────────────────────
         per_series = []
-        if item_col and item_col in merged.columns:
-            for grp_name, grp_df in merged.groupby(item_col):
-                a = grp_df[target_col].values
-                f = grp_df[pred_col].values
+        if id_col and '_item' in merged.columns:
+            for item_val, grp_df in merged.groupby('_item'):
+                a = grp_df[target_col].values.astype(float)
+                f = grp_df[pred_col].values.astype(float)
                 nz = a != 0
-                sr = {id_col or item_col: str(grp_name), 'n': len(a),
+                sr = {id_col: str(item_val), 'n': len(a),
                       'rmse': round(float(np.sqrt(np.mean((a - f) ** 2))), 2),
-                      'mae': round(float(np.mean(np.abs(a - f))), 2)}
+                      'mae':  round(float(np.mean(np.abs(a - f))), 2)}
                 if nz.any():
                     sr['mape'] = round(float(np.mean(np.abs((a[nz] - f[nz]) / a[nz])) * 100), 2)
                 per_series.append(sr)
@@ -310,7 +367,7 @@ def _compute_backtest_metrics_from_predictions(predictions_df, ts_df, target_col
         return mape, rmse, mae, per_series or None, backtest_rows
 
     except Exception as e:
-        logger.warning(f"Could not compute backtest metrics from AutoGluon predictions: {e}")
+        logger.warning(f"Holdout backtest failed: {e}", exc_info=True)
         return None, None, None, None, None
 
 
@@ -501,6 +558,9 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
     time_limit = int(node_data.get('cfgTimeLimit', 600))
     backtest_enabled = node_data.get('backtestEnabled', False)
     n_folds = int(node_data.get('backtestFolds', 3))
+    # backtestStepSize: how many steps between validation windows (default = horizon)
+    step_size_raw = node_data.get('backtestStepSize', None)
+    backtest_step_size = int(step_size_raw) if step_size_raw is not None and str(step_size_raw).strip() else horizon
     refit_full = bool(node_data.get('cfgRefitFull', False))
 
     # Quantiles for confidence intervals
@@ -590,6 +650,11 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
             time_limit=time_limit,
             refit_full=refit_full,
         )
+        # Wire backtest fold count and step size into AutoGluon's internal CV
+        if backtest_enabled and n_folds > 1:
+            fit_kwargs['num_val_windows'] = n_folds
+            if backtest_step_size and backtest_step_size != horizon:
+                fit_kwargs['val_step_size'] = backtest_step_size
         if excluded_models:
             fit_kwargs['excluded_model_types'] = excluded_models
             logger.info(f"Excluded models: {excluded_models}")
@@ -655,20 +720,43 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
         if importance:
             results['feature_importance'] = importance
 
-        # ── Leaderboard ──────────────────────────────────────────────────────
+        # ── Leaderboard (always computed) ────────────────────────────────────
         try:
             leaderboard = predictor.leaderboard(ts_df)
-            results['leaderboard'] = json.loads(leaderboard.to_json(orient='records'))
+            lb_records = json.loads(leaderboard.to_json(orient='records'))
+            results['leaderboard'] = lb_records
+            # Surface the best model's internal validation score as ag_score
+            if lb_records:
+                best = lb_records[0]
+                score_val = best.get('score_val')
+                if score_val is not None:
+                    try:
+                        # AutoGluon maximizes, so score_val = -metric_value for error metrics
+                        results['info']['ag_score_val'] = round(float(score_val), 4)
+                        results['info']['ag_eval_metric'] = eval_metric
+                    except Exception:
+                        pass
         except Exception as e:
             logger.warning(f"Leaderboard failed: {e}")
 
-        # ── Backtest metrics from predictions vs actuals ─────────────────────
-        # Use the overlap between predictions (in-sample horizon rows) and
-        # actual data to derive MAPE / RMSE / MAE and per-series breakdown.
+        # ── Holdout backtest (proper out-of-sample evaluation) ───────────────
+        # Slice the last `horizon` rows per series as a true holdout.
+        # Train-time data excludes these rows; we predict from the truncated
+        # dataset and compare against the held-out actuals.
         if backtest_enabled:
             try:
-                mape, rmse, mae, per_series, backtest_rows = _compute_backtest_metrics_from_predictions(
-                    predictions, ts_df, target_col, id_col
+                mape, rmse, mae, per_series, backtest_rows = _holdout_backtest(
+                    predictor=predictor,
+                    ts_input_df=ts_input_df,
+                    static_df=static_df,
+                    target_col=target_col,
+                    time_col=time_col,
+                    id_col=id_col,
+                    horizon=horizon,
+                    quantiles=quantiles,
+                    freq=freq,
+                    TimeSeriesDataFrame=TimeSeriesDataFrame,
+                    known_covariates_cols=known_covariates_cols,
                 )
                 if mape is not None:
                     results['info']['mape'] = mape
@@ -681,9 +769,9 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
                 if backtest_rows:
                     results['backtest'] = backtest_rows
             except Exception as e:
-                logger.warning(f"Backtest metric extraction failed: {e}")
+                logger.warning(f"Holdout backtest failed: {e}", exc_info=True)
 
-            # Additionally compute walk-forward CV score via AutoGluon evaluate
+            # Also surface AutoGluon's internal CV evaluation score
             try:
                 scores = predictor.evaluate(ts_df)
                 logger.info(f"AutoGluon evaluate scores: {scores}")
@@ -693,6 +781,8 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
                             results['info'][f'ag_{k.lower()}'] = round(float(v), 4)
                         except Exception:
                             pass
+                elif isinstance(scores, (int, float)):
+                    results['info']['ag_eval_score'] = round(float(scores), 4)
             except Exception as e:
                 logger.warning(f"predictor.evaluate failed: {e}")
         

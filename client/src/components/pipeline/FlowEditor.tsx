@@ -3700,7 +3700,9 @@ function FlowWithProvider() {
                     const hasMape = typeof ri?.mape === 'number';
                     const hasRmse = typeof ri?.rmse === 'number';
                     const hasMae  = typeof ri?.mae  === 'number';
-                    const hasMetrics = hasMape || hasRmse || hasMae;
+                    const hasAgScore = typeof ri?.ag_score_val === 'number';
+                    const agEvalMetric: string = ri?.ag_eval_metric || 'Score';
+                    const hasMetrics = hasMape || hasRmse || hasMae || hasAgScore;
                     const forecastRows = ri?.forecast_rows ?? 0;
                     const forecastData = modelNode?.data?.resultInfo?.forecast || null;
 
@@ -3719,7 +3721,9 @@ function FlowWithProvider() {
                     <div className="space-y-3 border rounded-md p-4 bg-green-50/50 border-green-100">
                        {hasMetrics && (
                          <div className="space-y-1.5">
-                           <p className="text-[10px] font-semibold text-green-700 uppercase tracking-wide">Backtest Accuracy</p>
+                           <p className="text-[10px] font-semibold text-green-700 uppercase tracking-wide">
+                             {(hasMape || hasRmse || hasMae) ? 'Holdout Backtest Accuracy' : 'Model Validation Score'}
+                           </p>
                            <div className="grid grid-cols-3 gap-1.5" data-testid="output-metrics-card">
                              {hasMape && (
                                <div className="bg-white rounded-md p-2 border border-green-100 text-center">
@@ -3737,6 +3741,13 @@ function FlowWithProvider() {
                                <div className="bg-white rounded-md p-2 border border-green-100 text-center">
                                  <p className="text-[10px] text-muted-foreground">MAE</p>
                                  <p className="text-sm font-bold text-green-700">{ri.mae.toFixed(2)}</p>
+                               </div>
+                             )}
+                             {hasAgScore && !hasMape && !hasRmse && !hasMae && (
+                               <div className="bg-white rounded-md p-2 border border-green-100 text-center col-span-3">
+                                 <p className="text-[10px] text-muted-foreground">{agEvalMetric} (AutoGluon CV)</p>
+                                 <p className="text-sm font-bold text-green-700">{Math.abs(ri.ag_score_val).toFixed(4)}</p>
+                                 <p className="text-[9px] text-muted-foreground mt-0.5">Enable Backtest to compute MAPE/RMSE/MAE</p>
                                </div>
                              )}
                            </div>

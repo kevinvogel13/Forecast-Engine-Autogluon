@@ -137,6 +137,11 @@ def execute_pipeline(pipeline_json: dict) -> dict:
                     if isinstance(fc, list):
                         result_info['forecast'] = fc[:5000]
                         result_info['forecast_rows'] = len(fc)
+                # Include backtest rows (capped at 2000) for the backtest chart
+                if 'backtest' in result:
+                    bt = result['backtest']
+                    if isinstance(bt, list):
+                        result_info['backtest'] = bt[:2000]
                 emit_progress(node_id, node_label, 'completed', result.get('message', 'Done'), result_info)
             else:
                 emit_progress(node_id, node_label, 'completed', 'Done')
