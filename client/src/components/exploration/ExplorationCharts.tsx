@@ -61,35 +61,92 @@ interface ChartProps {
   };
 }
 
+export function exportChartSVG(container: HTMLElement | null, filename = 'chart') {
+  if (!container) return;
+  const svgEl = container.querySelector('svg');
+  if (!svgEl) return;
+  try {
+    const clone = svgEl.cloneNode(true) as SVGElement;
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bg.setAttribute('width', '100%');
+    bg.setAttribute('height', '100%');
+    bg.setAttribute('fill', 'white');
+    clone.insertBefore(bg, clone.firstChild);
+    const svgStr = new XMLSerializer().serializeToString(clone);
+    const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${filename}.svg`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.warn('SVG export failed', e);
+  }
+}
+
 export function TimeSeriesChart({ data, config }: ChartProps) {
-  const { dateColumn, valueColumn } = config;
+  const { dateColumn, valueColumn, groupColumn } = config;
 
-  const chartData = useMemo(() => {
-    if (!dateColumn || !valueColumn || !data.rows.length) return [];
+  const multiSeries = useMemo(() => {
+    if (!dateColumn || !valueColumn || !groupColumn || !data.rows.length) return null;
+    const groups = [...new Set(data.rows.map((r: any) => String(r[groupColumn])))].slice(0, 8);
+    const byDate: Record<string, Record<string, number>> = {};
+    data.rows.forEach((row: any) => {
+      const d = String(row[dateColumn]);
+      const g = String(row[groupColumn]);
+      const v = parseFloat(row[valueColumn]) || 0;
+      if (!byDate[d]) byDate[d] = {};
+      byDate[d][g] = (byDate[d][g] || 0) + v;
+    });
+    const chartData = Object.entries(byDate)
+      .map(([date, vals]) => ({ date, ...vals }))
+      .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .slice(0, 120);
+    return { chartData, groups };
+  }, [data.rows, dateColumn, valueColumn, groupColumn]);
 
-    const grouped = data.rows.reduce((acc: any, row) => {
+  const singleData = useMemo(() => {
+    if (!dateColumn || !valueColumn || !data.rows.length || groupColumn) return [];
+    const grouped = data.rows.reduce((acc: any, row: any) => {
       const date = row[dateColumn];
       if (!acc[date]) acc[date] = { date, values: [] };
       acc[date].values.push(parseFloat(row[valueColumn]) || 0);
       return acc;
     }, {});
-
     return Object.values(grouped)
-      .map((g: any) => ({
-        date: g.date,
-        value: g.values.reduce((a: number, b: number) => a + b, 0)
-      }))
+      .map((g: any) => ({ date: g.date, value: g.values.reduce((a: number, b: number) => a + b, 0) }))
       .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
-      .slice(0, 100);
-  }, [data.rows, dateColumn, valueColumn]);
+      .slice(0, 120);
+  }, [data.rows, dateColumn, valueColumn, groupColumn]);
 
   if (!dateColumn || !valueColumn) {
     return <div className="text-sm text-muted-foreground p-4">Select date and value columns</div>;
   }
 
+  if (multiSeries) {
+    return (
+      <ResponsiveContainer width="100%" height={300}>
+        <LineChart data={multiSeries.chartData}>
+          <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.gridStroke} />
+          <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+          <YAxis tick={{ fontSize: 10 }} />
+          <Tooltip />
+          <Legend iconSize={10} wrapperStyle={{ fontSize: 10 }} />
+          {multiSeries.groups.map((grp, i) => (
+            <Line key={grp} type="monotone" dataKey={grp} stroke={SERIES_COLORS[i % SERIES_COLORS.length]} dot={false} strokeWidth={1.5} />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    );
+  }
+
   return (
     <ResponsiveContainer width="100%" height={300}>
-      <AreaChart data={chartData}>
+      <AreaChart data={singleData}>
         <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.gridStroke} />
         <XAxis dataKey="date" tick={{ fontSize: 10 }} />
         <YAxis tick={{ fontSize: 10 }} />

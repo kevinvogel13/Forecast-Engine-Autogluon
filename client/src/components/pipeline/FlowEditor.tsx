@@ -20,7 +20,7 @@ import {
  
 import '@xyflow/react/dist/style.css';
 import { Button } from '@/components/ui/button';
-import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown, GitMerge, FilePlus, GripVertical, ArrowUp, ArrowDown, Upload, Cpu, Undo2, Redo2, Download, AlertCircle, LayoutTemplate, LayoutGrid, Clock as ClockIcon, CheckCircle2, TriangleAlert, History, ShieldCheck } from 'lucide-react';
+import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown, GitMerge, FilePlus, GripVertical, ArrowUp, ArrowDown, Upload, Cpu, Undo2, Redo2, Download, AlertCircle, LayoutTemplate, LayoutGrid, Clock as ClockIcon, CheckCircle2, TriangleAlert, History, ShieldCheck, Search, Plus, Link2Off, Copy, Command, MousePointer2, Filter } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -33,7 +33,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import PipelineNode from './PipelineNode';
-import ForecastResultsDashboard from '@/components/dashboard/ForecastResultsDashboard';
 import NodePalette, { categories as nodeCategories } from './NodePalette';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -47,7 +46,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Editor from '@monaco-editor/react';
-import { CHART_TYPES, renderChart } from '@/components/exploration/ExplorationCharts';
+import { CHART_TYPES, renderChart, exportChartSVG } from '@/components/exploration/ExplorationCharts';
+import ForecastResultsDashboard, { type ForecastResults } from '@/components/dashboard/ForecastResultsDashboard';
 import { HEADER_PORTAL_ID } from '@/components/layout/Shell';
 import { usePipelines, useCreatePipeline, useUpdatePipeline, useDeletePipeline, useExecutePipeline } from '@/hooks/usePipelines';
 import { useDatasets } from '@/hooks/useDatasets';
@@ -214,6 +214,17 @@ function FlowWithProvider() {
   
   // Modal states for full views
   const [resultsOpen, setResultsOpen] = useState(false);
+  const [resultsModelInfo, setResultsModelInfo] = useState<ForecastResults | null>(null);
+
+  // Right-click context menu
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
+
+  // Ctrl+K command palette
+  const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+  const [cmdQuery, setCmdQuery] = useState('');
+
+  // Chart preview export ref
+  const chartPreviewRef = useRef<HTMLDivElement>(null);
 
   // Advanced config state (Model Specs)
   const [cfgEvalMetric, setCfgEvalMetric] = useState("MASE");
@@ -453,6 +464,26 @@ function FlowWithProvider() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo, pushHistory, setNodes]);
 
+  useEffect(() => {
+    const handleCmdK = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().includes('MAC');
+      if ((isMac ? e.metaKey : e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setCmdPaletteOpen(prev => !prev);
+        setCmdQuery('');
+      }
+      if (e.key === 'Escape') { setCmdPaletteOpen(false); setContextMenu(null); }
+    };
+    window.addEventListener('keydown', handleCmdK);
+    return () => window.removeEventListener('keydown', handleCmdK);
+  }, []);
+
+  const onNodeContextMenu = useCallback((event: React.MouseEvent, node: any) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ x: event.clientX, y: event.clientY, nodeId: node.id });
+  }, []);
+
   const onConnect = useCallback(
     (params: Connection) => {
       pushHistory(nodesRef.current, edgesRef.current);
@@ -595,6 +626,7 @@ function FlowWithProvider() {
   const onPaneClick = useCallback(() => {
     setSelectedNode(null);
     setSelectedEdgeData(null);
+    setContextMenu(null);
   }, []);
 
   const updateNodeLabel = (label: string) => {
@@ -2572,7 +2604,8 @@ function FlowWithProvider() {
           onDragOver={onDragOver}
           onNodeClick={onNodeClick}
           onEdgeClick={onEdgeClick}
-          onPaneClick={() => { onPaneClick(); if (!quickConnectJustOpened.current) setQuickConnectMenu(null); }}
+          onNodeContextMenu={onNodeContextMenu}
+          onPaneClick={() => { onPaneClick(); if (!quickConnectJustOpened.current) setQuickConnectMenu(null); setContextMenu(null); }}
           nodeTypes={nodeTypes}
           fitView
           attributionPosition="bottom-left"
@@ -3758,7 +3791,22 @@ function FlowWithProvider() {
                              <h4 className="text-sm font-semibold text-green-900">Forecast Output & Analysis</h4>
                              <p className="text-xs text-green-700 mt-1">Compare actual vs predicted, view pattern classification, and explore results.</p>
                           </div>
-                          <Button className="w-full bg-green-600 hover:bg-green-700" onClick={() => setResultsOpen(true)} data-testid="button-view-results">
+                          <Button className="w-full bg-green-600 hover:bg-green-700" onClick={() => {
+                            setResultsOpen(true);
+                            setResultsModelInfo({
+                              forecast: modelNode?.data?.resultInfo?.forecast ?? ri?.forecast,
+                              backtest: modelNode?.data?.resultInfo?.backtest ?? ri?.backtest,
+                              leaderboard: ri?.leaderboard,
+                              per_series_metrics: ri?.per_series_metrics,
+                              mape: ri?.mape,
+                              rmse: ri?.rmse,
+                              mae: ri?.mae,
+                              forecast_rows: ri?.forecast_rows,
+                              target: modelNode?.data?.cfgTargetVar,
+                              horizon: modelNode?.data?.forecastHorizon ? parseInt(modelNode.data.forecastHorizon) : undefined,
+                              preset: modelNode?.data?.cfgPreset,
+                            });
+                          }} data-testid="button-view-results">
                              View Results & Analysis
                           </Button>
                           <Button variant="outline" className="w-full border-green-300 text-green-700 hover:bg-green-50" onClick={downloadForecast} data-testid="button-download-forecast">
@@ -3887,162 +3935,103 @@ function FlowWithProvider() {
                     </div>
                   )}
 
-                  {selectedNode.data.type === 'filter' && (
-                    <div className="space-y-4 border rounded-md p-3 bg-muted/20">
+                  {selectedNode.data.type === 'filter' && (() => {
+                    const sourceCols = getSourceColumns(selectedNode.id);
+                    const conditions: Array<{column:string;op:string;value:string;values:string[];logic:'AND'|'OR'}> =
+                      selectedNode.data.filterConditions?.length
+                        ? selectedNode.data.filterConditions
+                        : [{ column: selectedNode.data.filterColumn || '', op: selectedNode.data.filterOp || 'eq', value: selectedNode.data.filterValue || '', values: selectedNode.data.filterValues || [], logic: 'AND' }];
+                    const updateCond = (idx: number, field: string, val: any) => {
+                      const next = conditions.map((c, i) => i === idx ? { ...c, [field]: val } : c);
+                      updateNodeData('filterConditions', next);
+                    };
+                    const addCond = () => updateNodeData('filterConditions', [...conditions, { column: '', op: 'eq', value: '', values: [], logic: 'AND' }]);
+                    const removeCond = (idx: number) => updateNodeData('filterConditions', conditions.filter((_:any, i:number) => i !== idx));
+                    const opOptions = [
+                      { value: 'eq', label: 'Equals (=)' }, { value: 'neq', label: 'Not Equals (!=)' },
+                      { value: 'gt', label: 'Greater than' }, { value: 'gte', label: 'Greater or Equal' },
+                      { value: 'lt', label: 'Less than' }, { value: 'lte', label: 'Less or Equal' },
+                      { value: 'contains', label: 'Contains' }, { value: 'not_contains', label: 'Does not contain' },
+                      { value: 'starts_with', label: 'Starts with' }, { value: 'ends_with', label: 'Ends with' },
+                      { value: 'isin', label: 'Is in list' }, { value: 'notin', label: 'Not in list' },
+                      { value: 'isnull', label: 'Is null' }, { value: 'notnull', label: 'Is not null' },
+                    ];
+                    const needsValue = (op: string) => !['isnull','notnull'].includes(op);
+                    const isMultiVal = (op: string) => ['isin','notin'].includes(op);
+                    return (
                       <div className="space-y-2">
-                        <Label>Filter Column</Label>
-                        <Select 
-                           value={selectedNode.data.filterColumn || ''} 
-                           onValueChange={(val) => {
-                             updateNodeData('filterColumn', val);
-                             updateNodeData('filterValue', '');
-                             updateNodeData('filterValues', []);
-                           }}
-                        >
-                          <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-filter-column">
-                            <SelectValue placeholder="Select column..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {getSourceColumns(selectedNode.id).length === 0 ? (
-                              <div className="px-2 py-1.5 text-xs text-muted-foreground">Connect a data source first</div>
-                            ) : (
-                              getSourceColumns(selectedNode.id).map(col => (
-                                <SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                         <Label>Operator</Label>
-                         <Select 
-                            value={selectedNode.data.filterOp || 'eq'} 
-                            onValueChange={(val) => {
-                              updateNodeData('filterOp', val);
-                              if (val === 'isin' || val === 'notin' || val === 'isnull' || val === 'notnull') {
-                                updateNodeData('filterValue', '');
-                              }
-                              if (val !== 'isin' && val !== 'notin') {
-                                updateNodeData('filterValues', []);
-                              }
-                            }}
-                         >
-                           <SelectTrigger className="h-8" data-testid="select-filter-operator">
-                             <SelectValue />
-                           </SelectTrigger>
-                           <SelectContent>
-                             <SelectItem value="eq">Equals (=)</SelectItem>
-                             <SelectItem value="neq">Not Equals (!=)</SelectItem>
-                             <SelectItem value="gt">Greater ({'>'})</SelectItem>
-                             <SelectItem value="gte">Greater or Equal ({'>'}=)</SelectItem>
-                             <SelectItem value="lt">Less ({'<'})</SelectItem>
-                             <SelectItem value="lte">Less or Equal ({'<'}=)</SelectItem>
-                             <SelectItem value="contains">Contains</SelectItem>
-                             <SelectItem value="isin">Is In (multi-select)</SelectItem>
-                             <SelectItem value="notin">Not In (multi-select)</SelectItem>
-                             <SelectItem value="isnull">Is Null</SelectItem>
-                             <SelectItem value="notnull">Not Null</SelectItem>
-                           </SelectContent>
-                         </Select>
-                      </div>
-                      
-                      {/* Multi-select for isin/notin operators */}
-                      {(selectedNode.data.filterOp === 'isin' || selectedNode.data.filterOp === 'notin') && (
-                        <div className="space-y-2">
-                          <Label className="flex items-center gap-2">
-                            Values
-                            {columnValuesLoading && <span className="text-[10px] text-muted-foreground">(loading...)</span>}
-                            {columnValues?.isCategorical && <span className="text-[10px] text-green-600">(categorical)</span>}
-                          </Label>
-                          {columnValues && columnValues.values.length > 0 ? (
-                            <div className="border rounded-md p-2 max-h-48 overflow-y-auto space-y-1 bg-white">
-                              {columnValues.values.map((val) => (
-                                <div key={val} className="flex items-center gap-2">
-                                  <Checkbox
-                                    id={`filter-val-${val}`}
-                                    checked={(selectedNode.data.filterValues || []).includes(val)}
-                                    onCheckedChange={(checked) => {
-                                      const currentVals = selectedNode.data.filterValues || [];
-                                      if (checked) {
-                                        updateNodeData('filterValues', [...currentVals, val]);
-                                      } else {
-                                        updateNodeData('filterValues', currentVals.filter((v: string) => v !== val));
-                                      }
-                                    }}
-                                    data-testid={`checkbox-filter-value-${val}`}
-                                  />
-                                  <label
-                                    htmlFor={`filter-val-${val}`}
-                                    className="text-xs font-mono cursor-pointer flex-1 truncate"
-                                  >
-                                    {val}
-                                  </label>
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs text-yellow-700 font-semibold flex items-center gap-1"><Filter className="w-3 h-3" /> Filter Conditions</Label>
+                          <span className="text-[10px] text-muted-foreground">{conditions.length} condition{conditions.length !== 1 ? 's' : ''}</span>
+                        </div>
+                        {conditions.map((cond: any, idx: number) => (
+                          <div key={idx}>
+                            {idx > 0 && (
+                              <div className="flex items-center gap-2 my-1.5">
+                                <div className="flex-1 h-px bg-border" />
+                                <div className="flex border rounded overflow-hidden text-[10px]">
+                                  {(['AND','OR'] as const).map(l => (
+                                    <button key={l} onClick={() => updateCond(idx, 'logic', l)}
+                                      className={cn('px-2 py-0.5 font-semibold transition-colors', cond.logic === l ? 'bg-yellow-500 text-white' : 'bg-white text-slate-500 hover:bg-muted')}
+                                      data-testid={`filter-logic-${idx}-${l}`}>{l}</button>
+                                  ))}
                                 </div>
-                              ))}
+                                <div className="flex-1 h-px bg-border" />
+                              </div>
+                            )}
+                            <div className="border rounded-md p-2.5 space-y-2 bg-yellow-50/40" data-testid={`filter-condition-${idx}`}>
+                              <div className="flex items-center gap-1">
+                                <Select value={cond.column || ''} onValueChange={(v) => updateCond(idx, 'column', v)}>
+                                  <SelectTrigger className="h-7 font-mono text-[11px] flex-1" data-testid={`filter-col-${idx}`}>
+                                    <SelectValue placeholder="Column…" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {sourceCols.length === 0
+                                      ? <div className="px-2 py-1 text-xs text-muted-foreground">Connect data first</div>
+                                      : sourceCols.map(c => <SelectItem key={c} value={c} className="font-mono text-xs">{c}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                                {conditions.length > 1 && (
+                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => removeCond(idx)}>
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                )}
+                              </div>
+                              <Select value={cond.op || 'eq'} onValueChange={(v) => updateCond(idx, 'op', v)}>
+                                <SelectTrigger className="h-7 text-xs" data-testid={`filter-op-${idx}`}><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {opOptions.map(o => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                              {needsValue(cond.op) && !isMultiVal(cond.op) && (
+                                <Input
+                                  placeholder="Value"
+                                  className="h-7 text-xs"
+                                  value={cond.value || ''}
+                                  onChange={(e) => updateCond(idx, 'value', e.target.value)}
+                                  data-testid={`filter-value-${idx}`}
+                                />
+                              )}
+                              {isMultiVal(cond.op) && (
+                                <Input
+                                  placeholder="val1, val2, val3"
+                                  className="h-7 text-xs"
+                                  value={(cond.values || []).join(', ')}
+                                  onChange={(e) => updateCond(idx, 'values', e.target.value.split(',').map((v: string) => v.trim()).filter((v: string) => v))}
+                                  data-testid={`filter-values-${idx}`}
+                                />
+                              )}
                             </div>
-                          ) : (
-                            <Input 
-                              placeholder="Enter comma-separated values" 
-                              className="h-8 text-xs"
-                              value={(selectedNode.data.filterValues || []).join(', ')}
-                              onChange={(e) => {
-                                const vals = e.target.value.split(',').map(v => v.trim()).filter(v => v);
-                                updateNodeData('filterValues', vals);
-                              }}
-                              data-testid="input-filter-values"
-                            />
-                          )}
-                          {(selectedNode.data.filterValues || []).length > 0 && (
-                            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                              <span>{(selectedNode.data.filterValues || []).length} value(s) selected</span>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-5 text-[10px] px-2"
-                                onClick={() => updateNodeData('filterValues', [])}
-                              >
-                                Clear
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      
-                      {/* Single value input for other operators */}
-                      {selectedNode.data.filterOp !== 'isin' && 
-                       selectedNode.data.filterOp !== 'notin' && 
-                       selectedNode.data.filterOp !== 'isnull' && 
-                       selectedNode.data.filterOp !== 'notnull' && (
-                        <div className="space-y-2">
-                          <Label>Value</Label>
-                          {columnValues?.isCategorical && columnValues.values.length > 0 && 
-                           (selectedNode.data.filterOp === 'eq' || selectedNode.data.filterOp === 'neq') ? (
-                            <Select 
-                              value={selectedNode.data.filterValue || ''} 
-                              onValueChange={(val) => updateNodeData('filterValue', val)}
-                            >
-                              <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-filter-value">
-                                <SelectValue placeholder="Select value..." />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {columnValues.values.map(val => (
-                                  <SelectItem key={val} value={val} className="font-mono text-xs">{val}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <Input 
-                              placeholder="Value" 
-                              className="h-8 text-xs"
-                              value={selectedNode.data.filterValue || ''}
-                              onChange={(e) => updateNodeData('filterValue', e.target.value)}
-                              data-testid="input-filter-value"
-                            />
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                          </div>
+                        ))}
+                        {conditions.length < 6 && (
+                          <Button variant="outline" size="sm" className="w-full h-7 text-xs border-dashed text-yellow-700 border-yellow-300 hover:bg-yellow-50" onClick={addCond} data-testid="button-add-filter-condition">
+                            <Plus className="w-3 h-3 mr-1" /> Add Condition
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {selectedNode.data.type === 'sampling' && (
                     <div className="space-y-4 border rounded-md p-3 bg-muted/20">
@@ -5161,22 +5150,36 @@ function FlowWithProvider() {
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
                             <Label className="text-xs text-emerald-700 font-semibold">Chart Preview</Label>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-100"
-                              onClick={fetchExplorationPreview}
-                              disabled={explorationPreviewLoading}
-                              data-testid="button-load-preview"
-                            >
-                              {explorationPreviewLoading ? (
-                                <div className="w-3 h-3 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mr-1" />
-                              ) : null}
-                              {explorationPreviewLoading ? 'Loading...' : 'Load Preview'}
-                            </Button>
+                            <div className="flex items-center gap-1">
+                              {explorationPreview && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 text-xs text-emerald-600 hover:bg-emerald-50 px-2"
+                                  onClick={() => exportChartSVG(chartPreviewRef.current, selectedNode.data.label || 'chart')}
+                                  title="Export chart as SVG"
+                                  data-testid="button-export-chart-svg"
+                                >
+                                  <Download className="w-3 h-3 mr-1" /> SVG
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+                                onClick={fetchExplorationPreview}
+                                disabled={explorationPreviewLoading}
+                                data-testid="button-load-preview"
+                              >
+                                {explorationPreviewLoading ? (
+                                  <div className="w-3 h-3 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mr-1" />
+                                ) : null}
+                                {explorationPreviewLoading ? 'Loading...' : 'Load Preview'}
+                              </Button>
+                            </div>
                           </div>
                           {explorationPreview && (
-                            <div className="border border-emerald-200 rounded-md bg-white p-2 overflow-hidden" data-testid="chart-preview-container">
+                            <div ref={chartPreviewRef} className="border border-emerald-200 rounded-md bg-white p-2 overflow-hidden" data-testid="chart-preview-container">
                               {renderChart(selectedNode.data.chartType, explorationPreview, selectedNode.data.chartConfig || {})}
                             </div>
                           )}
@@ -5468,6 +5471,151 @@ function FlowWithProvider() {
         })()}
       </div>
 
+      {/* Right-click context menu */}
+      {contextMenu && createPortal(
+        <div
+          className="fixed z-[9999] bg-white border rounded-lg shadow-xl py-1 min-w-[160px] text-sm"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onMouseLeave={() => setContextMenu(null)}
+        >
+          {(() => {
+            const ctxNode = nodes.find(n => n.id === contextMenu.nodeId);
+            if (!ctxNode) return null;
+            const duplicate = () => {
+              const newId = getId();
+              const newNode = { ...ctxNode, id: newId, position: { x: ctxNode.position.x + 40, y: ctxNode.position.y + 40 }, data: { ...ctxNode.data }, selected: false };
+              pushHistory(nodesRef.current, edgesRef.current);
+              setNodes(ns => [...ns, newNode]);
+              setContextMenu(null);
+              toast.success('Node duplicated');
+            };
+            const rename = () => {
+              const label = window.prompt('New node name:', ctxNode.data.label || '');
+              if (label !== null) {
+                setNodes(ns => ns.map(n => n.id === ctxNode.id ? { ...n, data: { ...n.data, label } } : n));
+                if (selectedNode?.id === ctxNode.id) setSelectedNode((prev: any) => ({ ...prev, data: { ...prev.data, label } }));
+              }
+              setContextMenu(null);
+            };
+            const disconnectAll = () => {
+              pushHistory(nodesRef.current, edgesRef.current);
+              setEdges(es => es.filter(e => e.source !== ctxNode.id && e.target !== ctxNode.id));
+              setContextMenu(null);
+              toast.info('All connections removed');
+            };
+            const deleteNode = () => {
+              pushHistory(nodesRef.current, edgesRef.current);
+              setNodes(ns => ns.filter(n => n.id !== ctxNode.id));
+              setEdges(es => es.filter(e => e.source !== ctxNode.id && e.target !== ctxNode.id));
+              if (selectedNode?.id === ctxNode.id) setSelectedNode(null);
+              setContextMenu(null);
+            };
+            return (
+              <>
+                <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground border-b truncate max-w-[200px]">{ctxNode.data.label}</div>
+                <button className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50 text-left" onClick={duplicate} data-testid="ctx-duplicate">
+                  <Copy className="w-3.5 h-3.5" /> Duplicate
+                </button>
+                <button className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50 text-left" onClick={rename} data-testid="ctx-rename">
+                  <MousePointer2 className="w-3.5 h-3.5" /> Rename
+                </button>
+                <button className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50 text-left" onClick={disconnectAll} data-testid="ctx-disconnect">
+                  <Link2Off className="w-3.5 h-3.5" /> Disconnect All
+                </button>
+                <div className="border-t my-1" />
+                <button className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 text-red-600 text-left" onClick={deleteNode} data-testid="ctx-delete">
+                  <Trash2 className="w-3.5 h-3.5" /> Delete Node
+                </button>
+              </>
+            );
+          })()}
+        </div>,
+        document.body
+      )}
+
+      {/* Ctrl+K Command Palette */}
+      <Dialog open={cmdPaletteOpen} onOpenChange={v => { setCmdPaletteOpen(v); if (!v) setCmdQuery(''); }}>
+        <DialogContent className="max-w-lg p-0 overflow-hidden" aria-describedby="cmd-palette-desc">
+          <div className="flex items-center border-b px-4 py-3 gap-3">
+            <Command className="w-4 h-4 text-muted-foreground shrink-0" />
+            <input
+              autoFocus
+              className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
+              placeholder="Add node or run action…"
+              value={cmdQuery}
+              onChange={e => setCmdQuery(e.target.value)}
+              data-testid="input-cmd-palette"
+            />
+            <kbd className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">ESC</kbd>
+          </div>
+          <DialogTitle className="sr-only">Command Palette</DialogTitle>
+          <DialogDescription id="cmd-palette-desc" className="sr-only">Search and add nodes or run pipeline actions</DialogDescription>
+          <ScrollArea className="max-h-[400px]">
+            {(() => {
+              const q = cmdQuery.toLowerCase();
+              const actions = [
+                { label: 'Run Pipeline', icon: Play, action: () => { setCmdPaletteOpen(false); const runBtn = document.querySelector('[data-testid="button-run-pipeline"]') as HTMLButtonElement; runBtn?.click(); }, group: 'Actions' },
+                { label: 'Auto Layout', icon: LayoutTemplate, action: () => { setCmdPaletteOpen(false); setTimeout(() => (document.querySelector('[data-testid="button-auto-layout"]') as HTMLButtonElement)?.click(), 50); }, group: 'Actions' },
+                { label: 'Save Pipeline', icon: Save, action: () => { setCmdPaletteOpen(false); setTimeout(() => (document.querySelector('[data-testid="button-save-pipeline"]') as HTMLButtonElement)?.click(), 50); }, group: 'Actions' },
+              ].filter(a => !q || a.label.toLowerCase().includes(q));
+
+              const allNodeTypes = nodeCategories.flatMap((cat: any) => cat.nodes.map((n: any) => ({ ...n, group: cat.label })));
+              const filteredNodes = allNodeTypes.filter((n: any) => !q || n.label.toLowerCase().includes(q) || n.type.toLowerCase().includes(q));
+
+              return (
+                <div className="py-2">
+                  {actions.length > 0 && (
+                    <div>
+                      <p className="px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Actions</p>
+                      {actions.map((a: any) => (
+                        <button key={a.label} className="w-full flex items-center gap-3 px-4 py-2 hover:bg-muted/50 text-sm text-left" onClick={a.action}>
+                          <a.icon className="w-4 h-4 text-muted-foreground shrink-0" />
+                          <span>{a.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {filteredNodes.length > 0 && (
+                    <div>
+                      <p className="px-4 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mt-1">Add Node</p>
+                      {filteredNodes.slice(0, 20).map((n: any) => (
+                        <button key={n.type} className="w-full flex items-center gap-3 px-4 py-2 hover:bg-muted/50 text-sm text-left" data-testid={`cmd-node-${n.type}`}
+                          onClick={() => {
+                            setCmdPaletteOpen(false);
+                            const rf = document.querySelector('.react-flow__pane') as HTMLElement;
+                            const cx = rf ? rf.getBoundingClientRect().left + rf.getBoundingClientRect().width / 2 : 400;
+                            const cy = rf ? rf.getBoundingClientRect().top + rf.getBoundingClientRect().height / 2 : 300;
+                            const newNode = {
+                              id: getId(),
+                              type: 'custom',
+                              position: { x: Math.random() * 200 + 100, y: Math.random() * 200 + 100 },
+                              data: { type: n.type, label: n.label },
+                            };
+                            pushHistory(nodesRef.current, edgesRef.current);
+                            setNodes(ns => [...ns, newNode]);
+                            toast.success(`Added ${n.label}`);
+                          }}>
+                          <div className={cn('p-1 rounded', n.color || 'bg-muted')}>
+                            <n.icon className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{n.label}</p>
+                            <p className="text-[10px] text-muted-foreground truncate">{n.group}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {actions.length === 0 && filteredNodes.length === 0 && (
+                    <p className="px-4 py-6 text-sm text-muted-foreground text-center">No results for "{cmdQuery}"</p>
+                  )}
+                </div>
+              );
+            })()}
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={resultsOpen} onOpenChange={setResultsOpen}>
         <DialogContent className="max-w-[95vw] w-full h-[95vh] p-0 flex flex-col overflow-hidden">
            <div className="p-6 border-b shrink-0 flex items-center justify-between">
@@ -5477,7 +5625,7 @@ function FlowWithProvider() {
               </div>
            </div>
            <ScrollArea className="flex-1 p-6 bg-slate-50/50">
-              <ForecastResultsDashboard />
+              <ForecastResultsDashboard results={resultsModelInfo} />
            </ScrollArea>
         </DialogContent>
       </Dialog>

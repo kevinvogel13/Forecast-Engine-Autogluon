@@ -371,21 +371,43 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
     save_path = os.path.join(model_path, f"ag_model_{int(time.time())}")
     os.makedirs(save_path, exist_ok=True)
     
+    static_features_cols = [c for c in node_data.get('cfgStaticFeatures', []) or [] if c and c in df.columns and c not in [id_col, time_col, target_col]]
+    known_covariates_cols = [c for c in node_data.get('cfgKnownCovariates', []) or [] if c and c in df.columns and c not in [id_col, time_col, target_col]]
+    eval_metric = node_data.get('cfgEvalMetric', 'MASE') or 'MASE'
+
     if mode == 'train':
+        static_df = None
+        ts_input_df = df.copy()
+        if static_features_cols and id_col and id_col in df.columns:
+            try:
+                static_df = df.groupby(id_col)[static_features_cols].first()
+                ts_input_df = df.drop(columns=static_features_cols, errors='ignore')
+                logger.info(f"Static features: {static_features_cols}")
+            except Exception as e:
+                logger.warning(f"Could not build static features df: {e}")
+                static_df = None
+                ts_input_df = df.copy()
+
         ts_df = TimeSeriesDataFrame.from_data_frame(
-            df,
+            ts_input_df,
             id_column=id_col if id_col else None,
             timestamp_column=time_col,
+            static_features_df=static_df,
         )
-        
-        predictor = TimeSeriesPredictor(
+
+        predictor_kwargs = dict(
             target=target_col,
             prediction_length=horizon,
             freq=freq,
             path=save_path,
-            eval_metric='MASE',
+            eval_metric=eval_metric,
         )
-        
+        if known_covariates_cols:
+            predictor_kwargs['known_covariates_names'] = known_covariates_cols
+            logger.info(f"Known covariates: {known_covariates_cols}")
+
+        predictor = TimeSeriesPredictor(**predictor_kwargs)
+
         predictor.fit(
             train_data=ts_df,
             presets=preset,
