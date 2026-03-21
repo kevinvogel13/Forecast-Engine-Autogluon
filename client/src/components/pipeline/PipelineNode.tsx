@@ -1,8 +1,8 @@
 import { Handle, Position, useNodeId } from '@xyflow/react';
 import { Badge } from '@/components/ui/badge';
-import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, AlertCircle, Layers, ListTree, TableProperties, Code, HardDrive, History, Trash2, Settings2, CheckCircle2, Table2, LineChart, FileText, Eraser, CalendarClock, Group, ShieldAlert, Columns3, CopyMinus, ArrowRightLeft } from 'lucide-react';
+import { FileSpreadsheet, GitMerge, Filter, Calculator, Database, AlertCircle, Layers, ListTree, TableProperties, Code, HardDrive, History, Trash2, Settings2, CheckCircle2, Table2, LineChart, FileText, Eraser, CalendarClock, Group, ShieldAlert, Columns3, CopyMinus, ArrowRightLeft, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useCallback } from 'react';
+import { useCallback, useState, useRef, useEffect } from 'react';
 
 interface PipelineNodeProps {
   data: {
@@ -15,6 +15,10 @@ interface PipelineNodeProps {
     };
     status?: 'pending' | 'processing' | 'success' | 'error';
     onDelete?: () => void;
+    commentText?: string;
+    onCommentChange?: (text: string) => void;
+    previewRows?: Array<Record<string, any>>;
+    previewColumns?: string[];
   };
   selected?: boolean;
 }
@@ -44,15 +48,14 @@ const getIcon = (type: string) => {
     case 'exploration': return LineChart;
     case 'report': return FileText;
     case 'config': return Settings2;
+    case 'comment': return MessageSquare;
     default: return FileSpreadsheet;
   }
 };
 
 const getTypeColor = (type: string) => {
   switch (type) {
-    // Source (blue)
     case 'input': return { bg: 'bg-blue-50', border: 'border-blue-200', icon: 'bg-blue-100 text-blue-600', handle: 'bg-blue-500' };
-    // Prep (yellow)
     case 'filter': return { bg: 'bg-yellow-50', border: 'border-yellow-200', icon: 'bg-yellow-100 text-yellow-600', handle: 'bg-yellow-500' };
     case 'sampling': return { bg: 'bg-yellow-50', border: 'border-yellow-200', icon: 'bg-yellow-100 text-yellow-600', handle: 'bg-yellow-500' };
     case 'fillMissing': return { bg: 'bg-yellow-50', border: 'border-yellow-200', icon: 'bg-yellow-100 text-yellow-600', handle: 'bg-yellow-500' };
@@ -65,13 +68,12 @@ const getTypeColor = (type: string) => {
     case 'pivotUnpivot': return { bg: 'bg-yellow-50', border: 'border-yellow-200', icon: 'bg-yellow-100 text-yellow-600', handle: 'bg-yellow-500' };
     case 'python': return { bg: 'bg-yellow-50', border: 'border-yellow-200', icon: 'bg-yellow-100 text-yellow-600', handle: 'bg-yellow-500' };
     case 'sql': return { bg: 'bg-yellow-50', border: 'border-yellow-200', icon: 'bg-yellow-100 text-yellow-600', handle: 'bg-yellow-500' };
-    // Analysis (emerald)
     case 'preview': return { bg: 'bg-emerald-50', border: 'border-emerald-200', icon: 'bg-emerald-100 text-emerald-600', handle: 'bg-emerald-500' };
     case 'exploration': return { bg: 'bg-emerald-50', border: 'border-emerald-200', icon: 'bg-emerald-100 text-emerald-600', handle: 'bg-emerald-500' };
     case 'report': return { bg: 'bg-emerald-50', border: 'border-emerald-200', icon: 'bg-emerald-100 text-emerald-600', handle: 'bg-emerald-500' };
-    // Model (violet)
     case 'config': return { bg: 'bg-violet-50', border: 'border-violet-200', icon: 'bg-violet-100 text-violet-600', handle: 'bg-violet-500' };
     case 'output': return { bg: 'bg-violet-50', border: 'border-violet-200', icon: 'bg-violet-100 text-violet-600', handle: 'bg-violet-500' };
+    case 'comment': return { bg: 'bg-amber-50', border: 'border-amber-300', icon: 'bg-amber-100 text-amber-600', handle: 'bg-amber-400' };
     default: return { bg: 'bg-white', border: 'border-border', icon: 'bg-muted text-muted-foreground', handle: 'bg-slate-500' };
   }
 };
@@ -86,6 +88,7 @@ const getTypeLabel = (type: string) => {
     case 'columnTransform': return 'Column Transform';
     case 'removeDuplicates': return 'Remove Duplicates';
     case 'pivotUnpivot': return 'Pivot / Unpivot';
+    case 'comment': return 'Note';
     default: return type;
   }
 };
@@ -99,11 +102,96 @@ const getStatusIndicator = (status?: string) => {
   }
 };
 
+/* ── Comment (sticky note) node ── */
+function CommentNode({ data, selected }: PipelineNodeProps) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(data.commentText || 'Double-click to edit…');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (editing && textareaRef.current) {
+      textareaRef.current.focus();
+      textareaRef.current.select();
+    }
+  }, [editing]);
+
+  const commit = () => {
+    setEditing(false);
+    data.onCommentChange?.(text);
+  };
+
+  return (
+    <div
+      className={cn(
+        'relative min-w-[180px] max-w-[280px] rounded-lg border-2 shadow-sm',
+        'bg-amber-50 border-amber-300',
+        selected && 'ring-2 ring-amber-400 ring-offset-2',
+      )}
+      onDoubleClick={() => setEditing(true)}
+      data-testid="node-comment"
+    >
+      {/* top bar */}
+      <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1">
+        <MessageSquare className="w-3 h-3 text-amber-500 shrink-0" />
+        <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wide">Note</span>
+      </div>
+      <div className="px-2.5 pb-2.5">
+        {editing ? (
+          <textarea
+            ref={textareaRef}
+            className="w-full text-xs text-slate-700 bg-transparent resize-none outline-none min-h-[60px]"
+            value={text}
+            onChange={e => setText(e.target.value)}
+            onBlur={commit}
+            onKeyDown={e => { if (e.key === 'Escape') commit(); }}
+            rows={4}
+          />
+        ) : (
+          <p className="text-xs text-slate-700 whitespace-pre-wrap break-words min-h-[40px]">{text || 'Double-click to edit…'}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Hover preview tooltip ── */
+function PreviewTooltip({ rows, columns }: { rows: Array<Record<string, any>>; columns: string[] }) {
+  const cols = columns.slice(0, 5);
+  return (
+    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 bg-white border border-slate-200 rounded-lg shadow-xl p-2 min-w-[280px] max-w-[420px] pointer-events-none">
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Output preview</p>
+      <div className="overflow-auto max-h-[160px]">
+        <table className="text-[10px] w-full border-collapse">
+          <thead>
+            <tr className="bg-slate-50">
+              {cols.map(c => (
+                <th key={c} className="text-left px-1.5 py-1 border border-slate-200 font-semibold text-slate-600 truncate max-w-[80px]">{c}</th>
+              ))}
+              {columns.length > 5 && <th className="px-1 py-1 border border-slate-200 text-slate-400">+{columns.length - 5}</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                {cols.map(c => (
+                  <td key={c} className="px-1.5 py-1 border border-slate-100 text-slate-700 max-w-[80px] truncate">
+                    {row[c] === null || row[c] === undefined ? <span className="text-slate-400 italic">null</span> : String(row[c])}
+                  </td>
+                ))}
+                {columns.length > 5 && <td className="px-1 py-1 border border-slate-100" />}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function PipelineNode({ data, selected }: PipelineNodeProps) {
-  const Icon = getIcon(data.type);
-  const colors = getTypeColor(data.type);
-  const statusInfo = getStatusIndicator(data.status);
   const nodeId = useNodeId();
+  const [showPreview, setShowPreview] = useState(false);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleSourceClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -113,14 +201,42 @@ export default function PipelineNode({ data, selected }: PipelineNodeProps) {
     }));
   }, [nodeId]);
 
+  const handleMouseEnter = useCallback(() => {
+    if (!data.previewRows?.length) return;
+    hoverTimerRef.current = setTimeout(() => setShowPreview(true), 500);
+  }, [data.previewRows]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    setShowPreview(false);
+  }, []);
+
+  // Comment node renders differently
+  if (data.type === 'comment') {
+    return <CommentNode data={data} selected={selected} />;
+  }
+
+  const Icon = getIcon(data.type);
+  const colors = getTypeColor(data.type);
+  const statusInfo = getStatusIndicator(data.status);
+
   return (
-    <div className={cn(
-      "group relative min-w-[220px] rounded-xl transition-all duration-200",
-      colors.bg, colors.border,
-      "border-2 shadow-sm hover:shadow-md",
-      selected && "ring-2 ring-blue-500 ring-offset-2 shadow-lg",
-      data.status === 'processing' && "animate-pulse"
-    )}>
+    <div
+      className={cn(
+        "group relative min-w-[220px] rounded-xl transition-all duration-200",
+        colors.bg, colors.border,
+        "border-2 shadow-sm hover:shadow-md",
+        selected && "ring-2 ring-blue-500 ring-offset-2 shadow-lg",
+        data.status === 'processing' && "animate-pulse"
+      )}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      {/* Hover preview */}
+      {showPreview && data.previewRows && data.previewColumns && (
+        <PreviewTooltip rows={data.previewRows} columns={data.previewColumns} />
+      )}
+
       {data.type !== 'input' && (
         <Handle 
           type="target" 
@@ -162,6 +278,13 @@ export default function PipelineNode({ data, selected }: PipelineNodeProps) {
           <div className="mt-2 flex items-center gap-1.5 text-xs text-red-700 bg-red-100 px-2 py-1.5 rounded-md border border-red-200">
             <AlertCircle className="w-3 h-3 shrink-0" />
             <span className="font-medium">Check configuration</span>
+          </div>
+        )}
+
+        {data.status === 'success' && data.stats && (data.stats.rows > 0 || data.stats.cols > 0) && (
+          <div className="mt-2 flex items-center gap-2 text-[10px] text-emerald-700">
+            <span className="bg-emerald-100 px-1.5 py-0.5 rounded font-medium">{data.stats.rows.toLocaleString()} rows</span>
+            <span className="bg-emerald-100 px-1.5 py-0.5 rounded font-medium">{data.stats.cols} cols</span>
           </div>
         )}
       </div>

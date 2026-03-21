@@ -172,6 +172,7 @@ Abstract `StorageAdapter` ABC with: read_file, write_file, file_exists, list_fil
 
 ## Recent Changes
 
+- 2026-03-21: Added 8 pipeline editor improvements: (1) node palette search filter, (2) Ctrl+C/V copy-paste nodes with history, (3) auto-layout button (topological sort, left-to-right columns), (4) pre-run validation dialog (errors/warnings, "Run Anyway"/"Fix Issues"), (5) Comment/sticky-note node type under Canvas category (editable amber note, no connectors), (6) dataset column profiling in Data Source config panel (type + null count per column, auto-fetches on selection), (7) execution history panel with per-node result summary, (8) inline data preview tooltip on node hover (500ms delay, first 5 rows). Python engine now emits `preview_rows` in SSE resultInfo for completed DataFrame nodes.
 - 2026-02-22: Hardened sandbox with restricted builtins whitelist. Improved DataSource file resolution.
 - 2026-02-21: Added Feature Importance chart (16th). Express execution bridge. Frontend progress events.
 - 2026-02-21: Built Python engine with 14 handlers, 12-Factor config, storage adapter, handler registry.

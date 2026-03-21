@@ -20,7 +20,7 @@ import {
  
 import '@xyflow/react/dist/style.css';
 import { Button } from '@/components/ui/button';
-import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown, GitMerge, FilePlus, GripVertical, ArrowUp, ArrowDown, Upload, Cpu, Undo2, Redo2, Download, AlertCircle, LayoutTemplate } from 'lucide-react';
+import { Play, Settings2, Trash2, X, FolderOpen, Save, BarChart3, Database, FileText, Activity, MoreHorizontal, ChevronDown, GitMerge, FilePlus, GripVertical, ArrowUp, ArrowDown, Upload, Cpu, Undo2, Redo2, Download, AlertCircle, LayoutTemplate, LayoutGrid, Clock as ClockIcon, CheckCircle2, TriangleAlert, History, ShieldCheck } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -186,6 +186,31 @@ function FlowWithProvider() {
   
   // Store output data shapes for each node (nodeId -> { rows, cols })
   const [nodeOutputShapes, setNodeOutputShapes] = useState<Record<string, { rows: number; cols: number }>>({});
+
+  // Copy / Paste clipboard
+  const clipboardNodeRef = useRef<any>(null);
+
+  // Execution history log
+  const [runHistory, setRunHistory] = useState<Array<{
+    id: string;
+    timestamp: Date;
+    duration: number;
+    success: boolean;
+    nodeResults: Array<{ nodeId: string; label: string; status: string; rows: number }>;
+    errorMessage?: string;
+  }>>([]);
+  const [historyPanelOpen, setHistoryPanelOpen] = useState(false);
+
+  // Pre-run validation
+  const [validationDialogOpen, setValidationDialogOpen] = useState(false);
+  const [validationIssues, setValidationIssues] = useState<Array<{ level: 'error' | 'warning'; message: string }>>([]);
+
+  // Dataset column profile (fetched on demand)
+  const [datasetProfile, setDatasetProfile] = useState<Array<{ name: string; type: string; nullCount: number; sample: string }> | null>(null);
+  const [datasetProfileLoading, setDatasetProfileLoading] = useState(false);
+
+  // Node hover preview data (nodeId -> { rows, columns })
+  const [nodePreviewData, setNodePreviewData] = useState<Record<string, { rows: Array<Record<string,any>>; columns: string[] }>>({});
   
   // Modal states for full views
   const [resultsOpen, setResultsOpen] = useState(false);
@@ -385,10 +410,30 @@ function FlowWithProvider() {
       if (!ctrl) return;
       if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
       if ((e.key === 'z' && e.shiftKey) || e.key === 'y') { e.preventDefault(); redo(); }
+      if (e.key === 'c') {
+        const sel = nodesRef.current.find(n => n.selected);
+        if (sel) { clipboardNodeRef.current = JSON.parse(JSON.stringify(sel)); e.preventDefault(); toast.info('Node copied'); }
+      }
+      if (e.key === 'v') {
+        if (!clipboardNodeRef.current) return;
+        e.preventDefault();
+        const src = clipboardNodeRef.current;
+        const newNode = {
+          ...src,
+          id: getId(),
+          position: { x: src.position.x + 40, y: src.position.y + 40 },
+          selected: false,
+          data: { ...src.data, status: 'pending', errorMessage: undefined },
+        };
+        pushHistory(nodesRef.current, edgesRef.current);
+        setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat({ ...newNode, selected: true }));
+        setSelectedNode(newNode);
+        toast.success('Node pasted');
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, pushHistory, setNodes]);
 
   const onConnect = useCallback(
     (params: Connection) => {
@@ -1817,9 +1862,25 @@ function FlowWithProvider() {
     );
     setEdges((eds) => eds.map(e => ({ ...e, animated: true })));
 
+    const runId = `run_${Date.now()}`;
+    const startTime = Date.now();
+    const nodeResultsCollected: Array<{ nodeId: string; label: string; status: string; rows: number }> = [];
+
     const finishRun = (success: boolean, message?: string, resultCount?: number) => {
+      const duration = Date.now() - startTime;
       setIsRunning(false);
       setEdges((eds) => eds.map(e => ({ ...e, animated: false })));
+
+      // Record in execution history
+      setRunHistory(prev => [{
+        id: runId,
+        timestamp: new Date(),
+        duration,
+        success,
+        nodeResults: [...nodeResultsCollected],
+        errorMessage: success ? undefined : message,
+      }, ...prev].slice(0, 20));
+
       if (success) {
         toast.success(`Pipeline completed${resultCount !== undefined ? `: ${resultCount} nodes processed` : ''}`);
       } else {
@@ -1852,15 +1913,34 @@ function FlowWithProvider() {
             const parsed = JSON.parse(event.slice(6));
 
             if (parsed.type === 'progress') {
+              const newStatus = parsed.status === 'completed' ? 'success' : parsed.status === 'error' ? 'error' : 'processing';
+              const newStats = parsed.resultInfo ? { rows: parsed.resultInfo.rows || 0, cols: (parsed.resultInfo.columns || []).length } : undefined;
+              const errorMessage = parsed.status === 'error' ? parsed.message : undefined;
+
               setNodes((nds) =>
                 nds.map(n => {
                   if (n.id !== parsed.nodeId) return n;
-                  const newStatus = parsed.status === 'completed' ? 'success' : parsed.status === 'error' ? 'error' : 'processing';
-                  const newStats = parsed.resultInfo ? { rows: parsed.resultInfo.rows || 0, cols: (parsed.resultInfo.columns || []).length } : n.data.stats;
-                  const errorMessage = parsed.status === 'error' ? parsed.message : undefined;
-                  return { ...n, data: { ...n.data, status: newStatus, stats: newStats, ...(errorMessage !== undefined ? { errorMessage } : {}) } };
+                  return { ...n, data: { ...n.data, status: newStatus, ...(newStats ? { stats: newStats } : {}), ...(errorMessage !== undefined ? { errorMessage } : {}) } };
                 })
               );
+
+              if (parsed.status === 'completed' || parsed.status === 'error') {
+                const nd = nodesRef.current.find(n => n.id === parsed.nodeId);
+                nodeResultsCollected.push({
+                  nodeId: parsed.nodeId,
+                  label: nd?.data?.label || parsed.nodeId,
+                  status: parsed.status,
+                  rows: parsed.resultInfo?.rows || 0,
+                });
+
+                // Store preview rows for hover tooltip
+                if (parsed.resultInfo?.preview_rows && parsed.resultInfo?.columns) {
+                  setNodePreviewData(prev => ({
+                    ...prev,
+                    [parsed.nodeId]: { rows: parsed.resultInfo.preview_rows, columns: parsed.resultInfo.columns }
+                  }));
+                }
+              }
             } else if (parsed.type === 'result') {
               finishRun(parsed.success, parsed.error, Object.keys(parsed.results || {}).length);
             }
@@ -1872,6 +1952,145 @@ function FlowWithProvider() {
     }
   };
   
+  // ---- Auto Layout ----
+  const autoLayout = useCallback(() => {
+    const currentNodes = nodesRef.current;
+    const currentEdges = edgesRef.current;
+    if (currentNodes.length === 0) return;
+
+    // Build adjacency + in-degree
+    const inDegree: Record<string, number> = {};
+    const adj: Record<string, string[]> = {};
+    currentNodes.forEach(n => { inDegree[n.id] = 0; adj[n.id] = []; });
+    currentEdges.forEach(e => {
+      if (adj[e.source]) adj[e.source].push(e.target);
+      if (inDegree[e.target] !== undefined) inDegree[e.target]++;
+    });
+
+    // Kahn's topological sort → assign columns
+    const col: Record<string, number> = {};
+    const queue = currentNodes.filter(n => inDegree[n.id] === 0).map(n => n.id);
+    let processed = 0;
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      if (col[id] === undefined) col[id] = 0;
+      processed++;
+      (adj[id] || []).forEach(child => {
+        col[child] = Math.max(col[child] ?? 0, col[id] + 1);
+        inDegree[child]--;
+        if (inDegree[child] === 0) queue.push(child);
+      });
+    }
+    // Fallback for disconnected nodes
+    currentNodes.forEach(n => { if (col[n.id] === undefined) col[n.id] = 0; });
+
+    // Assign row within each column
+    const colBuckets: Record<number, string[]> = {};
+    Object.entries(col).forEach(([id, c]) => {
+      if (!colBuckets[c]) colBuckets[c] = [];
+      colBuckets[c].push(id);
+    });
+
+    const NODE_W = 280, NODE_H = 120, H_GAP = 80, V_GAP = 40;
+    const newPositions: Record<string, { x: number; y: number }> = {};
+    Object.entries(colBuckets).forEach(([colIdx, ids]) => {
+      const c = Number(colIdx);
+      const totalH = ids.length * NODE_H + (ids.length - 1) * V_GAP;
+      ids.forEach((id, rowIdx) => {
+        newPositions[id] = {
+          x: c * (NODE_W + H_GAP) + 60,
+          y: -totalH / 2 + rowIdx * (NODE_H + V_GAP),
+        };
+      });
+    });
+
+    pushHistory(currentNodes, currentEdges);
+    setNodes(nds => nds.map(n => ({ ...n, position: newPositions[n.id] ?? n.position })));
+    toast.success('Layout applied');
+  }, [pushHistory, setNodes]);
+
+  // ---- Pre-run Validation ----
+  const validatePipeline = useCallback((): Array<{ level: 'error' | 'warning'; message: string }> => {
+    const ns = nodesRef.current;
+    const es = edgesRef.current;
+    const issues: Array<{ level: 'error' | 'warning'; message: string }> = [];
+
+    const hasSource = ns.some(n => n.data.type === 'input');
+    if (!hasSource) issues.push({ level: 'error', message: 'No Data Source node found. Add at least one Data Source to start the pipeline.' });
+
+    const connectedIds = new Set<string>();
+    es.forEach(e => { connectedIds.add(e.source); connectedIds.add(e.target); });
+    const isolatedNonSource = ns.filter(n => n.data.type !== 'input' && n.data.type !== 'comment' && !connectedIds.has(n.id));
+    if (isolatedNonSource.length > 0) {
+      issues.push({ level: 'warning', message: `${isolatedNonSource.length} node(s) have no connections and will be skipped: ${isolatedNonSource.map(n => n.data.label).join(', ')}` });
+    }
+
+    const sourcesWithoutDataset = ns.filter(n => n.data.type === 'input' && n.data.sourceType === 'existing' && !n.data.datasetId);
+    if (sourcesWithoutDataset.length > 0) {
+      issues.push({ level: 'error', message: `${sourcesWithoutDataset.length} Data Source node(s) have no dataset selected.` });
+    }
+
+    const configNodes = ns.filter(n => n.data.type === 'config');
+    configNodes.forEach(n => {
+      if (!n.data.targetVar) issues.push({ level: 'warning', message: `Model Config "${n.data.label}": Target variable not set.` });
+      if (!n.data.timeCol) issues.push({ level: 'warning', message: `Model Config "${n.data.label}": Time column not set.` });
+    });
+
+    return issues;
+  }, []);
+
+  const handleRunWithValidation = useCallback(() => {
+    const issues = validatePipeline();
+    const errors = issues.filter(i => i.level === 'error');
+    if (issues.length > 0) {
+      setValidationIssues(issues);
+      setValidationDialogOpen(true);
+    } else {
+      runPipeline();
+    }
+  }, [validatePipeline, runPipeline]);
+
+  // ---- Fetch dataset column profile ----
+  const fetchDatasetProfile = useCallback(async (datasetId: string) => {
+    setDatasetProfile(null);
+    setDatasetProfileLoading(true);
+    try {
+      const res = await fetch(`/api/datasets/${datasetId}/preview?rows=50`);
+      if (!res.ok) throw new Error('Failed to fetch');
+      const data = await res.json();
+      const columns: string[] = data.columns || [];
+      const rows: any[] = data.rows || [];
+
+      const profile = columns.map(col => {
+        const values = rows.map(r => r[col]);
+        const nullCount = values.filter(v => v === null || v === undefined || v === '').length;
+        const nonNull = values.filter(v => v !== null && v !== undefined && v !== '');
+        const sample = nonNull[0] !== undefined ? String(nonNull[0]) : '—';
+        const isNum = nonNull.every(v => !isNaN(Number(v)));
+        return { name: col, type: isNum ? 'numeric' : 'text', nullCount, sample };
+      });
+      setDatasetProfile(profile);
+    } catch {
+      setDatasetProfile(null);
+    } finally {
+      setDatasetProfileLoading(false);
+    }
+  }, []);
+
+  // Auto-fetch dataset profile when a Data Source node is selected
+  useEffect(() => {
+    if (
+      selectedNode &&
+      selectedNode.data.type === 'input' &&
+      selectedNode.data.sourceType === 'existing' &&
+      selectedNode.data.datasetId
+    ) {
+      fetchDatasetProfile(selectedNode.data.datasetId);
+    } else {
+      setDatasetProfile(null);
+    }
+  }, [selectedNode?.id, selectedNode?.data?.datasetId, fetchDatasetProfile]);
+
   const onNodeDragStart = (event: React.DragEvent, nodeType: string, label: string) => {
     event.dataTransfer.setData('application/reactflow/type', nodeType);
     event.dataTransfer.setData('application/reactflow/label', label);
@@ -2030,10 +2249,17 @@ function FlowWithProvider() {
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
+            <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={autoLayout} title="Auto-layout nodes" data-testid="button-auto-layout">
+              <LayoutGrid className="w-3.5 h-3.5" />
+            </Button>
+            <Button size="sm" variant="ghost" className={`h-8 w-8 p-0 relative ${runHistory.length > 0 ? 'text-blue-600' : ''}`} onClick={() => setHistoryPanelOpen(true)} title="Execution history" data-testid="button-history">
+              <ClockIcon className="w-3.5 h-3.5" />
+              {runHistory.length > 0 && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-blue-500 rounded-full" />}
+            </Button>
             <Button 
               size="sm" 
               className={`h-8 gap-1.5 text-xs ${isRunning ? 'bg-orange-500 hover:bg-orange-600' : 'bg-green-600 hover:bg-green-700'}`}
-              onClick={runPipeline}
+              onClick={handleRunWithValidation}
               disabled={isRunning}
               data-testid="button-run-pipeline"
             >
@@ -2213,8 +2439,111 @@ function FlowWithProvider() {
           </DialogContent>
         </Dialog>
         
+        {/* ── Validation Dialog ── */}
+        <Dialog open={validationDialogOpen} onOpenChange={setValidationDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-amber-500" />
+                Pipeline Check
+              </DialogTitle>
+              <DialogDescription>
+                Review these issues before running the pipeline.
+              </DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="max-h-64 mt-2">
+              <div className="space-y-2">
+                {validationIssues.map((issue, i) => (
+                  <div key={i} className={`flex gap-2 items-start p-2.5 rounded-lg text-xs ${issue.level === 'error' ? 'bg-red-50 border border-red-200 text-red-700' : 'bg-amber-50 border border-amber-200 text-amber-700'}`}>
+                    {issue.level === 'error'
+                      ? <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      : <TriangleAlert className="w-4 h-4 shrink-0 mt-0.5" />}
+                    <span>{issue.message}</span>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" onClick={() => setValidationDialogOpen(false)}>Fix Issues</Button>
+              <Button
+                disabled={validationIssues.some(i => i.level === 'error')}
+                onClick={() => { setValidationDialogOpen(false); runPipeline(); }}
+                data-testid="button-run-anyway"
+              >
+                Run Anyway
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Execution History Panel ── */}
+        <Dialog open={historyPanelOpen} onOpenChange={setHistoryPanelOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <History className="w-4 h-4" />
+                Execution History
+              </DialogTitle>
+              <DialogDescription>Last {runHistory.length} pipeline run{runHistory.length !== 1 ? 's' : ''}.</DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="h-[380px] mt-2">
+              {runHistory.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <History className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm">No runs yet</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {runHistory.map((run) => (
+                    <div key={run.id} className={`border rounded-lg p-3 ${run.success ? 'border-emerald-200 bg-emerald-50/40' : 'border-red-200 bg-red-50/40'}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          {run.success
+                            ? <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                            : <AlertCircle className="w-4 h-4 text-red-500" />}
+                          <span className="text-sm font-medium">{run.success ? 'Success' : 'Failed'}</span>
+                        </div>
+                        <div className="text-right text-xs text-muted-foreground">
+                          <div>{run.timestamp.toLocaleTimeString()}</div>
+                          <div>{(run.duration / 1000).toFixed(1)}s</div>
+                        </div>
+                      </div>
+                      {run.errorMessage && (
+                        <p className="text-xs text-red-600 mb-2 font-mono bg-red-100 px-2 py-1 rounded">{run.errorMessage}</p>
+                      )}
+                      <div className="space-y-1">
+                        {run.nodeResults.map((nr) => (
+                          <div key={nr.nodeId} className="flex items-center justify-between text-xs">
+                            <span className="text-slate-600 truncate max-w-[200px]">{nr.label}</span>
+                            <div className="flex items-center gap-2">
+                              {nr.rows > 0 && <span className="text-muted-foreground">{nr.rows.toLocaleString()} rows</span>}
+                              <span className={`px-1.5 py-0.5 rounded font-medium ${nr.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                {nr.status === 'completed' ? '✓' : '✗'}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </DialogContent>
+        </Dialog>
+
         <ReactFlow
-          nodes={nodes}
+          nodes={nodes.map(n => ({
+            ...n,
+            data: {
+              ...n.data,
+              previewRows: nodePreviewData[n.id]?.rows,
+              previewColumns: nodePreviewData[n.id]?.columns,
+              onCommentChange: n.data.type === 'comment' ? (text: string) => {
+                setNodes(nds => nds.map(nd => nd.id === n.id ? { ...nd, data: { ...nd.data, commentText: text, label: text.slice(0, 30) || 'Comment' } } : nd));
+              } : undefined,
+            }
+          }))}
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
@@ -2357,6 +2686,7 @@ function FlowWithProvider() {
                                        }
                                        return n;
                                      }));
+                                     fetchDatasetProfile(val);
                                    }
                                  }}
                               >
@@ -2375,8 +2705,34 @@ function FlowWithProvider() {
                                 </SelectContent>
                               </Select>
                               {selectedNode.data.datasetId && (
-                                <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
-                                  Selected: {selectedNode.data.label}
+                                <div className="space-y-2">
+                                  <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded flex justify-between items-center">
+                                    <span className="font-medium text-slate-700">{selectedNode.data.label}</span>
+                                    <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => fetchDatasetProfile(selectedNode.data.datasetId)} title="Refresh profile">
+                                      <ClockIcon className="w-3 h-3" />
+                                    </Button>
+                                  </div>
+                                  {datasetProfileLoading && (
+                                    <div className="text-xs text-muted-foreground text-center py-2">Loading column profile…</div>
+                                  )}
+                                  {datasetProfile && !datasetProfileLoading && (
+                                    <div className="border rounded-md overflow-hidden">
+                                      <div className="bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wide flex gap-2">
+                                        <span className="flex-1">Column</span>
+                                        <span className="w-14 text-right">Type</span>
+                                        <span className="w-12 text-right">Nulls</span>
+                                      </div>
+                                      <ScrollArea className="max-h-40">
+                                        {datasetProfile.map((col) => (
+                                          <div key={col.name} className="flex gap-2 items-center px-2 py-1 text-[11px] border-t hover:bg-muted/30">
+                                            <span className="flex-1 truncate font-mono text-slate-700" title={col.name}>{col.name}</span>
+                                            <span className={`w-14 text-right px-1 rounded text-[10px] font-medium ${col.type === 'numeric' ? 'text-blue-600 bg-blue-50' : 'text-amber-600 bg-amber-50'}`}>{col.type}</span>
+                                            <span className={`w-12 text-right text-[10px] ${col.nullCount > 0 ? 'text-orange-600 font-medium' : 'text-muted-foreground'}`}>{col.nullCount > 0 ? col.nullCount : '—'}</span>
+                                          </div>
+                                        ))}
+                                      </ScrollArea>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                            </div>

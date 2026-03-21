@@ -112,9 +112,11 @@ def execute_pipeline(pipeline_json: dict) -> dict:
             
             if isinstance(result, pd.DataFrame):
                 results[node_id] = result
+                preview_df = result.head(5).where(pd.notnull(result.head(5)), None)
                 result_info = {
                     'rows': len(result),
                     'columns': list(result.columns),
+                    'preview_rows': preview_df.to_dict(orient='records'),
                 }
                 emit_progress(node_id, node_label, 'completed', f'{len(result)} rows × {len(result.columns)} cols', result_info)
             elif isinstance(result, dict):
