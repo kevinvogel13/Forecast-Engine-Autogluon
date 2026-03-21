@@ -61,11 +61,40 @@ def _parse_quantiles(quantile_cfg) -> list:
         return [0.1, 0.5, 0.9]
 
 
+
+# ─── Frontend key → AutoGluon model class name ────────────────────────────────
+# Frontend stores lowercase snake_case keys; AutoGluon needs exact class names.
+_MODEL_KEY_TO_AG = {
+    'naive':              'Naive',
+    'seasonal_naive':     'SeasonalNaive',
+    'ets':                'ETS',
+    'arima':              'ARIMA',
+    'auto_arima':         'AutoARIMA',
+    'theta':              'Theta',
+    'croston':            'Croston',
+    'deepar':             'DeepAR',
+    'tft':                'TemporalFusionTransformer',
+    'transformer':        'Transformer',
+    'simple_feed_forward':'SimpleFeedForward',
+    'recursive_tabular':  'RecursiveTabular',
+    'direct_tabular':     'DirectTabular',
+    'chronos':            'Chronos',
+    'chronos_bolt':       'ChronosBolt',
+    'weighted_ensemble':  'WeightedEnsemble',
+}
+
+
 def _build_excluded_models(selected_models: dict) -> list:
-    """Return list of model type strings the user *de-selected*."""
+    """Return list of AutoGluon class name strings for models the user de-selected."""
     if not selected_models:
         return []
-    return [k for k, v in selected_models.items() if not v]
+    excluded = []
+    for k, v in selected_models.items():
+        if not v:
+            ag_name = _MODEL_KEY_TO_AG.get(k)
+            if ag_name:
+                excluded.append(ag_name)
+    return excluded
 
 
 def apply_fill_missing_per_column(df: pd.DataFrame, fill_configs: dict, fit_stats: dict = None) -> tuple:
@@ -375,7 +404,11 @@ def run_statistical_forecast(df, node_data, fill_configs, outlier_configs):
     target_col = node_data.get('cfgTargetVar', '')
     time_col = node_data.get('cfgTimeCol', node_data.get('configDateColumn', ''))
     id_col = node_data.get('cfgDfu', '')
-    horizon = int(node_data.get('forecastHorizon', 12))
+    _hz_raw = node_data.get('forecastHorizon', 12)
+    try:
+        horizon = int(_hz_raw) if str(_hz_raw).strip() else 12
+    except (ValueError, TypeError):
+        horizon = 12
     freq_raw = node_data.get('dataFrequency', 'M')
     freq = FREQ_MAP.get(freq_raw, freq_raw)
     backtest_enabled = node_data.get('backtestEnabled', False)
@@ -545,7 +578,11 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
     target_col = node_data.get('cfgTargetVar', '')
     time_col = node_data.get('cfgTimeCol', node_data.get('configDateColumn', ''))
     id_col = node_data.get('cfgDfu', '')
-    horizon = int(node_data.get('forecastHorizon', 12))
+    _hz_raw = node_data.get('forecastHorizon', 12)
+    try:
+        horizon = int(_hz_raw) if str(_hz_raw).strip() else 12
+    except (ValueError, TypeError):
+        horizon = 12
 
     # Frequency: normalise human-readable → AutoGluon alias
     freq_raw = node_data.get('dataFrequency', 'M')
@@ -555,9 +592,17 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
     preset_raw = node_data.get('cfgPreset', 'medium_quality')
     preset = _resolve_preset(preset_raw)
 
-    time_limit = int(node_data.get('cfgTimeLimit', 600))
+    _tl_raw = node_data.get('cfgTimeLimit', 600)
+    try:
+        time_limit = int(_tl_raw) if str(_tl_raw).strip() else 600
+    except (ValueError, TypeError):
+        time_limit = 600
     backtest_enabled = node_data.get('backtestEnabled', False)
-    n_folds = int(node_data.get('backtestFolds', 3))
+    _nf_raw = node_data.get('backtestFolds', 3)
+    try:
+        n_folds = int(_nf_raw) if str(_nf_raw).strip() else 3
+    except (ValueError, TypeError):
+        n_folds = 3
     # backtestStepSize: how many steps between validation windows (default = horizon)
     step_size_raw = node_data.get('backtestStepSize', None)
     backtest_step_size = int(step_size_raw) if step_size_raw is not None and str(step_size_raw).strip() else horizon

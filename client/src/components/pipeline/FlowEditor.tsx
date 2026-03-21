@@ -3669,9 +3669,12 @@ function FlowWithProvider() {
 
                        {/* ── Model Leaderboard (shown after execution) ── */}
                        {(() => {
-                         const lb: Array<{model_name?: string; score?: number; fit_time?: number}> = selectedNode.data.resultInfo?.leaderboard || [];
+                         // AutoGluon leaderboard columns: model, score_val, pred_time_val, fit_time_marginal, fit_order
+                         const lb: Array<{model?: string; score_val?: number; fit_time_marginal?: number}> = selectedNode.data.resultInfo?.leaderboard || [];
                          if (!lb.length) return null;
-                         const sorted = [...lb].sort((a, b) => (a.score ?? 999) - (b.score ?? 999));
+                         // AutoGluon already returns rows sorted best-first (descending score_val)
+                         // score_val is negated for error metrics (higher is better internally)
+                         const sorted = [...lb].sort((a, b) => (b.score_val ?? -Infinity) - (a.score_val ?? -Infinity));
                          return (
                            <div className="border rounded-lg overflow-hidden mt-2" data-testid="model-leaderboard">
                              <div className="bg-violet-50 px-3 py-1.5 text-[10px] font-semibold text-violet-700 uppercase tracking-wide flex items-center gap-1.5">
@@ -3680,9 +3683,14 @@ function FlowWithProvider() {
                              {sorted.slice(0, 8).map((row, i) => (
                                <div key={i} className={`flex items-center gap-2 px-3 py-1.5 text-[11px] border-t ${i === 0 ? 'bg-violet-50/60 font-semibold' : 'hover:bg-muted/30'}`}>
                                  <span className={`w-4 text-center text-[9px] font-bold ${i === 0 ? 'text-violet-600' : 'text-muted-foreground'}`}>{i + 1}</span>
-                                 <span className="flex-1 truncate font-mono">{row.model_name || 'Unknown'}</span>
-                                 <span className={`text-[10px] font-mono ${i === 0 ? 'text-violet-700' : 'text-slate-600'}`}>{typeof row.score === 'number' ? row.score.toFixed(4) : '—'}</span>
-                                 {i === 0 && <span className="text-[9px] bg-violet-200 text-violet-700 px-1 rounded">Best</span>}
+                                 <span className="flex-1 truncate font-mono text-[10px]">{row.model || 'Unknown'}</span>
+                                 <span className={`text-[10px] font-mono ${i === 0 ? 'text-violet-700' : 'text-slate-600'}`} title="AutoGluon internal CV score (higher = better)">
+                                   {typeof row.score_val === 'number' ? row.score_val.toFixed(4) : '—'}
+                                 </span>
+                                 {typeof row.fit_time_marginal === 'number' && (
+                                   <span className="text-[9px] text-muted-foreground w-10 text-right">{row.fit_time_marginal.toFixed(1)}s</span>
+                                 )}
+                                 {i === 0 && <span className="text-[9px] bg-violet-200 text-violet-700 px-1 rounded shrink-0">Best</span>}
                                </div>
                              ))}
                            </div>
