@@ -165,6 +165,9 @@ def apply_outlier_treatment_per_column(df: pd.DataFrame, outlier_configs: dict, 
                 lower = mean - threshold * std
                 upper = mean + threshold * std
             elif method == 'percentile':
+                if threshold > 1:
+                    threshold = threshold / 100.0
+                threshold = max(0.001, min(threshold, 0.499))
                 lower = col_data.quantile(threshold)
                 upper = col_data.quantile(1 - threshold)
             else:

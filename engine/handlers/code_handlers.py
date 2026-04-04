@@ -98,7 +98,7 @@ def handle_sql_transform(node_data: dict, upstream_data: list, **kwargs):
     if not upstream_data:
         raise ValueError("SQL Transform requires upstream data")
     
-    query = node_data.get('sqlQuery', '')
+    query = node_data.get('query') or node_data.get('sqlQuery', '')
     if not query.strip():
         return upstream_data[0]
     
