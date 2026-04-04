@@ -83,8 +83,12 @@ export default function ForecastResultsDashboard({ results }: Props) {
     return Object.entries(byStep).slice(0, 12).map(([lag, { actuals, forecasts }]) => {
       const avgActual = actuals.reduce((a, b) => a + b, 0) / (actuals.length || 1);
       const avgForecast = forecasts.reduce((a, b) => a + b, 0) / (forecasts.length || 1);
-      const nonZero = actuals.filter(a => a !== 0);
-      const mapeArr = nonZero.map((a, i) => Math.abs((a - forecasts[i]) / a) * 100);
+      const mapeArr: number[] = [];
+      actuals.forEach((a, i) => {
+        if (a !== 0 && typeof forecasts[i] === 'number') {
+          mapeArr.push(Math.abs((a - forecasts[i]) / a) * 100);
+        }
+      });
       const error = mapeArr.length ? mapeArr.reduce((a, b) => a + b, 0) / mapeArr.length : 0;
       return { lag: `Lag ${lag}`, actual: Math.round(avgActual), forecast: Math.round(avgForecast), error: Math.round(error * 10) / 10 };
     });
@@ -242,7 +246,7 @@ export default function ForecastResultsDashboard({ results }: Props) {
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${i === 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-100 text-slate-600'}`}>{i + 1}</div>
                         <div>
                           <p className="font-medium text-sm truncate max-w-[120px]">{m.model_name || m.model || 'Model'}</p>
-                          <p className="text-[10px] text-muted-foreground">Score: {typeof m.score === 'number' ? m.score.toFixed(3) : '—'}</p>
+                          <p className="text-[10px] text-muted-foreground">Score: {typeof (m.score_val ?? m.score) === 'number' ? (m.score_val ?? m.score).toFixed(3) : '—'}</p>
                         </div>
                       </div>
                       {i === 0 && <Badge className="text-[9px] bg-yellow-100 text-yellow-700 border-yellow-200">Best</Badge>}

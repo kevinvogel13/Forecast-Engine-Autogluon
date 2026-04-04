@@ -366,6 +366,16 @@ def _holdout_backtest(predictor, ts_input_df: pd.DataFrame, static_df,
             logger.warning("Holdout backtest: merged DataFrame is empty — timestamp/id mismatch?")
             return None, None, None, None, None
 
+        # Sort by item then time so horizon_step is computed correctly
+        sort_cols = ['_item', '_ts'] if '_item' in merged.columns else ['_ts']
+        merged = merged.sort_values(sort_cols).reset_index(drop=True)
+
+        # Compute horizon_step (1-based rank within each series)
+        if '_item' in merged.columns:
+            merged['_horizon_step'] = merged.groupby('_item').cumcount() + 1
+        else:
+            merged['_horizon_step'] = range(1, len(merged) + 1)
+
         actuals = merged[target_col].values.astype(float)
         forecasts = merged[pred_col].values.astype(float)
         non_zero = actuals != 0
@@ -377,7 +387,12 @@ def _holdout_backtest(predictor, ts_input_df: pd.DataFrame, static_df,
         # ── Build backtest rows list ─────────────────────────────────────────
         backtest_rows = []
         for _, row in merged.iterrows():
-            br = {'timestamp': str(row['_ts']), 'actual': float(row[target_col]), 'forecast': float(row[pred_col])}
+            br = {
+                'timestamp': str(row['_ts']),
+                'actual': float(row[target_col]),
+                'forecast': float(row[pred_col]),
+                'horizon_step': int(row['_horizon_step']),
+            }
             if id_col and '_item' in row:
                 br[id_col] = str(row['_item'])
             backtest_rows.append(br)

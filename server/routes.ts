@@ -311,8 +311,8 @@ export async function registerRoutes(
           records = records.filter((row: any) => {
             const cellValue = row[column];
             switch (operator) {
-              case 'eq': return String(cellValue) === String(value);
-              case 'neq': return String(cellValue) !== String(value);
+              case 'eq': { const _nc = parseFloat(cellValue), _nv = parseFloat(value); return (!isNaN(_nc) && !isNaN(_nv)) ? _nc === _nv : String(cellValue) === String(value); }
+              case 'neq': { const _nc2 = parseFloat(cellValue), _nv2 = parseFloat(value); return (!isNaN(_nc2) && !isNaN(_nv2)) ? _nc2 !== _nv2 : String(cellValue) !== String(value); }
               case 'gt': return parseFloat(cellValue) > parseFloat(value);
               case 'gte': return parseFloat(cellValue) >= parseFloat(value);
               case 'lt': return parseFloat(cellValue) < parseFloat(value);
@@ -556,10 +556,14 @@ except Exception as e:
             const cellValue = row[column];
             
             switch (operator) {
-              case 'eq':
-                return String(cellValue) === String(value);
-              case 'neq':
-                return String(cellValue) !== String(value);
+              case 'eq': {
+                const _nc = parseFloat(cellValue), _nv = parseFloat(value);
+                return (!isNaN(_nc) && !isNaN(_nv)) ? _nc === _nv : String(cellValue) === String(value);
+              }
+              case 'neq': {
+                const _nc2 = parseFloat(cellValue), _nv2 = parseFloat(value);
+                return (!isNaN(_nc2) && !isNaN(_nv2)) ? _nc2 !== _nv2 : String(cellValue) !== String(value);
+              }
               case 'gt':
                 return parseFloat(cellValue) > parseFloat(value);
               case 'gte':
@@ -663,10 +667,14 @@ except Exception as e:
             const cellValue = row[column];
             
             switch (operator) {
-              case 'eq':
-                return String(cellValue) === String(value);
-              case 'neq':
-                return String(cellValue) !== String(value);
+              case 'eq': {
+                const _nc = parseFloat(cellValue), _nv = parseFloat(value);
+                return (!isNaN(_nc) && !isNaN(_nv)) ? _nc === _nv : String(cellValue) === String(value);
+              }
+              case 'neq': {
+                const _nc2 = parseFloat(cellValue), _nv2 = parseFloat(value);
+                return (!isNaN(_nc2) && !isNaN(_nv2)) ? _nc2 !== _nv2 : String(cellValue) !== String(value);
+              }
               case 'gt':
                 return parseFloat(cellValue) > parseFloat(value);
               case 'gte':
@@ -926,10 +934,14 @@ except Exception as e:
             const cellValue = row[column];
             
             switch (operator) {
-              case 'eq':
-                return String(cellValue) === String(value);
-              case 'neq':
-                return String(cellValue) !== String(value);
+              case 'eq': {
+                const _nc = parseFloat(cellValue), _nv = parseFloat(value);
+                return (!isNaN(_nc) && !isNaN(_nv)) ? _nc === _nv : String(cellValue) === String(value);
+              }
+              case 'neq': {
+                const _nc2 = parseFloat(cellValue), _nv2 = parseFloat(value);
+                return (!isNaN(_nc2) && !isNaN(_nv2)) ? _nc2 !== _nv2 : String(cellValue) !== String(value);
+              }
               case 'gt':
                 return parseFloat(cellValue) > parseFloat(value);
               case 'gte':
@@ -1114,10 +1126,14 @@ except Exception as e:
             const cellValue = row[column];
             
             switch (operator) {
-              case 'eq':
-                return String(cellValue) === String(value);
-              case 'neq':
-                return String(cellValue) !== String(value);
+              case 'eq': {
+                const _nc = parseFloat(cellValue), _nv = parseFloat(value);
+                return (!isNaN(_nc) && !isNaN(_nv)) ? _nc === _nv : String(cellValue) === String(value);
+              }
+              case 'neq': {
+                const _nc2 = parseFloat(cellValue), _nv2 = parseFloat(value);
+                return (!isNaN(_nc2) && !isNaN(_nv2)) ? _nc2 !== _nv2 : String(cellValue) !== String(value);
+              }
               case 'gt':
                 return parseFloat(cellValue) > parseFloat(value);
               case 'gte':
