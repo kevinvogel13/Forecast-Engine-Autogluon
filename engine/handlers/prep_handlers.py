@@ -265,6 +265,12 @@ def handle_outlier_treatment(node_data: dict, upstream_data: list, **kwargs):
         lower = mean - threshold * std
         upper = mean + threshold * std
     elif method == 'percentile':
+        # Frontend placeholder shows "e.g. 95" so users enter percent values.
+        # quantile() requires values in [0, 1], so normalise if > 1.
+        # Also clamp to (0.001, 0.499) so lower < upper is guaranteed.
+        if threshold > 1:
+            threshold = threshold / 100.0
+        threshold = max(0.001, min(threshold, 0.499))
         lower = col_data.quantile(threshold)
         upper = col_data.quantile(1 - threshold)
     else:

@@ -996,7 +996,7 @@ export function SeasonalPlotChart({ data, config }: ChartProps) {
     data.rows.forEach(row => {
       const date = new Date(row[dateColumn]);
       if (isNaN(date.getTime())) return;
-      const month = date.toLocaleString('default', { month: 'short' });
+      const month = date.toLocaleString('en-US', { month: 'short' });
       const value = parseFloat(row[valueColumn]) || 0;
       if (!byMonth[month]) byMonth[month] = [];
       byMonth[month].push(value);

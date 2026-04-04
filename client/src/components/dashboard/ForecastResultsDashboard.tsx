@@ -77,8 +77,10 @@ export default function ForecastResultsDashboard({ results }: Props) {
     results.backtest.forEach((r: any) => {
       const step = r.horizon_step ?? 1;
       if (!byStep[step]) byStep[step] = { actuals: [], forecasts: [] };
-      if (typeof r.actual === 'number') byStep[step].actuals.push(r.actual);
-      if (typeof r.forecast === 'number') byStep[step].forecasts.push(r.forecast);
+      if (typeof r.actual === 'number' && typeof r.forecast === 'number') {
+        byStep[step].actuals.push(r.actual);
+        byStep[step].forecasts.push(r.forecast);
+      }
     });
     return Object.entries(byStep).slice(0, 12).map(([lag, { actuals, forecasts }]) => {
       const avgActual = actuals.reduce((a, b) => a + b, 0) / (actuals.length || 1);
