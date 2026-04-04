@@ -412,8 +412,12 @@ def run_statistical_forecast(df, node_data, fill_configs, outlier_configs):
     freq_raw = node_data.get('dataFrequency', 'M')
     freq = FREQ_MAP.get(freq_raw, freq_raw)
     backtest_enabled = node_data.get('backtestEnabled', False)
-    n_folds = int(node_data.get('backtestFolds', 3))
-    
+    _sf_nf_raw = node_data.get('backtestFolds', 3)
+    try:
+        n_folds = int(_sf_nf_raw) if str(_sf_nf_raw).strip() else 3
+    except (ValueError, TypeError):
+        n_folds = 3
+
     if not target_col or not time_col:
         raise ValueError("Target variable and timestamp column are required")
     
@@ -881,8 +885,8 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
                 logger.warning(f"Could not build known_covariates for load-mode predict: {e}")
 
         predictions = predictor.predict(ts_df, **predict_kwargs)
-        
-        return {
+
+        load_results = {
             'dataframe': df,
             'message': f'Loaded model from {load_path}',
             'info': {
@@ -890,9 +894,73 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
                 'rows': len(df),
                 'forecast_rows': len(predictions),
                 'quantiles': quantiles,
+                'horizon': horizon,
+                'freq': freq,
             },
             'forecast': json.loads(predictions.reset_index().to_json(orient='records', date_format='iso')),
         }
-    
+
+        # ── Feature importance (load mode) ───────────────────────────────────
+        load_importance = compute_feature_importance(predictor, df, target_col, time_col, id_col)
+        if load_importance:
+            load_results['feature_importance'] = load_importance
+
+        # ── Leaderboard (load mode) ───────────────────────────────────────────
+        try:
+            lb = predictor.leaderboard(ts_df)
+            lb_records = json.loads(lb.to_json(orient='records'))
+            load_results['leaderboard'] = lb_records
+            if lb_records:
+                best = lb_records[0]
+                sv = best.get('score_val')
+                if sv is not None:
+                    load_results['info']['ag_score_val'] = round(float(sv), 4)
+                    load_results['info']['ag_eval_metric'] = predictor.eval_metric
+        except Exception as e:
+            logger.warning(f"Load-mode leaderboard failed: {e}")
+
+        # ── Holdout backtest (load mode, if enabled) ──────────────────────────
+        if backtest_enabled:
+            try:
+                mape, rmse, mae, per_series, backtest_rows = _holdout_backtest(
+                    predictor=predictor,
+                    ts_input_df=ts_input_df,
+                    static_df=static_df,
+                    target_col=target_col,
+                    time_col=time_col,
+                    id_col=id_col,
+                    horizon=horizon,
+                    quantiles=quantiles,
+                    freq=freq,
+                    TimeSeriesDataFrame=TimeSeriesDataFrame,
+                    known_covariates_cols=known_covariates_cols,
+                )
+                if mape is not None:
+                    load_results['info']['mape'] = mape
+                if rmse is not None:
+                    load_results['info']['rmse'] = rmse
+                if mae is not None:
+                    load_results['info']['mae'] = mae
+                if per_series:
+                    load_results['per_series_metrics'] = per_series
+                if backtest_rows:
+                    load_results['backtest'] = backtest_rows
+            except Exception as e:
+                logger.warning(f"Load-mode holdout backtest failed: {e}", exc_info=True)
+
+        # ── AutoGluon evaluate score (load mode) ──────────────────────────────
+        try:
+            scores = predictor.evaluate(ts_df)
+            if isinstance(scores, dict):
+                for k, v in scores.items():
+                    try:
+                        load_results['info'][f'ag_{k.lower()}'] = round(float(v), 4)
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.warning(f"Load-mode predictor.evaluate failed: {e}")
+
+        return load_results
+
     else:
         raise ValueError(f"Unknown model mode: {mode}")
