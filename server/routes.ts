@@ -318,6 +318,9 @@ export async function registerRoutes(
               case 'lt': return parseFloat(cellValue) < parseFloat(value);
               case 'lte': return parseFloat(cellValue) <= parseFloat(value);
               case 'contains': return String(cellValue).toLowerCase().includes(String(value).toLowerCase());
+              case 'not_contains': return !String(cellValue).toLowerCase().includes(String(value).toLowerCase());
+              case 'starts_with': return String(cellValue).toLowerCase().startsWith(String(value).toLowerCase());
+              case 'ends_with': return String(cellValue).toLowerCase().endsWith(String(value).toLowerCase());
               case 'isin':
                 const inValues = Array.isArray(value) ? value : [value];
                 return inValues.map(String).includes(String(cellValue));
@@ -567,6 +570,12 @@ except Exception as e:
                 return parseFloat(cellValue) <= parseFloat(value);
               case 'contains':
                 return String(cellValue).toLowerCase().includes(String(value).toLowerCase());
+              case 'not_contains':
+                return !String(cellValue).toLowerCase().includes(String(value).toLowerCase());
+              case 'starts_with':
+                return String(cellValue).toLowerCase().startsWith(String(value).toLowerCase());
+              case 'ends_with':
+                return String(cellValue).toLowerCase().endsWith(String(value).toLowerCase());
               case 'isin':
                 const inValues = Array.isArray(value) ? value : [value];
                 return inValues.map(String).includes(String(cellValue));
@@ -668,6 +677,12 @@ except Exception as e:
                 return parseFloat(cellValue) <= parseFloat(value);
               case 'contains':
                 return String(cellValue).toLowerCase().includes(String(value).toLowerCase());
+              case 'not_contains':
+                return !String(cellValue).toLowerCase().includes(String(value).toLowerCase());
+              case 'starts_with':
+                return String(cellValue).toLowerCase().startsWith(String(value).toLowerCase());
+              case 'ends_with':
+                return String(cellValue).toLowerCase().endsWith(String(value).toLowerCase());
               case 'isin':
                 const inValues = Array.isArray(value) ? value : [value];
                 return inValues.map(String).includes(String(cellValue));
@@ -925,6 +940,12 @@ except Exception as e:
                 return parseFloat(cellValue) <= parseFloat(value);
               case 'contains':
                 return String(cellValue).toLowerCase().includes(String(value).toLowerCase());
+              case 'not_contains':
+                return !String(cellValue).toLowerCase().includes(String(value).toLowerCase());
+              case 'starts_with':
+                return String(cellValue).toLowerCase().startsWith(String(value).toLowerCase());
+              case 'ends_with':
+                return String(cellValue).toLowerCase().endsWith(String(value).toLowerCase());
               case 'isin':
                 const inValues = Array.isArray(value) ? value : [value];
                 return inValues.map(String).includes(String(cellValue));
@@ -1107,6 +1128,12 @@ except Exception as e:
                 return parseFloat(cellValue) <= parseFloat(value);
               case 'contains':
                 return String(cellValue).toLowerCase().includes(String(value).toLowerCase());
+              case 'not_contains':
+                return !String(cellValue).toLowerCase().includes(String(value).toLowerCase());
+              case 'starts_with':
+                return String(cellValue).toLowerCase().startsWith(String(value).toLowerCase());
+              case 'ends_with':
+                return String(cellValue).toLowerCase().endsWith(String(value).toLowerCase());
               case 'isin':
                 const inValues = Array.isArray(value) ? value : [value];
                 return inValues.map(String).includes(String(cellValue));

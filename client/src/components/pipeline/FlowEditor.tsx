@@ -1012,22 +1012,28 @@ function FlowWithProvider() {
     }
     
     // Then add this node's transform (if any)
-    if (node.data.type === 'filter' && node.data.filterColumn) {
+    if (node.data.type === 'filter') {
       const multiSelectOps = ['isin', 'notin'];
       const noValueOps = ['isnull', 'notnull'];
-      const op = node.data.filterOp || 'eq'; // Default to 'eq' if not set
-      
-      let value = node.data.filterValue;
-      if (multiSelectOps.includes(op)) {
-        value = node.data.filterValues || [];
-      } else if (noValueOps.includes(op)) {
-        value = null;
+
+      // Multi-condition filter builder (newer format)
+      const conditions: any[] = node.data.filterConditions || [];
+      if (conditions.length > 0) {
+        for (const cond of conditions) {
+          if (!cond.column) continue;
+          let value = cond.value;
+          if (multiSelectOps.includes(cond.op)) value = cond.values || [];
+          else if (noValueOps.includes(cond.op)) value = null;
+          transforms.push({ type: 'filter', data: { column: cond.column, operator: cond.op, value } });
+        }
+      } else if (node.data.filterColumn) {
+        // Legacy single-condition format
+        const op = node.data.filterOp || 'eq';
+        let value = node.data.filterValue;
+        if (multiSelectOps.includes(op)) value = node.data.filterValues || [];
+        else if (noValueOps.includes(op)) value = null;
+        transforms.push({ type: 'filter', data: { column: node.data.filterColumn, operator: op, value } });
       }
-      
-      transforms.push({
-        type: 'filter',
-        data: { column: node.data.filterColumn, operator: op, value }
-      });
     } else if (node.data.type === 'python' && node.data.code) {
       transforms.push({ type: 'python', data: node.data.code });
     } else if (node.data.type === 'sql' && node.data.query) {
