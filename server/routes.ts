@@ -1335,12 +1335,19 @@ except Exception as e:
 
       let stdout = '';
       let stderr = '';
+      // Line buffer: accumulates partial lines across stdout chunks so that
+      // large JSON objects (e.g. model forecast payloads) spanning multiple
+      // data events are never split and silently dropped.
+      let lineBuffer = '';
 
       python.stdout.on('data', (data) => {
         const text = data.toString();
         stdout += text;
-        const lines = text.split('\n').filter((l: string) => l.trim());
+        lineBuffer += text;
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop() ?? ''; // keep the last (possibly incomplete) fragment
         for (const line of lines) {
+          if (!line.trim()) continue;
           try {
             const parsed = JSON.parse(line);
             if (parsed.type === 'progress') sendEvent(parsed);

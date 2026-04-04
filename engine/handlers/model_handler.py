@@ -105,7 +105,7 @@ def apply_fill_missing_per_column(df: pd.DataFrame, fill_configs: dict, fit_stat
         if col not in df.columns:
             continue
         strategy = cfg.get('strategy', 'ffill')
-        constant = cfg.get('constant', '')
+        constant = cfg.get('constant') or ''
         
         if strategy == 'ffill':
             df[col] = df[col].ffill()
@@ -147,7 +147,7 @@ def apply_outlier_treatment_per_column(df: pd.DataFrame, outlier_configs: dict, 
             continue
         
         method = cfg.get('method', 'iqr')
-        threshold = float(cfg.get('threshold', 1.5))
+        threshold = float(cfg.get('threshold') or 1.5)
         action = cfg.get('action', 'cap')
         
         col_key = f'outlier_{col}'
@@ -204,11 +204,15 @@ def preprocess_fold(df: pd.DataFrame, fill_configs: dict, outlier_configs: dict,
     return df, combined_stats
 
 
-def compute_feature_importance(model, train_df: pd.DataFrame, target_col: str, 
-                                time_col: str, id_col: str, n_iterations: int = 5):
+def compute_feature_importance(model, train_df: pd.DataFrame, target_col: str,
+                                time_col: str, id_col: str, n_iterations: int = 5,
+                                ts_data=None):
+    """Compute feature importance.  Prefer AutoGluon's native method when a
+    TimeSeriesDataFrame (ts_data) is supplied; fall back to a sklearn surrogate
+    permutation-importance otherwise."""
     try:
-        if hasattr(model, 'feature_importance'):
-            importance = model.feature_importance()
+        if model is not None and hasattr(model, 'feature_importance') and ts_data is not None:
+            importance = model.feature_importance(ts_data)
             if importance is not None and len(importance) > 0:
                 if isinstance(importance, pd.DataFrame):
                     records = []
@@ -558,8 +562,8 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
     df = upstream_data[0].copy()
     mode = node_data.get('modelMode', 'train')
     
-    fill_configs = node_data.get('cfgFillConfigs', {})
-    outlier_configs = node_data.get('cfgOutlierConfigs', {})
+    fill_configs = node_data.get('cfgFillConfigs') or {}
+    outlier_configs = node_data.get('cfgOutlierConfigs') or {}
     fill_enabled = node_data.get('cfgFillMissing', False)
     outlier_enabled = node_data.get('cfgOutlierTreatment', False)
     
@@ -609,7 +613,10 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
         n_folds = 3
     # backtestStepSize: how many steps between validation windows (default = horizon)
     step_size_raw = node_data.get('backtestStepSize', None)
-    backtest_step_size = int(step_size_raw) if step_size_raw is not None and str(step_size_raw).strip() else horizon
+    try:
+        backtest_step_size = int(float(step_size_raw)) if step_size_raw is not None and str(step_size_raw).strip() else horizon
+    except (ValueError, TypeError):
+        backtest_step_size = horizon
     refit_full = bool(node_data.get('cfgRefitFull', False))
 
     # Quantiles for confidence intervals
@@ -748,7 +755,7 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
 
         predictions = predictor.predict(ts_df, **predict_kwargs)
         
-        importance = compute_feature_importance(predictor, df, target_col, time_col, id_col)
+        importance = compute_feature_importance(predictor, df, target_col, time_col, id_col, ts_data=ts_df)
         
         results = {
             'dataframe': df,
@@ -901,7 +908,7 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
         }
 
         # ── Feature importance (load mode) ───────────────────────────────────
-        load_importance = compute_feature_importance(predictor, df, target_col, time_col, id_col)
+        load_importance = compute_feature_importance(predictor, df, target_col, time_col, id_col, ts_data=ts_df)
         if load_importance:
             load_results['feature_importance'] = load_importance
 
