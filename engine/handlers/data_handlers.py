@@ -60,10 +60,26 @@ def handle_data_source(node_data: dict, upstream_data: list, storage, config: di
 def handle_data_preview(node_data: dict, upstream_data: list, **kwargs):
     if not upstream_data:
         raise ValueError("Data Preview requires an upstream data source")
-    
-    df = upstream_data[0]
-    n_rows = min(int(node_data.get('previewRows', 100)), len(df))
-    return df.head(n_rows)
+    # Pass the full dataframe through — truncation for display is handled
+    # automatically by pipeline.py's SSE emit (preview_rows = head 5).
+    # Returning head(N) here would silently starve all downstream nodes of data.
+    return upstream_data[0]
+
+
+# ── Pass-through handlers for display/analysis terminal nodes ────────────────
+# These nodes have no backend transform logic: their UI panels render
+# client-side from the SSE resultInfo. Without a registered handler,
+# pipeline.py skips them and leaves their node_id out of `results`, which
+# breaks any node downstream of them (it would receive empty upstream_data).
+@register('validation')
+@register('exploration')
+@register('report')
+@register('output')
+@register('comment')
+def handle_passthrough(node_data: dict, upstream_data: list, **kwargs):
+    if upstream_data:
+        return upstream_data[0]
+    return pd.DataFrame()
 
 
 OP_ALIASES = {

@@ -140,6 +140,10 @@ def handle_merge(node_data: dict, upstream_data: list, **kwargs):
         else:
             raise ValueError("No common columns found for merge. Specify join columns.")
     else:
+        if left_col not in left.columns:
+            raise ValueError(f"Left join column '{left_col}' not found. Available: {list(left.columns)}")
+        if right_col not in right.columns:
+            raise ValueError(f"Right join column '{right_col}' not found. Available: {list(right.columns)}")
         df = left.merge(right, left_on=left_col, right_on=right_col, how=join_type)
     
     logger.info(f"Merge: {len(left)} + {len(right)} → {len(df)} rows ({join_type})")
@@ -153,8 +157,10 @@ def handle_sampling(node_data: dict, upstream_data: list, **kwargs):
     
     df = upstream_data[0].copy()
     sampling_col = node_data.get('samplingColumn', '')
-    sample_pct = float(node_data.get('samplePercent', 100)) / 100.0
-    seed = int(node_data.get('samplingSeed', 42))
+    _pct_raw = node_data.get('samplePercent', 100)
+    sample_pct = float(_pct_raw if _pct_raw is not None else 100) / 100.0
+    _seed_raw = node_data.get('samplingSeed', 42)
+    seed = int(_seed_raw if _seed_raw is not None else 42)
     
     if not sampling_col or sampling_col not in df.columns:
         n = max(1, int(len(df) * sample_pct))
@@ -234,7 +240,8 @@ def handle_outlier_treatment(node_data: dict, upstream_data: list, **kwargs):
     df = upstream_data[0].copy()
     column = node_data.get('outlierColumn', '')
     method = node_data.get('outlierMethod', 'iqr')
-    threshold = float(node_data.get('outlierThreshold', 1.5))
+    _thr_raw = node_data.get('outlierThreshold', 1.5)
+    threshold = float(_thr_raw if _thr_raw is not None else 1.5)
     action = node_data.get('outlierAction', 'cap')
     
     if not column or column not in df.columns:
