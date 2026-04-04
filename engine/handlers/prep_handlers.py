@@ -130,21 +130,38 @@ def handle_merge(node_data: dict, upstream_data: list, **kwargs):
     right = upstream_data[1]
     
     join_type = node_data.get('joinType', 'inner')
-    left_col = node_data.get('leftColumn', '')
-    right_col = node_data.get('rightColumn', '')
-    
-    if not left_col or not right_col:
+
+    # Support both multi-key format (leftKeys/rightKeys arrays, from UI)
+    # and legacy single-key format (leftColumn/rightColumn strings)
+    left_keys = node_data.get('leftKeys') or []
+    right_keys = node_data.get('rightKeys') or []
+    if not left_keys:
+        leg = node_data.get('leftColumn', '')
+        if leg:
+            left_keys = [leg]
+    if not right_keys:
+        leg = node_data.get('rightColumn', '')
+        if leg:
+            right_keys = [leg]
+
+    if not left_keys or not right_keys:
         common = list(set(left.columns) & set(right.columns))
         if common:
             df = left.merge(right, on=common, how=join_type)
         else:
-            raise ValueError("No common columns found for merge. Specify join columns.")
+            raise ValueError("No common columns found for merge. Specify join keys.")
     else:
-        if left_col not in left.columns:
-            raise ValueError(f"Left join column '{left_col}' not found. Available: {list(left.columns)}")
-        if right_col not in right.columns:
-            raise ValueError(f"Right join column '{right_col}' not found. Available: {list(right.columns)}")
-        df = left.merge(right, left_on=left_col, right_on=right_col, how=join_type)
+        missing_left = [c for c in left_keys if c not in left.columns]
+        missing_right = [c for c in right_keys if c not in right.columns]
+        if missing_left:
+            raise ValueError(f"Left join columns {missing_left} not found. Available: {list(left.columns)}")
+        if missing_right:
+            raise ValueError(f"Right join columns {missing_right} not found. Available: {list(right.columns)}")
+        # Single-key optimisation: use `on=` when keys share the same name
+        if left_keys == right_keys:
+            df = left.merge(right, on=left_keys, how=join_type)
+        else:
+            df = left.merge(right, left_on=left_keys, right_on=right_keys, how=join_type)
     
     logger.info(f"Merge: {len(left)} + {len(right)} → {len(df)} rows ({join_type})")
     return df
@@ -303,7 +320,8 @@ def handle_pivot(node_data: dict, upstream_data: list, **kwargs):
         raise ValueError("Pivot requires upstream data")
     
     df = upstream_data[0].copy()
-    pivot_type = node_data.get('pivotType', 'pivot')
+    # Frontend saves 'pivotMode'; legacy saved 'pivotType'
+    pivot_type = node_data.get('pivotMode') or node_data.get('pivotType', 'pivot')
     
     if pivot_type == 'pivot':
         index_col = node_data.get('pivotIndex', '')
@@ -312,7 +330,7 @@ def handle_pivot(node_data: dict, upstream_data: list, **kwargs):
         agg_func = node_data.get('pivotAggFunc', 'sum')
         
         if not all([index_col, columns_col, values_col]):
-            raise ValueError("Pivot requires index, columns, and values")
+            raise ValueError("Pivot requires index, columns, and values fields")
         
         df = df.pivot_table(
             index=index_col,
@@ -323,18 +341,20 @@ def handle_pivot(node_data: dict, upstream_data: list, **kwargs):
         df.columns = [str(c) if not isinstance(c, tuple) else '_'.join(str(x) for x in c) for c in df.columns]
     
     elif pivot_type == 'unpivot':
-        id_cols = node_data.get('unpivotIdCols', [])
-        value_cols = node_data.get('unpivotValueCols', [])
+        # Frontend saves 'unpivotIdColumns' / 'unpivotValueColumns'
+        id_cols = node_data.get('unpivotIdColumns') or node_data.get('unpivotIdCols', [])
+        value_cols = node_data.get('unpivotValueColumns') or node_data.get('unpivotValueCols', [])
         var_name = node_data.get('unpivotVarName', 'variable')
         val_name = node_data.get('unpivotValName', 'value')
         
-        if id_cols:
-            df = df.melt(
-                id_vars=[c for c in id_cols if c in df.columns],
-                value_vars=[c for c in value_cols if c in df.columns] if value_cols else None,
-                var_name=var_name,
-                value_name=val_name,
-            )
+        id_vars = [c for c in id_cols if c in df.columns]
+        value_vars = [c for c in value_cols if c in df.columns] if value_cols else None
+        df = df.melt(
+            id_vars=id_vars,
+            value_vars=value_vars,
+            var_name=var_name,
+            value_name=val_name,
+        )
     
     logger.info(f"Pivot ({pivot_type}): {len(df)} rows")
     return df

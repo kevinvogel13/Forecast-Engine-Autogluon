@@ -51,16 +51,25 @@ export default function ForecastResultsDashboard({ results }: Props) {
     if (!hasRealData) return MOCK_FORECAST;
     const rows = results?.backtest || [];
     const fRows = (results?.forecast || []).slice(0, 24);
-    const timeKeys = Object.keys(rows[0] || {}).filter(k => !['actual','forecast','fold','horizon_step'].includes(k));
-    const timeKey = timeKeys[0] || 'date';
+    const BT_NON_TIME = new Set(['actual','forecast','fold','horizon_step']);
+    const rawTimeKeys = Object.keys(rows[0] || {}).filter(k => !BT_NON_TIME.has(k));
+    // Prefer 'timestamp' (AutoGluon holdout) then the first non-id numeric-looking key, fallback to first
+    const timeKey = rawTimeKeys.includes('timestamp')
+      ? 'timestamp'
+      : (rawTimeKeys.find(k => !k.match(/^[A-Z]/) && !k.includes('_id')) || rawTimeKeys[0] || 'date');
     const combined: any[] = rows.map((r: any) => ({
       date: typeof r[timeKey] === 'string' ? r[timeKey].slice(0, 10) : String(r[timeKey] ?? ''),
       actual: typeof r.actual === 'number' ? r.actual : undefined,
       forecast: typeof r.forecast === 'number' ? r.forecast : undefined,
     }));
     fRows.forEach((r: any) => {
-      const fTimeKeys = Object.keys(r).filter(k => !['forecast','forecast_lower','forecast_upper','horizon_step'].includes(k) && !k.match(/^[A-Z]/));
-      const ftKey = fTimeKeys[0] || 'date';
+      // AutoGluon rows: item_id, timestamp, mean/quantile cols. Statistical rows: time_col, forecast, ...
+      // Prefer 'timestamp' explicitly, then fall back to the first non-id, non-forecast, non-numeric key.
+      const NON_TIME = new Set(['forecast','forecast_lower','forecast_upper','horizon_step','item_id','mean']);
+      const fTimeKeys = Object.keys(r).filter(k =>
+        !NON_TIME.has(k) && !k.match(/^[A-Z]/) && !k.match(/^\d/)
+      );
+      const ftKey = ('timestamp' in r) ? 'timestamp' : (fTimeKeys[0] || 'date');
       combined.push({
         date: typeof r[ftKey] === 'string' ? r[ftKey].slice(0, 10) : String(r[ftKey] ?? ''),
         forecast: r.forecast ?? r['mean'] ?? undefined,
@@ -107,7 +116,7 @@ export default function ForecastResultsDashboard({ results }: Props) {
 
   const totalForecast = useMemo(() => {
     if (!results?.forecast?.length) return null;
-    const vals = results.forecast.map((r: any) => r.forecast ?? r['mean'] ?? 0).filter((v: any) => typeof v === 'number');
+    const vals = results.forecast.map((r: any) => r.forecast ?? r['mean'] ?? r['0.5'] ?? 0).filter((v: any) => typeof v === 'number');
     return vals.reduce((a: number, b: number) => a + b, 0);
   }, [results]);
 
