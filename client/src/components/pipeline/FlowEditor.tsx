@@ -1281,7 +1281,7 @@ function FlowWithProvider() {
   }, [selectedNode?.id]);
 
   const generateReportHTML = useCallback((title: string, sections: typeof reportPreviewData) => {
-    const rechartsTypes = ['timeseries', 'histogram', 'boxplot', 'bar', 'scatter', 'pareto', 'seasonal', 'outliers', 'adicv'];
+    const rechartsTypes = ['timeseries', 'histogram', 'boxplot', 'bar', 'scatter', 'pareto', 'seasonal', 'outliers', 'adicv', 'forecast_actual', 'backtest_metrics', 'feature_importance'];
     const chartTypeLabels: Record<string, string> = {};
     CHART_TYPES.forEach(ct => { chartTypeLabels[ct.value] = ct.label; });
 
@@ -5108,6 +5108,21 @@ function FlowWithProvider() {
                               <SelectItem value="__none__" className="font-mono text-xs text-muted-foreground">None</SelectItem>
                               {getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}
                             </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {selectedNode.data.chartType === 'feature_importance' && (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-emerald-700">Feature Name Column</Label>
+                          <Select value={selectedNode.data.chartConfig?.groupColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, groupColumn: val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-fi-feature-col"><SelectValue placeholder="Select column..." /></SelectTrigger>
+                            <SelectContent>{getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}</SelectContent>
+                          </Select>
+                          <Label className="text-xs text-emerald-700">Importance Value Column</Label>
+                          <Select value={selectedNode.data.chartConfig?.valueColumn || ''} onValueChange={(val) => updateNodeData('chartConfig', { ...selectedNode.data.chartConfig, valueColumn: val })}>
+                            <SelectTrigger className="h-8 font-mono text-xs" data-testid="select-fi-value-col"><SelectValue placeholder="Select column..." /></SelectTrigger>
+                            <SelectContent>{getSourceColumns(selectedNode.id).map(col => (<SelectItem key={col} value={col} className="font-mono text-xs">{col}</SelectItem>))}</SelectContent>
                           </Select>
                         </div>
                       )}
