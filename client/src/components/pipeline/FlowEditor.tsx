@@ -79,7 +79,7 @@ const PIPELINE_TEMPLATES = [
     nodes: [
       { id: 'tpl_1', type: 'custom', position: { x: 80, y: 200 }, data: { label: 'Data Source', type: 'input', status: 'pending', stats: { rows: 0, cols: 0 } } },
       { id: 'tpl_2', type: 'custom', position: { x: 320, y: 200 }, data: { label: 'Preview', type: 'preview', status: 'pending', stats: { rows: 0, cols: 0 } } },
-      { id: 'tpl_3', type: 'custom', position: { x: 560, y: 200 }, data: { label: 'Model Config', type: 'model_config', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_3', type: 'custom', position: { x: 560, y: 200 }, data: { label: 'Model Config', type: 'config', status: 'pending', stats: { rows: 0, cols: 0 } } },
       { id: 'tpl_4', type: 'custom', position: { x: 800, y: 200 }, data: { label: 'Output', type: 'output', status: 'pending', stats: { rows: 0, cols: 0 } } },
     ],
     edges: [
@@ -117,7 +117,7 @@ const PIPELINE_TEMPLATES = [
       { id: 'tpl_1', type: 'custom', position: { x: 60, y: 200 }, data: { label: 'Data Source', type: 'input', status: 'pending', stats: { rows: 0, cols: 0 } } },
       { id: 'tpl_2', type: 'custom', position: { x: 280, y: 120 }, data: { label: 'Fill Missing', type: 'fillMissing', status: 'pending', stats: { rows: 0, cols: 0 } } },
       { id: 'tpl_3', type: 'custom', position: { x: 280, y: 280 }, data: { label: 'Date Gap Fill', type: 'dateGapFill', status: 'pending', stats: { rows: 0, cols: 0 } } },
-      { id: 'tpl_4', type: 'custom', position: { x: 500, y: 200 }, data: { label: 'Model Config', type: 'model_config', status: 'pending', stats: { rows: 0, cols: 0 } } },
+      { id: 'tpl_4', type: 'custom', position: { x: 500, y: 200 }, data: { label: 'Model Config', type: 'config', status: 'pending', stats: { rows: 0, cols: 0 } } },
       { id: 'tpl_5', type: 'custom', position: { x: 720, y: 120 }, data: { label: 'Output', type: 'output', status: 'pending', stats: { rows: 0, cols: 0 } } },
       { id: 'tpl_6', type: 'custom', position: { x: 720, y: 280 }, data: { label: 'Backtest Results', type: 'exploration', status: 'pending', stats: { rows: 0, cols: 0 } } },
     ],
@@ -297,7 +297,7 @@ function FlowWithProvider() {
   const isRestoringRef = useRef(false);
 
   useEffect(() => {
-    if (selectedNode?.data?.type === 'model_config') {
+    if (selectedNode?.data?.type === 'config') {
       isRestoringRef.current = true;
       setCfgTargetVar(selectedNode.data.cfgTargetVar || '');
       setCfgTimeCol(selectedNode.data.cfgTimeCol || '');
@@ -325,7 +325,7 @@ function FlowWithProvider() {
   }, [selectedNode?.id]);
 
   useEffect(() => {
-    if (!selectedNode || selectedNode.data?.type !== 'model_config' || isRestoringRef.current) return;
+    if (!selectedNode || selectedNode.data?.type !== 'config' || isRestoringRef.current) return;
     updateNodeData('cfgTargetVar', cfgTargetVar);
     updateNodeData('cfgTimeCol', cfgTimeCol);
     updateNodeData('cfgDfu', cfgDfu);
@@ -1525,31 +1525,11 @@ function FlowWithProvider() {
   const getPreviewKey = useCallback(() => {
     const previewNodeTypes = ['preview', 'python', 'sql'];
     if (!selectedNode || !previewNodeTypes.includes(selectedNode.data.type)) return '';
-    
-    // Find incoming edges to this node
-    const incomingEdges = edges.filter(e => e.target === selectedNode.id);
-    const upstreamNodeIds = incomingEdges.map(e => e.source).sort().join(',');
-    
-    // Get filter states from upstream nodes (handles both multi-condition and legacy formats)
-    const filterStates = incomingEdges.map(e => {
-      const sourceNode = nodes.find(n => n.id === e.source);
-      if (sourceNode?.data.type === 'filter') {
-        const conditions: any[] = sourceNode.data.filterConditions || [];
-        if (conditions.length > 0) {
-          return JSON.stringify(conditions);
-        }
-        const op = sourceNode.data.filterOp || 'eq';
-        const col = sourceNode.data.filterColumn || '';
-        const val = ['isin', 'notin'].includes(op)
-          ? (sourceNode.data.filterValues || []).join('|')
-          : (sourceNode.data.filterValue || '');
-        return `${col}:${op}:${val}`;
-      }
-      return '';
-    }).join(';');
-    
-    return `${upstreamNodeIds}|${filterStates}`;
-  }, [selectedNode, nodes, edges]);
+    // Walk the full upstream graph (all hops) and serialise transforms so that
+    // any change — whether 1 or N hops away — invalidates the preview cache.
+    const allTransforms = getUpstreamTransforms(selectedNode.id);
+    return `${selectedNode.id}|${JSON.stringify(allTransforms)}`;
+  }, [selectedNode, nodes, edges, getUpstreamTransforms]);
 
   const previewKey = getPreviewKey();
 
@@ -2104,10 +2084,10 @@ function FlowWithProvider() {
       issues.push({ level: 'error', message: `${sourcesWithoutDataset.length} Data Source node(s) have no dataset selected.` });
     }
 
-    const configNodes = ns.filter(n => n.data.type === 'config');
+    const configNodes = ns.filter(n => n.data.type === 'config' || n.data.type === 'model_config');
     configNodes.forEach(n => {
-      if (!n.data.targetVar) issues.push({ level: 'warning', message: `Model Config "${n.data.label}": Target variable not set.` });
-      if (!n.data.timeCol) issues.push({ level: 'warning', message: `Model Config "${n.data.label}": Time column not set.` });
+      if (!n.data.cfgTargetVar) issues.push({ level: 'warning', message: `Model Config "${n.data.label}": Target variable not set.` });
+      if (!n.data.cfgTimeCol) issues.push({ level: 'warning', message: `Model Config "${n.data.label}": Time column not set.` });
     });
 
     return issues;
@@ -2936,9 +2916,7 @@ function FlowWithProvider() {
                               onClick={async () => {
                                 const timeCol = selectedNode.data.cfgTimeCol || selectedNode.data.configDateColumn;
                                 if (!timeCol) { toast.error('Set the timestamp column first'); return; }
-                                const upstreamEdge = edgesRef.current.find(e => e.target === selectedNode.id);
-                                const upstreamNode = upstreamEdge ? nodesRef.current.find(n => n.id === upstreamEdge.source) : null;
-                                const datasetId = upstreamNode?.data?.datasetId;
+                                const datasetId = getSourceDatasetId(selectedNode.id);
                                 if (!datasetId) { toast.error('Connect a data source upstream first'); return; }
                                 try {
                                   const res = await fetch(`/api/datasets/${datasetId}/preview?rows=200`);
@@ -3727,7 +3705,7 @@ function FlowWithProvider() {
                   {selectedNode.data.type === 'output' && (() => {
                     // Find upstream model_config node for its resultInfo
                     const upEdge = edgesRef.current.find(e => e.target === selectedNode.id);
-                    const modelNode = upEdge ? nodesRef.current.find(n => n.id === upEdge.source && n.data.type === 'model_config') : null;
+                    const modelNode = upEdge ? nodesRef.current.find(n => n.id === upEdge.source && (n.data.type === 'config' || n.data.type === 'model_config')) : null;
                     const ri = modelNode?.data?.resultInfo || selectedNode.data.resultInfo;
                     const hasMape = typeof ri?.mape === 'number';
                     const hasRmse = typeof ri?.rmse === 'number';
