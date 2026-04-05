@@ -72,7 +72,7 @@ export default function ForecastResultsDashboard({ results }: Props) {
       const ftKey = ('timestamp' in r) ? 'timestamp' : (fTimeKeys[0] || 'date');
       combined.push({
         date: typeof r[ftKey] === 'string' ? r[ftKey].slice(0, 10) : String(r[ftKey] ?? ''),
-        forecast: r.forecast ?? r['mean'] ?? undefined,
+        forecast: r.forecast ?? r['mean'] ?? r['0.5'] ?? undefined,
         lower: r.forecast_lower ?? r['0.1'] ?? undefined,
         upper: r.forecast_upper ?? r['0.9'] ?? undefined,
       });

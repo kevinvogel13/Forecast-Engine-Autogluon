@@ -57,3 +57,10 @@ Key Python dependencies include `pandas`, `numpy`, `scikit-learn`, `scipy`, and 
 -   **Frontend:** `@xyflow/react`, `@monaco-editor/react`, `@tanstack/react-query`, `recharts`, `react-dropzone`, `framer-motion`, `sonner`.
 -   **Backend/ORM:** `drizzle-orm`, `drizzle-kit`, `multer`, `csv-parse`.
 -   **Replit-Specific:** `@replit/vite-plugin-runtime-error-modal`, `@replit/vite-plugin-cartographer`, `@replit/vite-plugin-dev-banner`.
+
+## Recent Changes
+
+- 2026-04-05: Thirteenth audit pass — fixed 3 bugs: (1) `PRESET_MODELS` keys were `medium`/`high`/`best` but `PRESET_CARDS` emits `medium_quality`/`high_quality`/`best_quality` — `getModelsForPreset()` always fell back to the `fast` list so all non-fast presets showed wrong model checkboxes; (2) `sourceType='file'`/`'existing'` crashed Python data-source handler with "Unknown source type" — only `'upload'` was handled; fixed by normalising aliases before dispatch; (3) Forecast chart line was blank for AutoGluon quantile-only output — `r['0.5']` fallback existed in `totalForecast` but not `forecastChartData`; fixed. Running total: 48 bugs fixed across 13 passes.
+- 2026-04-05: Twelfth audit pass — fixed 4 bugs: (1) Output panel upstream lookup only matched `'model_config'` — after template fix nodes use `'config'`; (2) Auto-detect frequency did one-hop lookup — now uses full-graph `getSourceDatasetId()`; (3) `getPreviewKey` only hashed direct-parent filters — now serialises full upstream transform chain; (4) `validatePipeline` checked wrong field names (`targetVar`/`timeCol` instead of `cfgTargetVar`/`cfgTimeCol`). Running total: 45 bugs fixed.
+- 2026-04-04: Eleventh audit pass — fixed 3 bugs: model config node type mismatch in template, sync effects now check `'config'`, output panel lookup updated.
+- 2026-04-04: Multiple earlier audit passes (1–10) — fixed 42 additional bugs covering SSE buffering, filter logic, handler type aliases, leaderboard fields, backtest metrics, forecast key detection, merge/pivot field names, null config crashes, and more.

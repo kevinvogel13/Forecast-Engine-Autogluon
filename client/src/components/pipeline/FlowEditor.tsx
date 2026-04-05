@@ -267,9 +267,9 @@ function FlowWithProvider() {
   // Preset-to-models mapping
   const PRESET_MODELS: Record<string, string[]> = {
     fast: ["naive", "seasonal_naive", "ets", "arima", "auto_arima", "theta", "croston"],
-    medium: ["naive", "seasonal_naive", "ets", "arima", "auto_arima", "theta", "croston", "recursive_tabular", "direct_tabular", "simple_feed_forward", "weighted_ensemble"],
-    high: ["naive", "seasonal_naive", "ets", "arima", "auto_arima", "theta", "croston", "recursive_tabular", "direct_tabular", "simple_feed_forward", "weighted_ensemble", "deepar", "tft"],
-    best: Object.keys(ALL_MODELS),
+    medium_quality: ["naive", "seasonal_naive", "ets", "arima", "auto_arima", "theta", "croston", "recursive_tabular", "direct_tabular", "simple_feed_forward", "weighted_ensemble"],
+    high_quality: ["naive", "seasonal_naive", "ets", "arima", "auto_arima", "theta", "croston", "recursive_tabular", "direct_tabular", "simple_feed_forward", "weighted_ensemble", "deepar", "tft"],
+    best_quality: Object.keys(ALL_MODELS),
   };
 
   const getModelsForPreset = (preset: string) => {

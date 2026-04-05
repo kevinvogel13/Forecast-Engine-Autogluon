@@ -9,6 +9,9 @@ logger = logging.getLogger('engine')
 @register('data_source')
 def handle_data_source(node_data: dict, upstream_data: list, storage, config: dict, **kwargs):
     source_type = node_data.get('sourceType', 'upload')
+    # 'file' and 'existing' are UI-only aliases for the same local-CSV path
+    if source_type in ('file', 'existing'):
+        source_type = 'upload'
     
     if source_type == 'upload':
         dataset_id = node_data.get('datasetId')
