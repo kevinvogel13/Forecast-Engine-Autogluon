@@ -88,7 +88,7 @@ def handle_column_transform(node_data: dict, upstream_data: list, **kwargs):
                 df[cast_col] = df[cast_col].astype(bool)
             logger.info(f"Cast {cast_col} to {cast_type}")
     
-    elif operation == 'calculated':
+    elif operation == 'calculate':
         calc_name = node_data.get('calcColumnName', '')
         calc_expr = node_data.get('calcExpression', '')
         if calc_name and calc_expr:
