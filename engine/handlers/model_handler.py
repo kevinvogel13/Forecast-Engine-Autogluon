@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import json
 import os
+import shutil
+import tempfile
 import time
 import logging
 from engine.handlers.registry import register
@@ -526,14 +528,30 @@ def _rolling_splits(raw_df, id_col, time_col, horizon, n_windows, step_size):
     return windows
 
 
+def _interval_metrics_from_df(df):
+    """Compute pinball loss + interval coverage from pooled backtest rows that
+    carry q_<level> quantile columns."""
+    q_cols = [c for c in df.columns if c.startswith('q_')]
+    if not q_cols:
+        return {}
+    quantile_forecasts = {}
+    for c in q_cols:
+        try:
+            quantile_forecasts[float(c[2:])] = df[c].values.astype(float)
+        except (TypeError, ValueError):
+            continue
+    return metrics.compute_interval_metrics(df['actual'].values.astype(float), quantile_forecasts)
+
+
 def _aggregate_backtest_rows(rows, id_col, seasonal_period):
     """Pool actual/forecast pairs from all rolling windows into overall and
-    per-series metrics."""
+    per-series metrics (including probabilistic calibration metrics)."""
     if not rows:
         return None, None
     df = pd.DataFrame(rows)
     agg = metrics.compute_all(df['actual'].values, df['forecast'].values,
                               seasonal_period=seasonal_period)
+    agg.update(_interval_metrics_from_df(df))
     per_series = None
     if id_col and id_col in df.columns:
         per_series = []
@@ -541,6 +559,7 @@ def _aggregate_backtest_rows(rows, id_col, seasonal_period):
             sr = {id_col: str(name), 'n': len(g)}
             sr.update(metrics.compute_all(g['actual'].values, g['forecast'].values,
                                           seasonal_period=seasonal_period))
+            sr.update(_interval_metrics_from_df(g))
             per_series.append(sr)
         per_series.sort(key=lambda x: x.get('wape', x.get('mape', x.get('rmse', 0))), reverse=True)
     return agg, per_series
@@ -552,6 +571,14 @@ def _score_holdout(pred_reset, actual_df, target_col, time_col, id_col, freq):
     logic — unit-tested with a synthetic prediction frame (no AutoGluon)."""
     pred_reset = pred_reset.copy()
     non_key_cols = [c for c in pred_reset.columns if c not in ('item_id', 'timestamp')]
+    # Quantile columns look like '0.1', '0.5', '0.9'; keep them for calibration.
+    quantile_cols = []
+    for c in non_key_cols:
+        try:
+            float(c)
+            quantile_cols.append(c)
+        except (TypeError, ValueError):
+            pass
     if '0.5' in pred_reset.columns:
         pred_col = '0.5'
     elif 'mean' in pred_reset.columns:
@@ -561,18 +588,19 @@ def _score_holdout(pred_reset, actual_df, target_col, time_col, id_col, freq):
     else:
         return None, None, None
 
+    carry_cols = list(dict.fromkeys([pred_col] + quantile_cols))
     if id_col and id_col in actual_df.columns:
         a = actual_df[[id_col, time_col, target_col]].copy()
         a['_item'] = a[id_col].astype(str)
         a['_ts'] = pd.to_datetime(a[time_col])
         pred_reset['_item'] = pred_reset['item_id'].astype(str)
         pred_reset['_ts'] = pd.to_datetime(pred_reset['timestamp'])
-        merged = pd.merge(a, pred_reset[['_item', '_ts', pred_col]], on=['_item', '_ts'], how='inner')
+        merged = pd.merge(a, pred_reset[['_item', '_ts'] + carry_cols], on=['_item', '_ts'], how='inner')
     else:
         a = actual_df[[time_col, target_col]].copy()
         a['_ts'] = pd.to_datetime(a[time_col])
         pred_reset['_ts'] = pd.to_datetime(pred_reset['timestamp'])
-        merged = pd.merge(a, pred_reset[['_ts', pred_col]], on=['_ts'], how='inner')
+        merged = pd.merge(a, pred_reset[['_ts'] + carry_cols], on=['_ts'], how='inner')
 
     if merged.empty:
         logger.warning("Holdout backtest: merged DataFrame is empty — timestamp/id mismatch?")
@@ -598,6 +626,9 @@ def _score_holdout(pred_reset, actual_df, target_col, time_col, id_col, freq):
             'forecast': float(row[pred_col]),
             'horizon_step': int(row['_horizon_step']),
         }
+        # Carry quantile predictions so calibration can be computed after pooling.
+        for qc in quantile_cols:
+            br[f'q_{qc}'] = float(row[qc])
         if id_col and '_item' in row:
             br[id_col] = str(row['_item'])
         backtest_rows.append(br)
@@ -645,7 +676,7 @@ def _backtest_one_window(train_raw, actual_raw, cfg, TimeSeriesPredictor,
 
 
 def _holdout_backtest(raw_df, cfg, TimeSeriesPredictor, TimeSeriesDataFrame,
-                      save_path, predictor=None):
+                      predictor=None):
     """Leakage-free rolling-origin out-of-sample backtest.
 
     Driven by the user's `backtestFolds` setting (``cfg['backtest_windows']``):
@@ -671,24 +702,37 @@ def _holdout_backtest(raw_df, cfg, TimeSeriesPredictor, TimeSeriesDataFrame,
             logger.warning("Holdout backtest skipped: no series longer than the horizon")
             return None, None, None
 
-        all_rows = []
-        for train_raw, actual_raw, fold in windows:
-            win_path = os.path.join(save_path, f'w{fold}') if predictor is None else save_path
-            rows = _backtest_one_window(train_raw, actual_raw, cfg, TimeSeriesPredictor,
-                                        TimeSeriesDataFrame, win_path, predictor=predictor)
-            if rows:
-                # fold number increases toward the most recent window (1 = oldest origin)
-                fold_label = n_windows - fold
-                for r in rows:
-                    r['fold'] = fold_label
-                all_rows.extend(rows)
+        # Backtest predictors are throwaway — train them into a temp dir that is
+        # always removed, so repeated runs don't leak model artifacts to disk.
+        # They may also use a lighter preset than the deployment model.
+        bt_preset = cfg.get('backtest_preset') or cfg['preset']
+        bt_cfg = {**cfg, 'num_val_windows': None, 'preset': bt_preset}
+        tmp_root = tempfile.mkdtemp(prefix='ag_backtest_')
+        try:
+            all_rows = []
+            for win_idx, (train_raw, actual_raw, fold) in enumerate(windows, start=1):
+                logger.info(f"Backtest window {win_idx}/{len(windows)} (origin offset fold={fold})")
+                win_path = os.path.join(tmp_root, f'w{fold}') if predictor is None else tmp_root
+                rows = _backtest_one_window(train_raw, actual_raw, bt_cfg, TimeSeriesPredictor,
+                                            TimeSeriesDataFrame, win_path, predictor=predictor)
+                if rows:
+                    # fold number increases toward the most recent window (1 = oldest origin)
+                    fold_label = n_windows - fold
+                    for r in rows:
+                        r['fold'] = fold_label
+                    all_rows.extend(rows)
+        finally:
+            shutil.rmtree(tmp_root, ignore_errors=True)
 
         if not all_rows:
             return None, None, None
 
         seasonal_period = seasonal_period_for(cfg['freq'])
         agg, per_series = _aggregate_backtest_rows(all_rows, cfg['id_col'], seasonal_period)
-        return agg, per_series, all_rows
+        # Drop the per-row quantile columns (used only for calibration) so the
+        # SSE backtest payload stays lean.
+        clean_rows = [{k: v for k, v in r.items() if not k.startswith('q_')} for r in all_rows]
+        return agg, per_series, clean_rows
 
     except Exception as e:
         logger.warning(f"Holdout backtest failed: {e}", exc_info=True)
@@ -746,6 +790,11 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
     preset_raw = node_data.get('cfgPreset', 'medium_quality')
     preset = _resolve_preset(preset_raw)
 
+    # Optional lighter preset for throwaway backtest fits (defaults to the
+    # deployment preset when unset, preserving previous behaviour).
+    bt_preset_raw = node_data.get('cfgBacktestPreset')
+    backtest_preset = _resolve_preset(bt_preset_raw) if bt_preset_raw else preset
+
     _tl_raw = node_data.get('cfgTimeLimit', 600)
     try:
         time_limit = int(_tl_raw) if str(_tl_raw).strip() else 600
@@ -798,6 +847,15 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
     df[time_col] = pd.to_datetime(df[time_col])
     df = df.sort_values(time_col).reset_index(drop=True)
 
+    # ── Pre-training data-quality gate ───────────────────────────────────────
+    # Fail fast on fatal problems and collect advisory warnings before a long fit.
+    from engine.data_quality import check_forecast_data
+    dq = check_forecast_data(df, target_col, time_col, id_col, horizon)
+    if dq['errors']:
+        raise ValueError("Data quality check failed: " + "; ".join(dq['errors']))
+    for w in dq['warnings']:
+        logger.warning(f"Data quality: {w}")
+
     # Keep an un-preprocessed copy: the backtest must split *before* any
     # fill/outlier statistics are computed, so it can fit those on train-only
     # data and score against the raw (untreated) actuals — no leakage.
@@ -835,6 +893,9 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
         # Rolling-origin window count for the explicit OOS backtest, driven by the
         # user's backtestFolds setting (1 = single holdout, N = N rolling windows).
         'backtest_windows': max(1, n_folds) if backtest_enabled else 1,
+        # Backtest fits are throwaway; let them optionally use a lighter preset
+        # than the deployment model so N-window backtests don't multiply runtime.
+        'backtest_preset': backtest_preset,
     }
 
     # Preprocess + calendar-augment the FULL series for the deployment model.
@@ -906,7 +967,6 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
             try:
                 agg, per_series, backtest_rows = _holdout_backtest(
                     raw_df, cfg, TimeSeriesPredictor, TimeSeriesDataFrame,
-                    save_path=os.path.join(save_path, 'backtest_fit'),
                 )
                 if agg:
                     results['info'].update(agg)
@@ -964,6 +1024,7 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
                 'quantiles': quantiles,
                 'horizon': horizon,
                 'freq': freq,
+                'data_quality': dq,
             },
             'forecast': json.loads(predictions.reset_index().to_json(orient='records', date_format='iso')),
         }
@@ -995,7 +1056,6 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
             try:
                 agg, per_series, backtest_rows = _holdout_backtest(
                     raw_df, cfg, TimeSeriesPredictor, TimeSeriesDataFrame,
-                    save_path=os.path.join(save_path, 'backtest_fit'),
                     predictor=predictor,
                 )
                 if agg:

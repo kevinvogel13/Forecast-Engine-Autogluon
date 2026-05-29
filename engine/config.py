@@ -12,6 +12,8 @@ def get_config():
         'LOG_LEVEL': os.environ.get('LOG_LEVEL', 'INFO'),
         'MAX_ROWS_PREVIEW': int(os.environ.get('MAX_ROWS_PREVIEW', '1000')),
         'MAX_EXECUTION_TIME': int(os.environ.get('MAX_EXECUTION_TIME', '3600')),
+        # Per-node wall-clock limit in seconds (0 disables). Model nodes are exempt.
+        'NODE_TIMEOUT': int(os.environ.get('NODE_TIMEOUT', '0')),
     }
 
 def setup_logging(level=None):

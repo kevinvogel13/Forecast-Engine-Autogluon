@@ -6,6 +6,25 @@ from engine.handlers.registry import register
 logger = logging.getLogger('engine')
 
 
+# Tokens that have no place in a column-arithmetic expression and are the usual
+# building blocks of an eval escape (attribute traversal, dunder access, the
+# pandas '@'-local injector, statement separators).
+_UNSAFE_EXPR_TOKENS = ('@', '__', ';', 'import', 'lambda', 'exec', 'eval',
+                       '\\', '`')
+
+
+def _reject_unsafe_expr(expr: str) -> None:
+    """Raise ValueError if a calculated-column expression contains tokens used to
+    break out of pandas' expression evaluator into arbitrary Python."""
+    lowered = str(expr).lower()
+    for tok in _UNSAFE_EXPR_TOKENS:
+        if tok in lowered:
+            raise ValueError(
+                f"Expression contains disallowed token '{tok.strip()}'. "
+                "Calculated columns may only use column names, numbers, and arithmetic/comparison operators."
+            )
+
+
 @register('fill_missing')
 def handle_fill_missing(node_data: dict, upstream_data: list, **kwargs):
     if not upstream_data:
@@ -95,11 +114,24 @@ def handle_column_transform(node_data: dict, upstream_data: list, **kwargs):
         calc_name = node_data.get('calcColumnName', '')
         calc_expr = node_data.get('calcExpression', '')
         if calc_name and calc_expr:
+            _reject_unsafe_expr(calc_expr)
             try:
-                df[calc_name] = df.eval(calc_expr)
+                # parser='pandas', engine='numexpr' restricts the expression to
+                # column arithmetic/comparisons — no Python builtins, no attribute
+                # access, no @-injected locals. Combined with _reject_unsafe_expr
+                # this keeps Calculated Column from being an arbitrary-eval surface.
+                df[calc_name] = df.eval(calc_expr, parser='pandas', engine='numexpr')
                 logger.info(f"Created calculated column: {calc_name}")
+            except ValueError:
+                raise
             except Exception as e:
-                raise ValueError(f"Error in expression '{calc_expr}': {e}")
+                # numexpr can't handle some valid column ops (e.g. string methods);
+                # fall back to the python engine but keep the safety gate above.
+                try:
+                    df[calc_name] = df.eval(calc_expr, parser='pandas', engine='python')
+                    logger.info(f"Created calculated column (python engine): {calc_name}")
+                except Exception as e2:
+                    raise ValueError(f"Error in expression '{calc_expr}': {e2}")
     
     return df
 

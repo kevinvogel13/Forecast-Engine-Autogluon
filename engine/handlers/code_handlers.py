@@ -1,3 +1,4 @@
+import ast
 import pandas as pd
 import numpy as np
 import logging
@@ -7,6 +8,42 @@ import traceback
 from engine.handlers.registry import register
 
 logger = logging.getLogger('engine')
+
+
+# ── AST-based sandbox validation ─────────────────────────────────────────────
+# A textual blocklist (the previous approach) is trivially bypassed with
+# whitespace, aliasing, or string tricks. Validating the *parsed* AST is far
+# harder to evade: we reject the language features that enable sandbox escape
+# regardless of how they are spelled.
+_FORBIDDEN_NAMES = {
+    'eval', 'exec', 'compile', '__import__', 'globals', 'locals', 'vars',
+    'getattr', 'setattr', 'delattr', 'open', 'input', 'breakpoint',
+    'memoryview', 'classmethod', 'staticmethod', 'super', 'exit', 'quit',
+    'help', 'dir',
+}
+
+
+def _validate_ast(code: str) -> None:
+    """Parse `code` and reject constructs that enable sandbox escape.
+
+    Bans: any import, attribute access to dunder names (``__class__``,
+    ``__globals__`` …), calls to forbidden builtins, and `with`/`global`/
+    `nonlocal` statements. Raises ValueError on the first violation.
+    """
+    try:
+        tree = ast.parse(code, mode='exec')
+    except SyntaxError as e:
+        raise ValueError(f"Python script syntax error: {e}")
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            raise ValueError("import statements are not allowed for security reasons")
+        if isinstance(node, (ast.Global, ast.Nonlocal)):
+            raise ValueError("global/nonlocal statements are not allowed")
+        if isinstance(node, ast.Attribute) and node.attr.startswith('__'):
+            raise ValueError(f"access to dunder attribute '{node.attr}' is not allowed")
+        if isinstance(node, ast.Name) and node.id in _FORBIDDEN_NAMES:
+            raise ValueError(f"use of '{node.id}' is not allowed for security reasons")
 
 
 @register('python_script')
@@ -48,22 +85,9 @@ def handle_python_script(node_data: dict, upstream_data: list, **kwargs):
         'result': None,
     }
     
-    blocked_patterns = [
-        'import os', 'import sys', 'import subprocess', 'import shutil',
-        'import pathlib', 'import socket', 'import http', 'import urllib',
-        'import requests', 'import importlib', 'import ctypes', 'import signal',
-        'from os', 'from sys', 'from subprocess', 'from shutil',
-        'from pathlib', 'from socket', 'from http', 'from urllib',
-        'from requests', 'from importlib', 'from ctypes', 'from signal',
-        '__import__', 'eval(', 'exec(', 'compile(', 'globals(', 'locals(',
-        'open(', 'getattr(', '__subclasses__', '__bases__', '__class__',
-    ]
-    
-    code_lower = code.lower()
-    for pattern in blocked_patterns:
-        if pattern.lower() in code_lower:
-            raise ValueError(f"'{pattern.strip()}' is not allowed for security reasons")
-    
+    # Primary gate: reject unsafe constructs in the parsed AST (bypass-resistant).
+    _validate_ast(code)
+
     old_stdout = sys.stdout
     captured = io.StringIO()
     sys.stdout = captured

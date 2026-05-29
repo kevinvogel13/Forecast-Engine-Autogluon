@@ -96,6 +96,33 @@ def mase(actual, forecast, train_actual=None, seasonal_period: int = 1) -> Optio
     return float(err / scale)
 
 
+def pinball_loss(actual, forecast_q, q: float) -> Optional[float]:
+    """Average pinball (quantile) loss for the q-quantile forecast.
+
+    The proper scoring rule for a single quantile: penalises under-prediction by
+    ``q`` and over-prediction by ``1-q``.  Lower is better.  This is what makes a
+    probabilistic forecast's intervals trustworthy, not just its point estimate.
+    """
+    a, f = _clean(actual, forecast_q)
+    if a.size == 0:
+        return None
+    diff = a - f
+    return float(np.mean(np.maximum(q * diff, (q - 1) * diff)))
+
+
+def coverage(actual, lower, upper) -> Optional[float]:
+    """Empirical coverage (%) — the fraction of actuals that fall within the
+    [lower, upper] interval.  A well-calibrated 80% interval should cover ~80%."""
+    a = np.asarray(actual, dtype=float)
+    lo = np.asarray(lower, dtype=float)
+    hi = np.asarray(upper, dtype=float)
+    mask = np.isfinite(a) & np.isfinite(lo) & np.isfinite(hi)
+    if not mask.any():
+        return None
+    a, lo, hi = a[mask], lo[mask], hi[mask]
+    return float(np.mean((a >= lo) & (a <= hi)) * 100)
+
+
 def compute_all(actual, forecast, train_actual=None, seasonal_period: int = 1,
                 ndigits: int = 2) -> dict:
     """Return every metric as a rounded dict, dropping any that are undefined.
@@ -114,3 +141,42 @@ def compute_all(actual, forecast, train_actual=None, seasonal_period: int = 1,
         if value is not None:
             out[name] = round(value, ndigits)
     return out
+
+
+def compute_interval_metrics(actual, quantile_forecasts: dict, ndigits: int = 2) -> dict:
+    """Calibration metrics from a dict of {quantile_level: forecast_array}.
+
+    Returns mean pinball loss across the supplied quantiles, plus empirical
+    coverage of the central interval spanned by the lowest/highest quantiles
+    (e.g. 0.1/0.9 → ``coverage_80``).  Quantile levels are floats in (0, 1).
+    """
+    out: dict[str, float] = {}
+    if not quantile_forecasts:
+        return out
+
+    losses = []
+    for q, fc in quantile_forecasts.items():
+        pl = pinball_loss(actual, fc, float(q))
+        if pl is not None:
+            losses.append(pl)
+    if losses:
+        out['pinball_loss'] = round(float(np.mean(losses)), ndigits)
+
+    qs = sorted(float(q) for q in quantile_forecasts)
+    if len(qs) >= 2 and qs[0] < 0.5 < qs[-1]:
+        lo_q, hi_q = qs[0], qs[-1]
+        cov = coverage(actual, quantile_forecasts[_key(quantile_forecasts, lo_q)],
+                       quantile_forecasts[_key(quantile_forecasts, hi_q)])
+        if cov is not None:
+            nominal = int(round((hi_q - lo_q) * 100))
+            out[f'coverage_{nominal}'] = round(cov, ndigits)
+            out['coverage_nominal'] = nominal
+    return out
+
+
+def _key(d: dict, target: float):
+    """Return the original dict key whose float value equals `target`."""
+    for k in d:
+        if float(k) == target:
+            return k
+    return target

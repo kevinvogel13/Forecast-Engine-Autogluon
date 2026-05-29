@@ -145,6 +145,18 @@ def test_aggregate_backtest_rows_pools_windows():
     assert b['mae'] == 0.0
 
 
+def test_score_holdout_carries_quantiles_for_calibration():
+    dates = pd.date_range('2023-01-01', periods=2, freq='MS')
+    actual = pd.DataFrame({'item': ['A', 'A'], 'date': dates, 'sales': [100.0, 110.0]})
+    pred = pd.DataFrame({'item_id': ['A', 'A'], 'timestamp': dates,
+                         '0.1': [80.0, 90.0], '0.5': [100.0, 110.0], '0.9': [120.0, 130.0]})
+    _, _, rows = M._score_holdout(pred, actual, 'sales', 'date', 'item', 'MS')
+    assert 'q_0.1' in rows[0] and 'q_0.9' in rows[0]
+    agg, _ = M._aggregate_backtest_rows(rows, 'item', seasonal_period=12)
+    assert 'pinball_loss' in agg
+    assert agg['coverage_80'] == pytest.approx(100.0)
+
+
 def test_score_holdout_empty_on_timestamp_mismatch():
     actual = pd.DataFrame({'date': pd.date_range('2023-01-01', periods=2, freq='MS'),
                            'sales': [1.0, 2.0]})
