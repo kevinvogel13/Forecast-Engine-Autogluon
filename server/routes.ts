@@ -130,6 +130,31 @@ export async function registerRoutes(
     }
   });
 
+  // List saved AutoGluon models so load-mode can offer a picker instead of a
+  // hand-typed path. Backed by the Python model registry (single source of truth).
+  app.get("/api/models", async (_req, res) => {
+    try {
+      const modelPath = path.join(process.cwd(), 'models');
+      const script = `import json,sys; from engine.model_registry import list_models; print(json.dumps(list_models(${JSON.stringify(modelPath)})))`;
+      const result = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
+        const python = spawn('python3', ['-c', script], { cwd: process.cwd() });
+        let stdout = '', stderr = '';
+        python.stdout.on('data', (d) => { stdout += d.toString(); });
+        python.stderr.on('data', (d) => { stderr += d.toString(); });
+        python.on('close', () => {
+          try { resolve({ data: JSON.parse(stdout) }); }
+          catch { resolve({ error: stderr || 'Failed to list models' }); }
+        });
+        python.on('error', (err) => resolve({ error: err.message }));
+      });
+      if (result.error) return res.status(500).json({ error: result.error });
+      res.json(result.data ?? []);
+    } catch (error: any) {
+      console.error("Error listing models:", error);
+      res.status(500).json({ error: "Failed to list models" });
+    }
+  });
+
   app.get("/api/datasets/:id", async (req, res) => {
     try {
       const dataset = await storage.getDataset(req.params.id);

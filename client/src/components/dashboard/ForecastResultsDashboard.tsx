@@ -6,15 +6,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Download, TrendingUp, AlertCircle, ArrowUpRight, Clock, Target, Layers, BarChart3, Trophy } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, Legend, BarChart, Bar, ScatterChart, Scatter, Cell, ComposedChart, Line, ReferenceLine } from 'recharts';
+import { getCoverage, secondaryMetrics, type ForecastMetrics } from '@/lib/forecast-metrics';
 
-export interface ForecastResults {
+export interface DataQualityReport {
+  errors?: string[];
+  warnings?: string[];
+  stats?: Record<string, number>;
+}
+
+export interface ForecastResults extends ForecastMetrics {
   forecast?: any[];
   backtest?: any[];
   leaderboard?: any[];
   per_series_metrics?: any[];
-  mape?: number;
-  rmse?: number;
-  mae?: number;
+  data_quality?: DataQualityReport;
+  backtest_method?: string;
   forecast_rows?: number;
   target?: string;
   horizon?: number;
@@ -41,6 +47,18 @@ const categoryColors: Record<string, string> = {
 
 interface Props {
   results?: ForecastResults | null;
+}
+
+function MetricCard({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <Card>
+      <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{label}</CardTitle></CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold">{value}</div>
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function ForecastResultsDashboard({ results }: Props) {
@@ -129,6 +147,12 @@ export default function ForecastResultsDashboard({ results }: Props) {
     return mean ? Math.round((avg / mean) * 1000) / 10 : null;
   }, [results]);
 
+  const coverage = useMemo(() => getCoverage(results), [results]);
+  const extraMetrics = useMemo(() => secondaryMetrics(results), [results]);
+
+  const dq = results?.data_quality;
+  const dqWarnings = dq?.warnings ?? [];
+
   const downloadCSV = (data: any[], filename: string) => {
     if (!data?.length) return;
     const headers = Object.keys(data[0]);
@@ -146,6 +170,21 @@ export default function ForecastResultsDashboard({ results }: Props) {
           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 text-xs">Live Results</Badge>
           {results?.preset && <Badge variant="outline" className="text-xs text-slate-600">{results.preset}</Badge>}
           {results?.target && <span className="text-xs text-muted-foreground">Target: <span className="font-mono font-medium">{results.target}</span></span>}
+          {results?.backtest_method && <Badge variant="outline" className="text-xs text-slate-600">backtest: {results.backtest_method}</Badge>}
+        </div>
+      )}
+
+      {dqWarnings.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3" data-testid="data-quality-warnings">
+          <div className="flex items-center gap-2 mb-1.5">
+            <AlertCircle className="h-4 w-4 text-amber-600" />
+            <span className="text-sm font-medium text-amber-800">Data quality warnings ({dqWarnings.length})</span>
+          </div>
+          <ul className="list-disc list-inside space-y-0.5">
+            {dqWarnings.map((w, i) => (
+              <li key={i} className="text-xs text-amber-700">{w}</li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -208,6 +247,16 @@ export default function ForecastResultsDashboard({ results }: Props) {
               </CardContent>
             </Card>
           </div>
+
+          {/* Secondary accuracy metrics: robust + scale-free + probabilistic.
+              Built from the engine output — only present metrics are shown. */}
+          {hasRealData && extraMetrics.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4" data-testid="secondary-metrics">
+              {extraMetrics.map((m) => (
+                <MetricCard key={m.label} label={m.label} value={m.value} hint={m.hint} />
+              ))}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <Card className="col-span-2">
