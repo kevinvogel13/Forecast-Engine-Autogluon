@@ -94,6 +94,57 @@ def test_score_holdout_matches_raw_actuals():
     assert per_series is not None and per_series[0]['item'] == 'A'
 
 
+# ── Rolling-origin multi-window backtest ─────────────────────────────────────
+def test_rolling_splits_three_windows_step_horizon():
+    df = _monthly(n=24)
+    windows = M._rolling_splits(df, id_col='', time_col='date', horizon=6,
+                                n_windows=3, step_size=6)
+    assert len(windows) == 3
+    # oldest origin first
+    folds = [w[2] for w in windows]
+    assert folds == [2, 1, 0]
+    for train, actual, _ in windows:
+        assert len(actual) == 6
+        assert actual['date'].min() > train['date'].max()   # each window is OOS
+    # successive windows step back by `step_size`, so their actual blocks differ
+    last_dates = [w[1]['date'].max() for w in windows]
+    assert last_dates[0] < last_dates[1] < last_dates[2]
+
+
+def test_rolling_splits_skips_windows_without_enough_train():
+    df = _monthly(n=8)
+    windows = M._rolling_splits(df, id_col='', time_col='date', horizon=6,
+                                n_windows=3, step_size=6)
+    # only the most recent window leaves >=1 training point
+    assert len(windows) == 1
+    assert len(windows[0][1]) == 6
+
+
+def test_rolling_splits_multi_series():
+    a, b = _monthly(n=24, base=100), _monthly(n=24, base=500)
+    a['item'], b['item'] = 'A', 'B'
+    df = pd.concat([a, b], ignore_index=True)
+    windows = M._rolling_splits(df, id_col='item', time_col='date', horizon=4,
+                                n_windows=2, step_size=4)
+    assert len(windows) == 2
+    for train, actual, _ in windows:
+        assert (actual.groupby('item').size() == 4).all()
+
+
+def test_aggregate_backtest_rows_pools_windows():
+    rows = [
+        {'item': 'A', 'actual': 100.0, 'forecast': 90.0, 'fold': 1},
+        {'item': 'A', 'actual': 100.0, 'forecast': 110.0, 'fold': 2},
+        {'item': 'B', 'actual': 50.0, 'forecast': 50.0, 'fold': 1},
+    ]
+    agg, per_series = M._aggregate_backtest_rows(rows, 'item', seasonal_period=12)
+    assert agg['mae'] == pytest.approx((10 + 10 + 0) / 3, abs=0.01)
+    names = {r['item'] for r in per_series}
+    assert names == {'A', 'B'}
+    b = next(r for r in per_series if r['item'] == 'B')
+    assert b['mae'] == 0.0
+
+
 def test_score_holdout_empty_on_timestamp_mismatch():
     actual = pd.DataFrame({'date': pd.date_range('2023-01-01', periods=2, freq='MS'),
                            'sales': [1.0, 2.0]})

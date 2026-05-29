@@ -488,6 +488,64 @@ def _split_holdout(raw_df, id_col, time_col, horizon):
     return g.iloc[:-horizon].reset_index(drop=True), g.iloc[-horizon:].reset_index(drop=True)
 
 
+def _rolling_splits(raw_df, id_col, time_col, horizon, n_windows, step_size):
+    """Rolling-origin evaluation windows.
+
+    Window 0 holds out each series' most recent `horizon` points; each later
+    window steps the origin back `step_size` points.  Returns a list of
+    ``(train_raw, actual_raw, fold)`` tuples (oldest origin first), skipping any
+    window that leaves too little training history.  Each window is a genuine
+    out-of-sample slice — the model for window k must be trained only on data up
+    to that window's origin.
+    """
+    n_windows = max(1, int(n_windows or 1))
+    step_size = max(1, int(step_size or horizon))
+    windows = []
+    for k in range(n_windows):
+        offset = k * step_size
+        if id_col and id_col in raw_df.columns:
+            parts = []
+            for _, grp in raw_df.groupby(id_col):
+                g = grp.sort_values(time_col)
+                end = len(g) - offset
+                if end - horizon < 1:        # no training data left for this series
+                    continue
+                parts.append(g.iloc[:end])
+            truncated = pd.concat(parts, ignore_index=True) if parts else None
+        else:
+            g = raw_df.sort_values(time_col)
+            end = len(g) - offset
+            truncated = g.iloc[:end] if end - horizon >= 1 else None
+        if truncated is None:
+            continue
+        train, actual = _split_holdout(truncated, id_col, time_col, horizon)
+        if train is not None:
+            windows.append((train, actual, k))
+    # oldest origin first so the chart reads left→right in time
+    windows.sort(key=lambda w: -w[2])
+    return windows
+
+
+def _aggregate_backtest_rows(rows, id_col, seasonal_period):
+    """Pool actual/forecast pairs from all rolling windows into overall and
+    per-series metrics."""
+    if not rows:
+        return None, None
+    df = pd.DataFrame(rows)
+    agg = metrics.compute_all(df['actual'].values, df['forecast'].values,
+                              seasonal_period=seasonal_period)
+    per_series = None
+    if id_col and id_col in df.columns:
+        per_series = []
+        for name, g in df.groupby(id_col):
+            sr = {id_col: str(name), 'n': len(g)}
+            sr.update(metrics.compute_all(g['actual'].values, g['forecast'].values,
+                                          seasonal_period=seasonal_period))
+            per_series.append(sr)
+        per_series.sort(key=lambda x: x.get('wape', x.get('mape', x.get('rmse', 0))), reverse=True)
+    return agg, per_series
+
+
 def _score_holdout(pred_reset, actual_df, target_col, time_col, id_col, freq):
     """Join AutoGluon predictions to RAW held-out actuals and compute metrics.
     Returns (agg_metrics, per_series_metrics, backtest_rows). Pure dataframe
@@ -558,50 +616,79 @@ def _score_holdout(pred_reset, actual_df, target_col, time_col, id_col, freq):
     return agg, per_series or None, backtest_rows
 
 
+def _backtest_one_window(train_raw, actual_raw, cfg, TimeSeriesPredictor,
+                         TimeSeriesDataFrame, save_path, predictor=None):
+    """Fit (or reuse) a predictor on one window's train slice and score it
+    against that window's raw actuals.  Returns the backtest rows for the window."""
+    # Preprocess + covariates fit on THIS window's train slice only (no peeking)
+    train_proc, known_cols = _prepare_training_frame(train_raw, cfg, preprocess=True)
+
+    if predictor is None:
+        predictor, ts_df, _ = _fit_predictor(
+            train_proc, {**cfg, 'num_val_windows': None}, known_cols,
+            TimeSeriesPredictor, TimeSeriesDataFrame, save_path)
+    else:
+        _, ts_df, _ = _build_static_and_ts(
+            train_proc, cfg['id_col'], cfg['time_col'], cfg['static_features_cols'], TimeSeriesDataFrame)
+
+    predict_kwargs = dict(quantile_levels=cfg['quantiles'])
+    fc = _build_future_covariates(train_proc, cfg['id_col'], cfg['time_col'], cfg['freq'],
+                                  cfg['horizon'], known_cols, TimeSeriesDataFrame,
+                                  holiday_country=cfg.get('holiday_country'))
+    if fc is not None:
+        predict_kwargs['known_covariates'] = fc
+
+    preds = predictor.predict(ts_df, **predict_kwargs)
+    _, _, rows = _score_holdout(preds.reset_index(), actual_raw,
+                                cfg['target'], cfg['time_col'], cfg['id_col'], cfg['freq'])
+    return rows
+
+
 def _holdout_backtest(raw_df, cfg, TimeSeriesPredictor, TimeSeriesDataFrame,
                       save_path, predictor=None):
-    """Leakage-free out-of-sample backtest.
+    """Leakage-free rolling-origin out-of-sample backtest.
 
-    Hold out each series' last `horizon` points, then **fit a fresh predictor on
-    only the remaining train data** (with fill/outlier stats fit on that train
-    slice), and compare its predictions to the RAW held-out actuals.  Retraining
-    on the truncated data is the whole point: the deployment model is trained on
-    the full series, so reusing it here would let it "predict" points it had
-    already seen — the leak that made the previous implementation invalid.
+    Driven by the user's `backtestFolds` setting (``cfg['backtest_windows']``):
+    with 1 window it's a single last-`horizon` holdout; with N>1 it's an
+    N-window rolling-origin evaluation, each window stepped back
+    ``cfg['val_step_size']`` points.  For each window we **fit a fresh predictor
+    on only the data up to that window's origin** (fill/outlier stats fit on that
+    slice) and compare to the RAW held-out actuals.  Retraining per window is the
+    whole point: reusing the full-data deployment model would let it "predict"
+    points it had already trained on.
 
-    In load mode a pre-fitted `predictor` is passed in; we assume it was trained
-    on a different dataset (so this data's holdout is genuinely out-of-sample)
-    and reuse it rather than retraining.
+    In load mode a pre-fitted `predictor` is reused for every window (assumed
+    trained on a different dataset, so this data's tail is genuinely OOS).
 
-    Returns (agg_metrics, per_series_metrics, backtest_rows).
+    Returns (agg_metrics, per_series_metrics, backtest_rows) pooled over windows.
     """
     try:
-        train_raw, actual_raw = _split_holdout(raw_df, cfg['id_col'], cfg['time_col'], cfg['horizon'])
-        if train_raw is None:
+        n_windows = max(1, int(cfg.get('backtest_windows') or 1))
+        step_size = cfg.get('val_step_size') or cfg['horizon']
+        windows = _rolling_splits(raw_df, cfg['id_col'], cfg['time_col'],
+                                  cfg['horizon'], n_windows, step_size)
+        if not windows:
             logger.warning("Holdout backtest skipped: no series longer than the horizon")
             return None, None, None
 
-        # Preprocess + covariates fit on the TRAIN slice only (no peeking ahead)
-        train_proc, known_cols = _prepare_training_frame(train_raw, cfg, preprocess=True)
+        all_rows = []
+        for train_raw, actual_raw, fold in windows:
+            win_path = os.path.join(save_path, f'w{fold}') if predictor is None else save_path
+            rows = _backtest_one_window(train_raw, actual_raw, cfg, TimeSeriesPredictor,
+                                        TimeSeriesDataFrame, win_path, predictor=predictor)
+            if rows:
+                # fold number increases toward the most recent window (1 = oldest origin)
+                fold_label = n_windows - fold
+                for r in rows:
+                    r['fold'] = fold_label
+                all_rows.extend(rows)
 
-        if predictor is None:
-            predictor, ts_df, _ = _fit_predictor(
-                train_proc, {**cfg, 'num_val_windows': None}, known_cols,
-                TimeSeriesPredictor, TimeSeriesDataFrame, save_path)
-        else:
-            _, ts_df, _ = _build_static_and_ts(
-                train_proc, cfg['id_col'], cfg['time_col'], cfg['static_features_cols'], TimeSeriesDataFrame)
+        if not all_rows:
+            return None, None, None
 
-        predict_kwargs = dict(quantile_levels=cfg['quantiles'])
-        fc = _build_future_covariates(train_proc, cfg['id_col'], cfg['time_col'], cfg['freq'],
-                                      cfg['horizon'], known_cols, TimeSeriesDataFrame,
-                                      holiday_country=cfg.get('holiday_country'))
-        if fc is not None:
-            predict_kwargs['known_covariates'] = fc
-
-        preds = predictor.predict(ts_df, **predict_kwargs)
-        return _score_holdout(preds.reset_index(), actual_raw,
-                              cfg['target'], cfg['time_col'], cfg['id_col'], cfg['freq'])
+        seasonal_period = seasonal_period_for(cfg['freq'])
+        agg, per_series = _aggregate_backtest_rows(all_rows, cfg['id_col'], seasonal_period)
+        return agg, per_series, all_rows
 
     except Exception as e:
         logger.warning(f"Holdout backtest failed: {e}", exc_info=True)
@@ -745,6 +832,9 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
         'holiday_enabled': holiday_enabled, 'holiday_country': holiday_country,
         'num_val_windows': n_folds if (backtest_enabled and n_folds > 1) else None,
         'val_step_size': backtest_step_size,
+        # Rolling-origin window count for the explicit OOS backtest, driven by the
+        # user's backtestFolds setting (1 = single holdout, N = N rolling windows).
+        'backtest_windows': max(1, n_folds) if backtest_enabled else 1,
     }
 
     # Preprocess + calendar-augment the FULL series for the deployment model.
