@@ -1038,7 +1038,16 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
                     results['info']['ag_eval_score'] = round(float(scores), 4)
             except Exception as e:
                 logger.warning(f"predictor.evaluate failed: {e}")
-        
+
+        # Retention: keep only the N most recent models on disk (0 = keep all).
+        try:
+            from engine.model_registry import prune_models
+            keep = int(config.get('MODEL_RETENTION', 0)) if config else 0
+            if keep > 0:
+                prune_models(model_path, keep)
+        except Exception as e:
+            logger.warning(f"Model retention prune failed: {e}")
+
         return results
     
     elif mode == 'load':
