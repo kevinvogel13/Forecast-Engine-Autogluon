@@ -1,0 +1,33 @@
+name: AutoGluon smoke test
+
+# The full AutoGluon install is heavy (torch + deps), so this does NOT run on
+# every PR. It runs nightly and on manual dispatch to catch breakage in the
+# AutoGluon-dependent code paths (train/predict, rolling backtest, covariates)
+# that the fast PR suite skips.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"  # 06:00 UTC daily
+
+jobs:
+  autogluon:
+    name: AutoGluon end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install engine + AutoGluon (CPU)
+        run: |
+          uv venv
+          uv pip install pandas numpy scipy scikit-learn duckdb holidays pytest
+          uv pip install "autogluon.timeseries" --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Run AutoGluon smoke test
+        run: uv run pytest tests/test_autogluon_smoke.py -v

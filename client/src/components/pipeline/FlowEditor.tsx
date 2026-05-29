@@ -156,6 +156,9 @@ function FlowWithProvider() {
   const [currentPipelineId, setCurrentPipelineId] = useState<string | null>(null);
   const [pipelineName, setPipelineName] = useState('');
   const [pipelineDescription, setPipelineDescription] = useState('');
+  // Saved models for the load-mode picker (fetched lazily when load mode opens).
+  const [savedModels, setSavedModels] = useState<Array<{ name: string; path: string; created_ts: number; size_bytes: number }>>([]);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
   
   const { data: savedPipelines = [], isLoading: pipelinesLoading } = usePipelines();
   const { data: datasets = [] } = useDatasets();
@@ -796,6 +799,31 @@ function FlowWithProvider() {
     URL.revokeObjectURL(url);
   }, [pipelineName, pipelineDescription, nodes, edges]);
 
+  const exportPipelineCode = useCallback(async () => {
+    try {
+      const resp = await fetch('/api/pipelines/export-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: pipelineName || 'forecast_pipeline', nodes, edges }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        toast.error(err.error || 'Failed to export project code');
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(pipelineName || 'forecast_pipeline').replace(/\s+/g, '_').toLowerCase()}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Project exported — unzip and run with `python run.py`');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to export project code');
+    }
+  }, [pipelineName, nodes, edges]);
+
   const importPipelineJson = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -1178,6 +1206,20 @@ function FlowWithProvider() {
       }
     })();
   }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.configDateColumn, selectedNode?.data.modelMode, getSourceDatasetId, getNodeColumns]);
+
+  // Fetch saved models when a model node enters 'load' mode, for the picker.
+  useEffect(() => {
+    const isLoad = (selectedNode?.data.type === 'config' || selectedNode?.data.type === 'model_config')
+      && selectedNode?.data.modelMode === 'load';
+    if (!isLoad || modelsLoaded) return;
+    (async () => {
+      try {
+        const resp = await fetch('/api/models');
+        if (resp.ok) setSavedModels(await resp.json());
+      } catch { /* picker falls back to manual path entry */ }
+      finally { setModelsLoaded(true); }
+    })();
+  }, [selectedNode?.id, selectedNode?.data.type, selectedNode?.data.modelMode, modelsLoaded]);
 
   // Effect to update filter node metadata when filter config changes
   useEffect(() => {
@@ -2269,6 +2311,10 @@ function FlowWithProvider() {
                   <Download className="w-4 h-4 mr-2" />
                   Export as JSON
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={exportPipelineCode} data-testid="menu-export-code">
+                  <Download className="w-4 h-4 mr-2" />
+                  Export as Code (.zip)
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => importFileRef.current?.click()} data-testid="menu-import-json">
                   <Upload className="w-4 h-4 mr-2" />
                   Import from JSON
@@ -3022,15 +3068,33 @@ function FlowWithProvider() {
                           </div>
                        ) : (
                           <div className="space-y-2">
-                             <Label className="text-xs font-medium">Model Path</Label>
+                             <Label className="text-xs font-medium">Saved Model</Label>
+                             {savedModels.length > 0 && (
+                                <select
+                                   value={savedModels.some(m => m.path === selectedNode.data.modelPath) ? selectedNode.data.modelPath : '__custom__'}
+                                   onChange={(e) => { if (e.target.value !== '__custom__') updateNodeData('modelPath', e.target.value); }}
+                                   className="h-8 text-xs w-full border rounded-md px-2 bg-white"
+                                   data-testid="select-model-path"
+                                >
+                                   {savedModels.map((m) => {
+                                      const when = new Date(m.created_ts * 1000).toLocaleString();
+                                      const mb = (m.size_bytes / (1024 * 1024)).toFixed(1);
+                                      return <option key={m.path} value={m.path}>{m.name} — {when} ({mb} MB)</option>;
+                                   })}
+                                   <option value="__custom__">Custom path…</option>
+                                </select>
+                             )}
                              <Input
                                 type="text"
-                                placeholder="path/to/model"
+                                placeholder={savedModels.length ? 'or enter a custom path' : 'path/to/model'}
                                 value={selectedNode.data.modelPath || ''}
                                 onChange={(e) => updateNodeData('modelPath', e.target.value)}
                                 className="h-8 text-xs"
                                 data-testid="input-model-path"
                              />
+                             {modelsLoaded && savedModels.length === 0 && (
+                                <p className="text-[10px] text-muted-foreground">No saved models found — train one first or enter a path.</p>
+                             )}
                           </div>
                        )}
 
@@ -3714,6 +3778,16 @@ function FlowWithProvider() {
                     const agEvalMetric: string = ri?.ag_eval_metric || 'Score';
                     const hasMetrics = hasMape || hasRmse || hasMae || hasAgScore;
                     const forecastRows = ri?.forecast_rows ?? 0;
+                    // Secondary metrics (rendered only when present)
+                    const extraMetrics: Array<{ label: string; value: string }> = [];
+                    if (typeof ri?.wape === 'number') extraMetrics.push({ label: 'WAPE', value: `${ri.wape.toFixed(1)}%` });
+                    if (typeof ri?.smape === 'number') extraMetrics.push({ label: 'sMAPE', value: `${ri.smape.toFixed(1)}%` });
+                    if (typeof ri?.mase === 'number') extraMetrics.push({ label: 'MASE', value: ri.mase.toFixed(2) });
+                    if (typeof ri?.pinball_loss === 'number') extraMetrics.push({ label: 'Pinball', value: ri.pinball_loss.toFixed(2) });
+                    if (typeof ri?.coverage_nominal === 'number' && typeof ri?.[`coverage_${ri.coverage_nominal}`] === 'number') {
+                      extraMetrics.push({ label: `Cov ${ri.coverage_nominal}%`, value: `${ri[`coverage_${ri.coverage_nominal}`].toFixed(0)}%` });
+                    }
+                    const dqWarnings: string[] = ri?.data_quality?.warnings || [];
                     const forecastData = modelNode?.data?.resultInfo?.forecast || null;
 
                     const downloadForecast = () => {
@@ -3761,7 +3835,27 @@ function FlowWithProvider() {
                                </div>
                              )}
                            </div>
+                           {extraMetrics.length > 0 && (
+                             <div className="grid grid-cols-3 gap-1.5 mt-1.5" data-testid="output-extra-metrics">
+                               {extraMetrics.map((m) => (
+                                 <div key={m.label} className="bg-white rounded-md p-2 border border-green-100 text-center">
+                                   <p className="text-[10px] text-muted-foreground">{m.label}</p>
+                                   <p className="text-sm font-bold text-green-700">{m.value}</p>
+                                 </div>
+                               ))}
+                             </div>
+                           )}
                          </div>
+                       )}
+                       {dqWarnings.length > 0 && (
+                         <details className="border border-amber-200 rounded-lg overflow-hidden bg-amber-50">
+                           <summary className="flex items-center gap-1.5 px-3 py-2 cursor-pointer text-[10px] font-semibold text-amber-800">
+                             <AlertCircle className="w-3 h-3" /> Data quality warnings ({dqWarnings.length})
+                           </summary>
+                           <ul className="list-disc list-inside px-3 pb-2 space-y-0.5">
+                             {dqWarnings.map((w, i) => <li key={i} className="text-[10px] text-amber-700">{w}</li>)}
+                           </ul>
+                         </details>
                        )}
                        {forecastRows > 0 && (
                          <div className="flex items-center justify-between bg-white rounded-md px-3 py-2 border border-green-100">

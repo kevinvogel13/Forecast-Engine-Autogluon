@@ -2,11 +2,20 @@ import pandas as pd
 import numpy as np
 import json
 import os
+import shutil
+import tempfile
 import time
 import logging
 from engine.handlers.registry import register
+from engine import metrics
+from engine.contract import seasonal_period_for
 
 logger = logging.getLogger('engine')
+
+# Weekly data is anchored to Monday everywhere (engine + date-gap filler) so
+# generated future timestamps line up with the training grid; an unanchored
+# 'W' defaults to Sunday in pandas and silently misaligns the holdout merge.
+WEEK_ANCHOR = 'W-MON'
 
 # ─── Frequency mapping ───────────────────────────────────────────────────────
 # Frontend sends human-readable strings; AutoGluon needs pandas-style aliases.
@@ -20,7 +29,7 @@ FREQ_MAP = {
 }
 # AutoGluon period-start aliases (avoid ambiguity on month/quarter boundaries)
 FREQ_TO_AG = {
-    'D': 'D', 'W': 'W', 'M': 'MS', 'Q': 'QS', 'Y': 'YS',
+    'D': 'D', 'W': WEEK_ANCHOR, 'M': 'MS', 'Q': 'QS', 'Y': 'YS',
     'MS': 'MS', 'QS': 'QS', 'YS': 'YS', 'H': 'H', 'T': 'min', 'min': 'min',
 }
 
@@ -59,6 +68,152 @@ def _parse_quantiles(quantile_cfg) -> list:
         return qs if qs else [0.1, 0.5, 0.9]
     except Exception:
         return [0.1, 0.5, 0.9]
+
+
+def _future_cov_rows(grp, time_col, freq, horizon, known_covariates_cols, holiday_country):
+    """Future covariate rows for one series: calendar columns are recomputed
+    from the future dates; all other covariates carry the last observed value."""
+    grp = grp.sort_values(time_col)
+    future_dates = pd.date_range(start=grp[time_col].max(), periods=horizon + 1, freq=freq)[1:]
+    last_row = grp.iloc[-1]
+    data = {time_col: future_dates}
+    cal_cols = [c for c in known_covariates_cols if c.startswith(CAL_PREFIX)]
+    other_cols = [c for c in known_covariates_cols if not c.startswith(CAL_PREFIX) and c in grp.columns]
+    for c in other_cols:
+        data[c] = last_row[c]
+    rows = pd.DataFrame(data)
+    if cal_cols:
+        cal = _calendar_frame(future_dates, holiday_country)
+        for c in cal_cols:
+            if c in cal.columns:
+                rows[c] = cal[c].values
+    return rows
+
+
+def _apply_user_future_covariates(rows, future_df, id_col, time_col,
+                                  known_covariates_cols):
+    """Overlay user-supplied actual future covariate values onto the projected
+    `rows`, matched on timestamp (and id_col when present).
+
+    Only non-calendar columns are overlaid — calendar/holiday columns are
+    deterministic and already correct.  Any future timestamp/covariate the user
+    didn't provide keeps its projected (forward-filled) value, so a partial
+    future table still helps.
+    """
+    overlay_cols = [c for c in known_covariates_cols
+                    if not c.startswith(CAL_PREFIX) and c in future_df.columns]
+    if not overlay_cols:
+        return rows
+    fut = future_df.copy()
+    fut['_ts'] = pd.to_datetime(fut[time_col])
+    rows = rows.copy()
+    rows['_ts'] = pd.to_datetime(rows[time_col])
+    keys = ['_ts']
+    if id_col and id_col in fut.columns and id_col in rows.columns:
+        fut['_item'] = fut[id_col].astype(str)
+        rows['_item'] = rows[id_col].astype(str)
+        keys = ['_item', '_ts']
+    fut_idx = fut.set_index(keys)
+    for c in overlay_cols:
+        mapped = rows.set_index(keys).index.map(
+            lambda k: fut_idx[c].get(k) if k in fut_idx.index else None)
+        vals = pd.Series(list(mapped), index=rows.index)
+        rows[c] = vals.where(vals.notna(), rows[c])
+    return rows.drop(columns=[c for c in ('_ts', '_item') if c in rows.columns])
+
+
+def _build_future_covariates(df: pd.DataFrame, id_col: str, time_col: str,
+                             freq: str, horizon: int, known_covariates_cols: list,
+                             TimeSeriesDataFrame, holiday_country: str = None,
+                             future_df: pd.DataFrame = None):
+    """Build the future known-covariates frame AutoGluon needs at predict time.
+
+    AutoGluon requires values for every ``known_covariates_names`` column over
+    the forecast horizon.  Deterministic calendar/holiday columns (``cal_*``)
+    are recomputed from the future timestamps.  For other covariates, if the user
+    supplies a ``future_df`` (a second upstream dataset with actual planned future
+    values, e.g. price/promo), those values are used; otherwise we project the
+    last observed value forward.  Returns a TimeSeriesDataFrame or ``None``.
+    """
+    if not known_covariates_cols:
+        return None
+    try:
+        if id_col and id_col in df.columns:
+            cov_frames = []
+            for item, grp in df.groupby(id_col):
+                rows = _future_cov_rows(grp, time_col, freq, horizon,
+                                        known_covariates_cols, holiday_country)
+                rows.insert(0, id_col, item)
+                if future_df is not None:
+                    rows = _apply_user_future_covariates(
+                        rows, future_df, id_col, time_col, known_covariates_cols)
+                cov_frames.append(rows)
+            if not cov_frames:
+                return None
+            future_cov_df = pd.concat(cov_frames, ignore_index=True)
+            return TimeSeriesDataFrame.from_data_frame(
+                future_cov_df, id_column=id_col, timestamp_column=time_col)
+        else:
+            rows = _future_cov_rows(df, time_col, freq, horizon,
+                                    known_covariates_cols, holiday_country)
+            if future_df is not None:
+                rows = _apply_user_future_covariates(
+                    rows, future_df, id_col, time_col, known_covariates_cols)
+            return TimeSeriesDataFrame.from_data_frame(
+                rows, timestamp_column=time_col)
+    except Exception as e:
+        logger.warning(f"Could not build known_covariates: {e}. Predicting without them.")
+        return None
+
+
+def _future_dates(last_date, freq: str, horizon: int):
+    """Generate `horizon` future timestamps after `last_date` at `freq`.
+
+    Uses the AutoGluon-resolved alias (so weekly is Monday-anchored, monthly is
+    month-start, etc.) keeping the statistical fallback's timestamps on the same
+    grid AutoGluon would produce.
+    """
+    return pd.date_range(start=last_date, periods=horizon + 1, freq=freq)[1:]
+
+
+# Calendar/holiday covariate columns are deterministic functions of the
+# timestamp, so — unlike ordinary covariates — they are genuinely *known* over
+# the forecast horizon and can be recomputed for future dates rather than
+# forward-filled.  All such columns share this prefix so the future-covariate
+# builder knows to recompute (not carry-forward) them.
+CAL_PREFIX = 'cal_'
+
+
+def _calendar_frame(dates, holiday_country: str = None) -> pd.DataFrame:
+    """Deterministic calendar features for a series of timestamps."""
+    dts = pd.to_datetime(pd.Series(list(dates))).reset_index(drop=True)
+    out = pd.DataFrame({
+        f'{CAL_PREFIX}month': dts.dt.month.astype(int),
+        f'{CAL_PREFIX}dayofweek': dts.dt.dayofweek.astype(int),
+        f'{CAL_PREFIX}quarter': dts.dt.quarter.astype(int),
+        f'{CAL_PREFIX}weekofyear': dts.dt.isocalendar().week.astype(int),
+    })
+    if holiday_country:
+        try:
+            import holidays as _holidays
+            cal = _holidays.country_holidays(holiday_country)
+            out[f'{CAL_PREFIX}holiday'] = dts.dt.date.map(lambda d: 1 if d in cal else 0).astype(int)
+        except Exception as e:
+            logger.warning(f"Holiday features unavailable for '{holiday_country}': {e}")
+    return out
+
+
+def _augment_calendar(df: pd.DataFrame, time_col: str, holiday_country: str = None) -> tuple:
+    """Append calendar feature columns to `df`; return (df, added_column_names).
+
+    These become known covariates so the model can learn seasonality/holiday
+    effects even when no exogenous data was supplied.
+    """
+    cal = _calendar_frame(df[time_col], holiday_country)
+    df = df.copy()
+    for c in cal.columns:
+        df[c] = cal[c].values
+    return df, list(cal.columns)
 
 
 
@@ -106,7 +261,11 @@ def apply_fill_missing_per_column(df: pd.DataFrame, fill_configs: dict, fit_stat
             continue
         strategy = cfg.get('strategy', 'ffill')
         constant = cfg.get('constant') or ''
-        
+
+        # mean/median/interpolate produce floats; widen int columns first (pandas 3.0)
+        if strategy in ('mean', 'median', 'interpolate') and pd.api.types.is_integer_dtype(df[col]):
+            df[col] = df[col].astype('float64')
+
         if strategy == 'ffill':
             df[col] = df[col].ffill()
         elif strategy == 'bfill':
@@ -177,7 +336,11 @@ def apply_outlier_treatment_per_column(df: pd.DataFrame, outlier_configs: dict, 
         bounds = stats[col_key]
         lower, upper = bounds['lower'], bounds['upper']
         outlier_mask = (df[col] < lower) | (df[col] > upper)
-        
+
+        # pandas 3.0 refuses float/NaN assignment into an int column.
+        if action in ('cap', 'median', 'mean', 'null') and pd.api.types.is_integer_dtype(df[col]):
+            df[col] = df[col].astype('float64')
+
         if action == 'cap':
             df.loc[df[col] < lower, col] = lower
             df.loc[df[col] > upper, col] = upper
@@ -271,313 +434,361 @@ def compute_feature_importance(model, train_df: pd.DataFrame, target_col: str,
         return []
 
 
-def _holdout_backtest(predictor, ts_input_df: pd.DataFrame, static_df,
-                      target_col: str, time_col: str, id_col: str, horizon: int,
-                      quantiles: list, freq: str,
-                      TimeSeriesDataFrame, known_covariates_cols: list = None):
+def _build_static_and_ts(df, id_col, time_col, static_features_cols, TimeSeriesDataFrame):
+    """Split static features out of `df` and build a TimeSeriesDataFrame.
+    Returns (static_df, ts_df, ts_input_df)."""
+    static_df = None
+    ts_input_df = df
+    cols = [c for c in (static_features_cols or []) if c in df.columns]
+    if cols and id_col and id_col in df.columns:
+        try:
+            static_df = df.groupby(id_col)[cols].first()
+            ts_input_df = df.drop(columns=cols, errors='ignore')
+        except Exception as e:
+            logger.warning(f"Could not build static features df: {e}")
+            static_df, ts_input_df = None, df
+    ts_df = TimeSeriesDataFrame.from_data_frame(
+        ts_input_df,
+        id_column=id_col if id_col else None,
+        timestamp_column=time_col,
+        static_features_df=static_df,
+    )
+    return static_df, ts_df, ts_input_df
+
+
+def _prepare_training_frame(raw_df, cfg, preprocess: bool = True):
+    """Apply fill/outlier preprocessing (fit on THIS frame only) and append
+    deterministic calendar covariates.  Returns (processed_df, known_cols).
+
+    Because the stats are fit on whatever frame is passed in, calling this on a
+    train-only slice gives leakage-safe preprocessing for the backtest, while
+    calling it on the full series gives the deployment model.
     """
-    Proper holdout backtest: remove the last `horizon` rows per series, predict,
-    then compare predictions to the held-out actuals.
-    Returns (mape, rmse, mae, per_series_metrics, backtest_rows).
+    df = raw_df
+    if preprocess:
+        df, _ = preprocess_fold(df, cfg['fill_configs'], cfg['outlier_configs'])
+    known_cols = list(cfg['known_covariates_cols'])
+    if cfg.get('holiday_enabled'):
+        df, cal_cols = _augment_calendar(df, cfg['time_col'], cfg.get('holiday_country'))
+        for c in cal_cols:
+            if c not in known_cols:
+                known_cols.append(c)
+    return df, known_cols
+
+
+def _fit_predictor(train_df, cfg, known_cols, TimeSeriesPredictor, TimeSeriesDataFrame, save_path):
+    """Build a predictor from an already-preprocessed training frame and fit it.
+    Returns (predictor, ts_df, static_df)."""
+    static_df, ts_df, _ = _build_static_and_ts(
+        train_df, cfg['id_col'], cfg['time_col'], cfg['static_features_cols'], TimeSeriesDataFrame)
+
+    predictor_kwargs = dict(
+        target=cfg['target'], prediction_length=cfg['horizon'],
+        freq=cfg['freq'], path=save_path, eval_metric=cfg['eval_metric'],
+    )
+    if known_cols:
+        predictor_kwargs['known_covariates_names'] = known_cols
+    predictor = TimeSeriesPredictor(**predictor_kwargs)
+
+    fit_kwargs = dict(train_data=ts_df, presets=cfg['preset'],
+                      time_limit=cfg['time_limit'], refit_full=cfg['refit_full'])
+    nvw = cfg.get('num_val_windows')
+    if nvw and nvw > 1:
+        fit_kwargs['num_val_windows'] = nvw
+        if cfg.get('val_step_size') and cfg['val_step_size'] != cfg['horizon']:
+            fit_kwargs['val_step_size'] = cfg['val_step_size']
+    if cfg.get('excluded_models'):
+        fit_kwargs['excluded_model_types'] = cfg['excluded_models']
+    if cfg.get('num_gpus') is not None:
+        fit_kwargs['num_gpus'] = cfg['num_gpus']
+    if cfg.get('num_cpus') is not None:
+        fit_kwargs['num_cpus'] = cfg['num_cpus']
+    predictor.fit(**fit_kwargs)
+    return predictor, ts_df, static_df
+
+
+def _split_holdout(raw_df, id_col, time_col, horizon):
+    """Split each series' last `horizon` points off as the holdout actuals.
+    Returns (train_raw, actual_raw) or (None, None) if no series is long enough.
+    Pure dataframe logic — unit-tested without AutoGluon."""
+    if id_col and id_col in raw_df.columns:
+        train_parts, actual_parts = [], []
+        for _, grp in raw_df.groupby(id_col):
+            g = grp.sort_values(time_col)
+            if len(g) <= horizon:
+                continue
+            train_parts.append(g.iloc[:-horizon])
+            actual_parts.append(g.iloc[-horizon:])
+        if not train_parts:
+            return None, None
+        return (pd.concat(train_parts, ignore_index=True),
+                pd.concat(actual_parts, ignore_index=True))
+    g = raw_df.sort_values(time_col)
+    if len(g) <= horizon:
+        return None, None
+    return g.iloc[:-horizon].reset_index(drop=True), g.iloc[-horizon:].reset_index(drop=True)
+
+
+def _rolling_splits(raw_df, id_col, time_col, horizon, n_windows, step_size):
+    """Rolling-origin evaluation windows.
+
+    Window 0 holds out each series' most recent `horizon` points; each later
+    window steps the origin back `step_size` points.  Returns a list of
+    ``(train_raw, actual_raw, fold)`` tuples (oldest origin first), skipping any
+    window that leaves too little training history.  Each window is a genuine
+    out-of-sample slice — the model for window k must be trained only on data up
+    to that window's origin.
+    """
+    n_windows = max(1, int(n_windows or 1))
+    step_size = max(1, int(step_size or horizon))
+    windows = []
+    for k in range(n_windows):
+        offset = k * step_size
+        if id_col and id_col in raw_df.columns:
+            parts = []
+            for _, grp in raw_df.groupby(id_col):
+                g = grp.sort_values(time_col)
+                end = len(g) - offset
+                if end - horizon < 1:        # no training data left for this series
+                    continue
+                parts.append(g.iloc[:end])
+            truncated = pd.concat(parts, ignore_index=True) if parts else None
+        else:
+            g = raw_df.sort_values(time_col)
+            end = len(g) - offset
+            truncated = g.iloc[:end] if end - horizon >= 1 else None
+        if truncated is None:
+            continue
+        train, actual = _split_holdout(truncated, id_col, time_col, horizon)
+        if train is not None:
+            windows.append((train, actual, k))
+    # oldest origin first so the chart reads left→right in time
+    windows.sort(key=lambda w: -w[2])
+    return windows
+
+
+def _interval_metrics_from_df(df):
+    """Compute pinball loss + interval coverage from pooled backtest rows that
+    carry q_<level> quantile columns."""
+    q_cols = [c for c in df.columns if c.startswith('q_')]
+    if not q_cols:
+        return {}
+    quantile_forecasts = {}
+    for c in q_cols:
+        try:
+            quantile_forecasts[float(c[2:])] = df[c].values.astype(float)
+        except (TypeError, ValueError):
+            continue
+    return metrics.compute_interval_metrics(df['actual'].values.astype(float), quantile_forecasts)
+
+
+def _aggregate_backtest_rows(rows, id_col, seasonal_period):
+    """Pool actual/forecast pairs from all rolling windows into overall and
+    per-series metrics (including probabilistic calibration metrics)."""
+    if not rows:
+        return None, None
+    df = pd.DataFrame(rows)
+    agg = metrics.compute_all(df['actual'].values, df['forecast'].values,
+                              seasonal_period=seasonal_period)
+    agg.update(_interval_metrics_from_df(df))
+    per_series = None
+    if id_col and id_col in df.columns:
+        per_series = []
+        for name, g in df.groupby(id_col):
+            sr = {id_col: str(name), 'n': len(g)}
+            sr.update(metrics.compute_all(g['actual'].values, g['forecast'].values,
+                                          seasonal_period=seasonal_period))
+            sr.update(_interval_metrics_from_df(g))
+            per_series.append(sr)
+        per_series.sort(key=lambda x: x.get('wape', x.get('mape', x.get('rmse', 0))), reverse=True)
+    return agg, per_series
+
+
+def _score_holdout(pred_reset, actual_df, target_col, time_col, id_col, freq):
+    """Join AutoGluon predictions to RAW held-out actuals and compute metrics.
+    Returns (agg_metrics, per_series_metrics, backtest_rows). Pure dataframe
+    logic — unit-tested with a synthetic prediction frame (no AutoGluon)."""
+    pred_reset = pred_reset.copy()
+    non_key_cols = [c for c in pred_reset.columns if c not in ('item_id', 'timestamp')]
+    # Quantile columns look like '0.1', '0.5', '0.9'; keep them for calibration.
+    quantile_cols = []
+    for c in non_key_cols:
+        try:
+            float(c)
+            quantile_cols.append(c)
+        except (TypeError, ValueError):
+            pass
+    if '0.5' in pred_reset.columns:
+        pred_col = '0.5'
+    elif 'mean' in pred_reset.columns:
+        pred_col = 'mean'
+    elif non_key_cols:
+        pred_col = non_key_cols[len(non_key_cols) // 2]
+    else:
+        return None, None, None
+
+    carry_cols = list(dict.fromkeys([pred_col] + quantile_cols))
+    if id_col and id_col in actual_df.columns:
+        a = actual_df[[id_col, time_col, target_col]].copy()
+        a['_item'] = a[id_col].astype(str)
+        a['_ts'] = pd.to_datetime(a[time_col])
+        pred_reset['_item'] = pred_reset['item_id'].astype(str)
+        pred_reset['_ts'] = pd.to_datetime(pred_reset['timestamp'])
+        merged = pd.merge(a, pred_reset[['_item', '_ts'] + carry_cols], on=['_item', '_ts'], how='inner')
+    else:
+        a = actual_df[[time_col, target_col]].copy()
+        a['_ts'] = pd.to_datetime(a[time_col])
+        pred_reset['_ts'] = pd.to_datetime(pred_reset['timestamp'])
+        merged = pd.merge(a, pred_reset[['_ts'] + carry_cols], on=['_ts'], how='inner')
+
+    if merged.empty:
+        logger.warning("Holdout backtest: merged DataFrame is empty — timestamp/id mismatch?")
+        return None, None, None
+
+    sort_cols = ['_item', '_ts'] if '_item' in merged.columns else ['_ts']
+    merged = merged.sort_values(sort_cols).reset_index(drop=True)
+    if '_item' in merged.columns:
+        merged['_horizon_step'] = merged.groupby('_item').cumcount() + 1
+    else:
+        merged['_horizon_step'] = range(1, len(merged) + 1)
+
+    seasonal_period = seasonal_period_for(freq)
+    agg = metrics.compute_all(merged[target_col].values.astype(float),
+                              merged[pred_col].values.astype(float),
+                              seasonal_period=seasonal_period)
+
+    backtest_rows = []
+    for _, row in merged.iterrows():
+        br = {
+            'timestamp': str(row['_ts']),
+            'actual': float(row[target_col]),
+            'forecast': float(row[pred_col]),
+            'horizon_step': int(row['_horizon_step']),
+        }
+        # Carry quantile predictions so calibration can be computed after pooling.
+        for qc in quantile_cols:
+            br[f'q_{qc}'] = float(row[qc])
+        if id_col and '_item' in row:
+            br[id_col] = str(row['_item'])
+        backtest_rows.append(br)
+
+    per_series = []
+    if id_col and '_item' in merged.columns:
+        for item_val, grp_df in merged.groupby('_item'):
+            sr = {id_col: str(item_val), 'n': len(grp_df)}
+            sr.update(metrics.compute_all(
+                grp_df[target_col].values.astype(float),
+                grp_df[pred_col].values.astype(float),
+                seasonal_period=seasonal_period))
+            per_series.append(sr)
+        per_series.sort(key=lambda x: x.get('wape', x.get('mape', x.get('rmse', 0))), reverse=True)
+
+    return agg, per_series or None, backtest_rows
+
+
+def _backtest_one_window(train_raw, actual_raw, cfg, TimeSeriesPredictor,
+                         TimeSeriesDataFrame, save_path, predictor=None):
+    """Fit (or reuse) a predictor on one window's train slice and score it
+    against that window's raw actuals.  Returns the backtest rows for the window."""
+    # Preprocess + covariates fit on THIS window's train slice only (no peeking)
+    train_proc, known_cols = _prepare_training_frame(train_raw, cfg, preprocess=True)
+
+    if predictor is None:
+        predictor, ts_df, _ = _fit_predictor(
+            train_proc, {**cfg, 'num_val_windows': None}, known_cols,
+            TimeSeriesPredictor, TimeSeriesDataFrame, save_path)
+    else:
+        _, ts_df, _ = _build_static_and_ts(
+            train_proc, cfg['id_col'], cfg['time_col'], cfg['static_features_cols'], TimeSeriesDataFrame)
+
+    predict_kwargs = dict(quantile_levels=cfg['quantiles'])
+    fc = _build_future_covariates(train_proc, cfg['id_col'], cfg['time_col'], cfg['freq'],
+                                  cfg['horizon'], known_cols, TimeSeriesDataFrame,
+                                  holiday_country=cfg.get('holiday_country'),
+                                  future_df=cfg.get('future_cov_df'))
+    if fc is not None:
+        predict_kwargs['known_covariates'] = fc
+
+    preds = predictor.predict(ts_df, **predict_kwargs)
+    _, _, rows = _score_holdout(preds.reset_index(), actual_raw,
+                                cfg['target'], cfg['time_col'], cfg['id_col'], cfg['freq'])
+    return rows
+
+
+def _holdout_backtest(raw_df, cfg, TimeSeriesPredictor, TimeSeriesDataFrame,
+                      predictor=None):
+    """Leakage-free rolling-origin out-of-sample backtest.
+
+    Driven by the user's `backtestFolds` setting (``cfg['backtest_windows']``):
+    with 1 window it's a single last-`horizon` holdout; with N>1 it's an
+    N-window rolling-origin evaluation, each window stepped back
+    ``cfg['val_step_size']`` points.  For each window we **fit a fresh predictor
+    on only the data up to that window's origin** (fill/outlier stats fit on that
+    slice) and compare to the RAW held-out actuals.  Retraining per window is the
+    whole point: reusing the full-data deployment model would let it "predict"
+    points it had already trained on.
+
+    In load mode a pre-fitted `predictor` is reused for every window (assumed
+    trained on a different dataset, so this data's tail is genuinely OOS).
+
+    Returns (agg_metrics, per_series_metrics, backtest_rows) pooled over windows.
     """
     try:
-        # ── Build holdout training set (remove last horizon rows per series) ──
-        if id_col and id_col in ts_input_df.columns:
-            train_parts, actual_parts = [], []
-            for _, grp in ts_input_df.groupby(id_col):
-                grp_sorted = grp.sort_values(time_col)
-                if len(grp_sorted) <= horizon:
-                    continue
-                train_parts.append(grp_sorted.iloc[:-horizon])
-                actual_parts.append(grp_sorted.iloc[-horizon:])
-            if not train_parts:
-                return None, None, None, None, None
-            holdout_train_df = pd.concat(train_parts, ignore_index=True)
-            holdout_actual_df = pd.concat(actual_parts, ignore_index=True)
-        else:
-            sorted_df = ts_input_df.sort_values(time_col)
-            if len(sorted_df) <= horizon:
-                return None, None, None, None, None
-            holdout_train_df = sorted_df.iloc[:-horizon]
-            holdout_actual_df = sorted_df.iloc[-horizon:]
+        n_windows = max(1, int(cfg.get('backtest_windows') or 1))
+        step_size = cfg.get('val_step_size') or cfg['horizon']
+        windows = _rolling_splits(raw_df, cfg['id_col'], cfg['time_col'],
+                                  cfg['horizon'], n_windows, step_size)
+        if not windows:
+            logger.warning("Holdout backtest skipped: no series longer than the horizon")
+            return None, None, None
 
-        holdout_ts = TimeSeriesDataFrame.from_data_frame(
-            holdout_train_df,
-            id_column=id_col if id_col else None,
-            timestamp_column=time_col,
-            static_features_df=static_df,
-        )
+        # Backtest predictors are throwaway — train them into a temp dir that is
+        # always removed, so repeated runs don't leak model artifacts to disk.
+        # They may also use a lighter preset than the deployment model.
+        bt_preset = cfg.get('backtest_preset') or cfg['preset']
+        bt_cfg = {**cfg, 'num_val_windows': None, 'preset': bt_preset}
+        tmp_root = tempfile.mkdtemp(prefix='ag_backtest_')
+        try:
+            all_rows = []
+            for win_idx, (train_raw, actual_raw, fold) in enumerate(windows, start=1):
+                logger.info(f"Backtest window {win_idx}/{len(windows)} (origin offset fold={fold})")
+                win_path = os.path.join(tmp_root, f'w{fold}') if predictor is None else tmp_root
+                rows = _backtest_one_window(train_raw, actual_raw, bt_cfg, TimeSeriesPredictor,
+                                            TimeSeriesDataFrame, win_path, predictor=predictor)
+                if rows:
+                    # fold number increases toward the most recent window (1 = oldest origin)
+                    fold_label = n_windows - fold
+                    for r in rows:
+                        r['fold'] = fold_label
+                    all_rows.extend(rows)
+        finally:
+            shutil.rmtree(tmp_root, ignore_errors=True)
 
-        # ── Predict from holdout training set ───────────────────────────────
-        predict_kwargs = dict(quantile_levels=quantiles)
-        if known_covariates_cols:
-            try:
-                if id_col and id_col in holdout_train_df.columns:
-                    cov_frames = []
-                    for item, grp in holdout_train_df.groupby(id_col):
-                        grp = grp.sort_values(time_col)
-                        last_date = grp[time_col].max()
-                        future_dates = pd.date_range(start=last_date, periods=horizon + 1, freq=freq)[1:]
-                        last_row = grp.iloc[-1]
-                        cov_rows = pd.DataFrame({
-                            id_col: item, time_col: future_dates,
-                            **{c: last_row[c] for c in known_covariates_cols if c in grp.columns},
-                        })
-                        cov_frames.append(cov_rows)
-                    if cov_frames:
-                        future_cov_ts = TimeSeriesDataFrame.from_data_frame(
-                            pd.concat(cov_frames, ignore_index=True),
-                            id_column=id_col, timestamp_column=time_col
-                        )
-                        predict_kwargs['known_covariates'] = future_cov_ts
-            except Exception as e:
-                logger.warning(f"Could not build known_covariates for holdout predict: {e}")
+        if not all_rows:
+            return None, None, None
 
-        holdout_preds = predictor.predict(holdout_ts, **predict_kwargs)
-        pred_reset = holdout_preds.reset_index()
-
-        # ── Identify the median/point-forecast column ────────────────────────
-        non_key_cols = [c for c in pred_reset.columns if c not in ['item_id', 'timestamp']]
-        if '0.5' in pred_reset.columns:
-            pred_col = '0.5'
-        elif 'mean' in pred_reset.columns:
-            pred_col = 'mean'
-        elif non_key_cols:
-            pred_col = non_key_cols[len(non_key_cols) // 2]
-        else:
-            return None, None, None, None, None
-
-        # ── Join predictions with holdout actuals ────────────────────────────
-        # pred_reset has: item_id, timestamp, <quantile cols>
-        # holdout_actual_df has: id_col, time_col, target_col, ...
-        if id_col and id_col in holdout_actual_df.columns:
-            actual_subset = holdout_actual_df[[id_col, time_col, target_col]].copy()
-            actual_subset['_item'] = actual_subset[id_col].astype(str)
-            pred_reset['_item'] = pred_reset['item_id'].astype(str)
-            pred_reset['_ts'] = pd.to_datetime(pred_reset['timestamp'])
-            actual_subset['_ts'] = pd.to_datetime(actual_subset[time_col])
-            merged = pd.merge(actual_subset, pred_reset[['_item', '_ts', pred_col]],
-                              on=['_item', '_ts'], how='inner')
-        else:
-            actual_subset = holdout_actual_df[[time_col, target_col]].copy()
-            actual_subset['_ts'] = pd.to_datetime(actual_subset[time_col])
-            pred_reset['_ts'] = pd.to_datetime(pred_reset['timestamp'])
-            merged = pd.merge(actual_subset, pred_reset[['_ts', pred_col]],
-                              on=['_ts'], how='inner')
-
-        if merged.empty:
-            logger.warning("Holdout backtest: merged DataFrame is empty — timestamp/id mismatch?")
-            return None, None, None, None, None
-
-        # Sort by item then time so horizon_step is computed correctly
-        sort_cols = ['_item', '_ts'] if '_item' in merged.columns else ['_ts']
-        merged = merged.sort_values(sort_cols).reset_index(drop=True)
-
-        # Compute horizon_step (1-based rank within each series)
-        if '_item' in merged.columns:
-            merged['_horizon_step'] = merged.groupby('_item').cumcount() + 1
-        else:
-            merged['_horizon_step'] = range(1, len(merged) + 1)
-
-        actuals = merged[target_col].values.astype(float)
-        forecasts = merged[pred_col].values.astype(float)
-        non_zero = actuals != 0
-
-        mape = round(float(np.mean(np.abs((actuals[non_zero] - forecasts[non_zero]) / actuals[non_zero])) * 100), 2) if non_zero.any() else None
-        rmse = round(float(np.sqrt(np.mean((actuals - forecasts) ** 2))), 2)
-        mae  = round(float(np.mean(np.abs(actuals - forecasts))), 2)
-
-        # ── Build backtest rows list ─────────────────────────────────────────
-        backtest_rows = []
-        for _, row in merged.iterrows():
-            br = {
-                'timestamp': str(row['_ts']),
-                'actual': float(row[target_col]),
-                'forecast': float(row[pred_col]),
-                'horizon_step': int(row['_horizon_step']),
-            }
-            if id_col and '_item' in row:
-                br[id_col] = str(row['_item'])
-            backtest_rows.append(br)
-
-        # ── Per-series breakdown ─────────────────────────────────────────────
-        per_series = []
-        if id_col and '_item' in merged.columns:
-            for item_val, grp_df in merged.groupby('_item'):
-                a = grp_df[target_col].values.astype(float)
-                f = grp_df[pred_col].values.astype(float)
-                nz = a != 0
-                sr = {id_col: str(item_val), 'n': len(a),
-                      'rmse': round(float(np.sqrt(np.mean((a - f) ** 2))), 2),
-                      'mae':  round(float(np.mean(np.abs(a - f))), 2)}
-                if nz.any():
-                    sr['mape'] = round(float(np.mean(np.abs((a[nz] - f[nz]) / a[nz])) * 100), 2)
-                per_series.append(sr)
-            per_series.sort(key=lambda x: x.get('mape', x.get('rmse', 0)), reverse=True)
-
-        return mape, rmse, mae, per_series or None, backtest_rows
+        seasonal_period = seasonal_period_for(cfg['freq'])
+        agg, per_series = _aggregate_backtest_rows(all_rows, cfg['id_col'], seasonal_period)
+        # Drop the per-row quantile columns (used only for calibration) so the
+        # SSE backtest payload stays lean.
+        clean_rows = [{k: v for k, v in r.items() if not k.startswith('q_')} for r in all_rows]
+        return agg, per_series, clean_rows
 
     except Exception as e:
         logger.warning(f"Holdout backtest failed: {e}", exc_info=True)
-        return None, None, None, None, None
-
-
-def run_statistical_forecast(df, node_data, fill_configs, outlier_configs):
-    target_col = node_data.get('cfgTargetVar', '')
-    time_col = node_data.get('cfgTimeCol', node_data.get('configDateColumn', ''))
-    id_col = node_data.get('cfgDfu', '')
-    _hz_raw = node_data.get('forecastHorizon', 12)
-    try:
-        horizon = int(_hz_raw) if str(_hz_raw).strip() else 12
-    except (ValueError, TypeError):
-        horizon = 12
-    freq_raw = node_data.get('dataFrequency', 'M')
-    freq = FREQ_MAP.get(freq_raw, freq_raw)
-    backtest_enabled = node_data.get('backtestEnabled', False)
-    _sf_nf_raw = node_data.get('backtestFolds', 3)
-    try:
-        n_folds = int(_sf_nf_raw) if str(_sf_nf_raw).strip() else 3
-    except (ValueError, TypeError):
-        n_folds = 3
-
-    if not target_col or not time_col:
-        raise ValueError("Target variable and timestamp column are required")
-    
-    df = df.copy()
-    df[time_col] = pd.to_datetime(df[time_col])
-    df = df.sort_values(time_col)
-    
-    df, train_stats = preprocess_fold(df, fill_configs, outlier_configs)
-    
-    importance = compute_feature_importance(None, df, target_col, time_col, id_col)
-    
-    results = {
-        'dataframe': df,
-        'message': 'Statistical forecast completed',
-        'info': {
-            'rows': len(df),
-            'columns': list(df.columns),
-            'target': target_col,
-            'horizon': horizon,
-        },
-    }
-    
-    if importance:
-        results['feature_importance'] = importance
-    
-    if id_col and id_col in df.columns:
-        groups = df.groupby(id_col)
-    else:
-        groups = [('all', df)]
-    
-    forecast_rows = []
-    backtest_rows = []
-    
-    for group_name, group_df in groups:
-        group_df = group_df.sort_values(time_col)
-        values = group_df[target_col].values
-        
-        if len(values) < 3:
-            continue
-        
-        mean_val = np.mean(values[-min(12, len(values)):])
-        std_val = np.std(values[-min(12, len(values)):]) if len(values) > 1 else mean_val * 0.1
-        
-        trend = 0
-        if len(values) >= 6:
-            recent = np.mean(values[-3:])
-            earlier = np.mean(values[-6:-3])
-            if earlier != 0:
-                trend = (recent - earlier) / earlier
-        
-        last_date = group_df[time_col].max()
-        
-        for h in range(1, horizon + 1):
-            forecast_val = mean_val * (1 + trend * h / horizon)
-            lower = forecast_val - 1.96 * std_val
-            upper = forecast_val + 1.96 * std_val
-            
-            future_date = last_date + pd.DateOffset(**{
-                'D': {'days': h}, 'W': {'weeks': h}, 'M': {'months': h},
-                'Q': {'months': h * 3}, 'Y': {'years': h}
-            }.get(freq, {'months': h}))
-            
-            row = {
-                time_col: future_date,
-                'forecast': round(forecast_val, 4),
-                'forecast_lower': round(lower, 4),
-                'forecast_upper': round(upper, 4),
-                'horizon_step': h,
-            }
-            if id_col:
-                row[id_col] = group_name
-            forecast_rows.append(row)
-        
-        if backtest_enabled and len(values) > horizon * 2:
-            for fold in range(n_folds):
-                fold_end = len(values) - fold * horizon
-                fold_start = fold_end - horizon
-                if fold_start < 3:
-                    break
-                
-                train_vals = values[:fold_start]
-                actual_vals = values[fold_start:fold_end]
-                train_mean = np.mean(train_vals[-min(12, len(train_vals)):])
-                
-                for step, actual in enumerate(actual_vals):
-                    bt_row = {
-                        time_col: group_df[time_col].iloc[fold_start + step] if fold_start + step < len(group_df) else None,
-                        'actual': float(actual),
-                        'forecast': round(float(train_mean), 4),
-                        'fold': n_folds - fold,
-                        'horizon_step': step + 1,
-                    }
-                    if id_col:
-                        bt_row[id_col] = group_name
-                    backtest_rows.append(bt_row)
-    
-    if forecast_rows:
-        forecast_df = pd.DataFrame(forecast_rows)
-        results['forecast'] = json.loads(forecast_df.to_json(orient='records', date_format='iso'))
-        results['info']['forecast_rows'] = len(forecast_rows)
-    
-    if backtest_rows:
-        backtest_df = pd.DataFrame(backtest_rows)
-        results['backtest'] = json.loads(backtest_df.to_json(orient='records', date_format='iso'))
-        results['info']['backtest_rows'] = len(backtest_rows)
-        
-        actuals = backtest_df['actual'].values
-        forecasts = backtest_df['forecast'].values
-        non_zero = actuals != 0
-        if non_zero.any():
-            results['info']['mape'] = round(float(np.mean(np.abs((actuals[non_zero] - forecasts[non_zero]) / actuals[non_zero])) * 100), 2)
-        results['info']['rmse'] = round(float(np.sqrt(np.mean((actuals - forecasts) ** 2))), 2)
-        results['info']['mae'] = round(float(np.mean(np.abs(actuals - forecasts))), 2)
-
-        if id_col and id_col in backtest_df.columns:
-            per_series = []
-            for grp_name, grp_df in backtest_df.groupby(id_col):
-                a = grp_df['actual'].values
-                f = grp_df['forecast'].values
-                nz = a != 0
-                row = {id_col: str(grp_name), 'n': len(a),
-                       'rmse': round(float(np.sqrt(np.mean((a - f) ** 2))), 2),
-                       'mae': round(float(np.mean(np.abs(a - f))), 2)}
-                if nz.any():
-                    row['mape'] = round(float(np.mean(np.abs((a[nz] - f[nz]) / a[nz])) * 100), 2)
-                per_series.append(row)
-            per_series.sort(key=lambda x: x.get('mape', x.get('rmse', 0)), reverse=True)
-            results['per_series_metrics'] = per_series
-    
-    return results
+        return None, None, None
 
 
 @register('model_config')
 def handle_model_config(node_data: dict, upstream_data: list, storage=None, config: dict = None, node_outputs: dict = None, **kwargs):
     if not upstream_data:
         raise ValueError("Model Config requires upstream data")
-    
+
     df = upstream_data[0].copy()
+    # Optional second upstream input: a future known-covariates table (actual
+    # planned values over the horizon, e.g. price/promo). Used at predict time
+    # instead of forward-filling. None when only the history is connected.
+    future_cov_df = upstream_data[1].copy() if len(upstream_data) > 1 else None
     mode = node_data.get('modelMode', 'train')
     
     fill_configs = node_data.get('cfgFillConfigs') or {}
@@ -590,16 +801,21 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
     if not outlier_enabled:
         outlier_configs = {}
     
+    # AutoGluon is THE forecasting engine — it already ships the full statistical
+    # suite (SeasonalNaive, ETS/AutoETS, Theta, (Auto)ARIMA, Croston/NPTS for
+    # intermittent demand) plus deep models, all trained and backtested inside
+    # one leakage-safe framework.  We deliberately do NOT carry a second, parallel
+    # forecasting code path; if AutoGluon is missing we fail loudly rather than
+    # silently returning a different (and less trustworthy) kind of forecast.
     try:
         from autogluon.timeseries import TimeSeriesPredictor, TimeSeriesDataFrame
-        has_autogluon = True
-    except ImportError:
-        has_autogluon = False
-        logger.warning("AutoGluon not installed, using statistical fallback")
-    
-    if not has_autogluon:
-        return run_statistical_forecast(df, node_data, fill_configs, outlier_configs)
-    
+    except ImportError as e:
+        raise ValueError(
+            "AutoGluon is required for forecasting but is not installed. "
+            "Install it with `pip install autogluon.timeseries` (or `uv sync`). "
+            f"(import error: {e})"
+        )
+
     # ── Core config ─────────────────────────────────────────────────────────
     target_col = node_data.get('cfgTargetVar', '')
     time_col = node_data.get('cfgTimeCol', node_data.get('configDateColumn', ''))
@@ -617,6 +833,11 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
     # Preset: map 'fast' → 'fast_training', etc.
     preset_raw = node_data.get('cfgPreset', 'medium_quality')
     preset = _resolve_preset(preset_raw)
+
+    # Optional lighter preset for throwaway backtest fits (defaults to the
+    # deployment preset when unset, preserving previous behaviour).
+    bt_preset_raw = node_data.get('cfgBacktestPreset')
+    backtest_preset = _resolve_preset(bt_preset_raw) if bt_preset_raw else preset
 
     _tl_raw = node_data.get('cfgTimeLimit', 600)
     try:
@@ -666,113 +887,85 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
     
     if not target_col or not time_col:
         raise ValueError("Target variable and timestamp column are required")
-    
+
     df[time_col] = pd.to_datetime(df[time_col])
-    df = df.sort_values(time_col)
-    
-    df, train_stats = preprocess_fold(df, fill_configs, outlier_configs)
-    
+    df = df.sort_values(time_col).reset_index(drop=True)
+
+    # ── Pre-training data-quality gate ───────────────────────────────────────
+    # Fail fast on fatal problems and collect advisory warnings before a long fit.
+    from engine.data_quality import check_forecast_data
+    dq = check_forecast_data(df, target_col, time_col, id_col, horizon)
+    if dq['errors']:
+        raise ValueError("Data quality check failed: " + "; ".join(dq['errors']))
+    for w in dq['warnings']:
+        logger.warning(f"Data quality: {w}")
+
+    # Keep an un-preprocessed copy: the backtest must split *before* any
+    # fill/outlier statistics are computed, so it can fit those on train-only
+    # data and score against the raw (untreated) actuals — no leakage.
+    raw_df = df.copy()
+
+    holiday_enabled = bool(node_data.get('cfgHolidayEnabled', False))
+    holiday_country = (node_data.get('cfgHolidayCountry') or '').strip() or None
+
     model_path = config.get('MODEL_PATH', 'models') if config else 'models'
     save_path = os.path.join(model_path, f"ag_model_{int(time.time())}")
     os.makedirs(save_path, exist_ok=True)
-    
+
     static_features_cols = [c for c in node_data.get('cfgStaticFeatures', []) or []
                              if c and c in df.columns and c not in [id_col, time_col, target_col]]
-    known_covariates_cols = [c for c in node_data.get('cfgKnownCovariates', []) or []
-                              if c and c in df.columns and c not in [id_col, time_col, target_col]]
+    # Base (user-specified) known covariates; calendar columns are appended later
+    # by _prepare_training_frame so the same logic runs for the main fit and the
+    # per-fold backtest fit.
+    base_known_cols = [c for c in node_data.get('cfgKnownCovariates', []) or []
+                       if c and c in df.columns and c not in [id_col, time_col, target_col]]
+
+    # Single config object shared by the main fit and the backtest fit so they
+    # are guaranteed to use identical settings.
+    cfg = {
+        'target': target_col, 'time_col': time_col, 'id_col': id_col,
+        'horizon': horizon, 'freq': freq, 'eval_metric': eval_metric,
+        'preset': preset, 'time_limit': time_limit, 'refit_full': refit_full,
+        'quantiles': quantiles, 'excluded_models': excluded_models,
+        'num_gpus': num_gpus, 'num_cpus': num_cpus,
+        'static_features_cols': static_features_cols,
+        'known_covariates_cols': base_known_cols,
+        'fill_configs': fill_configs, 'outlier_configs': outlier_configs,
+        'holiday_enabled': holiday_enabled, 'holiday_country': holiday_country,
+        'num_val_windows': n_folds if (backtest_enabled and n_folds > 1) else None,
+        'val_step_size': backtest_step_size,
+        # Rolling-origin window count for the explicit OOS backtest, driven by the
+        # user's backtestFolds setting (1 = single holdout, N = N rolling windows).
+        'backtest_windows': max(1, n_folds) if backtest_enabled else 1,
+        # Backtest fits are throwaway; let them optionally use a lighter preset
+        # than the deployment model so N-window backtests don't multiply runtime.
+        'backtest_preset': backtest_preset,
+        # Optional user-supplied future known-covariate table (second upstream).
+        'future_cov_df': future_cov_df,
+    }
+
+    # Preprocess + calendar-augment the FULL series for the deployment model.
+    df, known_covariates_cols = _prepare_training_frame(raw_df, cfg, preprocess=True)
 
     if mode == 'train':
-        static_df = None
-        ts_input_df = df.copy()
-
-        # Build static features DataFrame (one row per item_id)
-        if static_features_cols and id_col and id_col in df.columns:
-            try:
-                static_df = df.groupby(id_col)[static_features_cols].first()
-                ts_input_df = df.drop(columns=static_features_cols, errors='ignore')
-                logger.info(f"Static features: {static_features_cols}")
-            except Exception as e:
-                logger.warning(f"Could not build static features df: {e}")
-                static_df = None
-                ts_input_df = df.copy()
-
-        ts_df = TimeSeriesDataFrame.from_data_frame(
-            ts_input_df,
-            id_column=id_col if id_col else None,
-            timestamp_column=time_col,
-            static_features_df=static_df,
-        )
-
-        # Build predictor kwargs
-        predictor_kwargs = dict(
-            target=target_col,
-            prediction_length=horizon,
-            freq=freq,
-            path=save_path,
-            eval_metric=eval_metric,
-        )
-        if known_covariates_cols:
-            predictor_kwargs['known_covariates_names'] = known_covariates_cols
-            logger.info(f"Known covariates: {known_covariates_cols}")
-
-        predictor = TimeSeriesPredictor(**predictor_kwargs)
-
-        # Build fit kwargs
-        fit_kwargs = dict(
-            train_data=ts_df,
-            presets=preset,
-            time_limit=time_limit,
-            refit_full=refit_full,
-        )
-        # Wire backtest fold count and step size into AutoGluon's internal CV
-        if backtest_enabled and n_folds > 1:
-            fit_kwargs['num_val_windows'] = n_folds
-            if backtest_step_size and backtest_step_size != horizon:
-                fit_kwargs['val_step_size'] = backtest_step_size
-        if excluded_models:
-            fit_kwargs['excluded_model_types'] = excluded_models
-            logger.info(f"Excluded models: {excluded_models}")
-        if num_gpus is not None:
-            fit_kwargs['num_gpus'] = num_gpus
-        if num_cpus is not None:
-            fit_kwargs['num_cpus'] = num_cpus
-
-        predictor.fit(**fit_kwargs)
+        # Fit the deployment model on the full (preprocessed + calendar) series.
+        predictor, ts_df, static_df = _fit_predictor(
+            df, cfg, known_covariates_cols, TimeSeriesPredictor, TimeSeriesDataFrame, save_path)
+        logger.info(f"Known covariates: {known_covariates_cols}; static: {static_features_cols}")
 
         # ── Predict: handle known covariates ────────────────────────────────
         # If known_covariates_names is set, AutoGluon needs future covariate
-        # data at predict time. Without it, prediction will fail.
-        # We use the last `horizon` rows of each series as a proxy for future
-        # covariates (realistic only if the dataset already contains them).
+        # values over the horizon. We project the last observed values forward.
         predict_kwargs = dict(quantile_levels=quantiles)
-        if known_covariates_cols:
-            try:
-                # Build future covariate stub: repeat last known values per series
-                if id_col and id_col in df.columns:
-                    cov_frames = []
-                    for item, grp in df.groupby(id_col):
-                        grp = grp.sort_values(time_col)
-                        last_date = grp[time_col].max()
-                        future_dates = pd.date_range(start=last_date, periods=horizon + 1, freq=freq)[1:]
-                        last_row = grp.iloc[-1]
-                        cov_rows = pd.DataFrame({
-                            id_col: item,
-                            time_col: future_dates,
-                            **{c: last_row[c] for c in known_covariates_cols if c in grp.columns},
-                        })
-                        cov_frames.append(cov_rows)
-                    if cov_frames:
-                        future_cov_df = pd.concat(cov_frames, ignore_index=True)
-                        future_cov_ts = TimeSeriesDataFrame.from_data_frame(
-                            future_cov_df, id_column=id_col, timestamp_column=time_col
-                        )
-                        predict_kwargs['known_covariates'] = future_cov_ts
-                        logger.info("Built future covariate stub for prediction")
-            except Exception as e:
-                logger.warning(f"Could not build known_covariates for predict: {e}. Predicting without them.")
+        future_cov_ts = _build_future_covariates(
+            df, id_col, time_col, freq, horizon, known_covariates_cols, TimeSeriesDataFrame,
+            holiday_country=holiday_country, future_df=future_cov_df)
+        if future_cov_ts is not None:
+            predict_kwargs['known_covariates'] = future_cov_ts
+            logger.info("Built future covariate stub for prediction")
 
         predictions = predictor.predict(ts_df, **predict_kwargs)
-        
+
         importance = compute_feature_importance(predictor, df, target_col, time_col, id_col, ts_data=ts_df)
         
         results = {
@@ -813,35 +1006,21 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
         except Exception as e:
             logger.warning(f"Leaderboard failed: {e}")
 
-        # ── Holdout backtest (proper out-of-sample evaluation) ───────────────
-        # Slice the last `horizon` rows per series as a true holdout.
-        # Train-time data excludes these rows; we predict from the truncated
-        # dataset and compare against the held-out actuals.
+        # ── Holdout backtest (leakage-free out-of-sample evaluation) ─────────
+        # Trains a FRESH predictor on data with the last `horizon` points per
+        # series removed, then scores against the raw held-out actuals.
         if backtest_enabled:
             try:
-                mape, rmse, mae, per_series, backtest_rows = _holdout_backtest(
-                    predictor=predictor,
-                    ts_input_df=ts_input_df,
-                    static_df=static_df,
-                    target_col=target_col,
-                    time_col=time_col,
-                    id_col=id_col,
-                    horizon=horizon,
-                    quantiles=quantiles,
-                    freq=freq,
-                    TimeSeriesDataFrame=TimeSeriesDataFrame,
-                    known_covariates_cols=known_covariates_cols,
+                agg, per_series, backtest_rows = _holdout_backtest(
+                    raw_df, cfg, TimeSeriesPredictor, TimeSeriesDataFrame,
                 )
-                if mape is not None:
-                    results['info']['mape'] = mape
-                if rmse is not None:
-                    results['info']['rmse'] = rmse
-                if mae is not None:
-                    results['info']['mae'] = mae
+                if agg:
+                    results['info'].update(agg)
                 if per_series:
                     results['per_series_metrics'] = per_series
                 if backtest_rows:
                     results['backtest'] = backtest_rows
+                    results['info']['backtest_method'] = 'retrain_oos'
             except Exception as e:
                 logger.warning(f"Holdout backtest failed: {e}", exc_info=True)
 
@@ -859,7 +1038,16 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
                     results['info']['ag_eval_score'] = round(float(scores), 4)
             except Exception as e:
                 logger.warning(f"predictor.evaluate failed: {e}")
-        
+
+        # Retention: keep only the N most recent models on disk (0 = keep all).
+        try:
+            from engine.model_registry import prune_models
+            keep = int(config.get('MODEL_RETENTION', 0)) if config else 0
+            if keep > 0:
+                prune_models(model_path, keep)
+        except Exception as e:
+            logger.warning(f"Model retention prune failed: {e}")
+
         return results
     
     elif mode == 'load':
@@ -869,45 +1057,15 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
         
         predictor = TimeSeriesPredictor.load(load_path)
 
-        static_df = None
-        ts_input_df = df.copy()
-        if static_features_cols and id_col and id_col in df.columns:
-            try:
-                static_df = df.groupby(id_col)[static_features_cols].first()
-                ts_input_df = df.drop(columns=static_features_cols, errors='ignore')
-            except Exception:
-                pass
-
-        ts_df = TimeSeriesDataFrame.from_data_frame(
-            ts_input_df,
-            id_column=id_col if id_col else None,
-            timestamp_column=time_col,
-            static_features_df=static_df,
-        )
+        static_df, ts_df, _ = _build_static_and_ts(
+            df, id_col, time_col, static_features_cols, TimeSeriesDataFrame)
 
         predict_kwargs = dict(quantile_levels=quantiles)
-        if known_covariates_cols:
-            try:
-                if id_col and id_col in df.columns:
-                    cov_frames = []
-                    for item, grp in df.groupby(id_col):
-                        grp = grp.sort_values(time_col)
-                        last_date = grp[time_col].max()
-                        future_dates = pd.date_range(start=last_date, periods=horizon + 1, freq=freq)[1:]
-                        last_row = grp.iloc[-1]
-                        cov_rows = pd.DataFrame({
-                            id_col: item,
-                            time_col: future_dates,
-                            **{c: last_row[c] for c in known_covariates_cols if c in grp.columns},
-                        })
-                        cov_frames.append(cov_rows)
-                    if cov_frames:
-                        future_cov_ts = TimeSeriesDataFrame.from_data_frame(
-                            pd.concat(cov_frames, ignore_index=True), id_column=id_col, timestamp_column=time_col
-                        )
-                        predict_kwargs['known_covariates'] = future_cov_ts
-            except Exception as e:
-                logger.warning(f"Could not build known_covariates for load-mode predict: {e}")
+        future_cov_ts = _build_future_covariates(
+            df, id_col, time_col, freq, horizon, known_covariates_cols, TimeSeriesDataFrame,
+            holiday_country=holiday_country, future_df=future_cov_df)
+        if future_cov_ts is not None:
+            predict_kwargs['known_covariates'] = future_cov_ts
 
         predictions = predictor.predict(ts_df, **predict_kwargs)
 
@@ -921,6 +1079,7 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
                 'quantiles': quantiles,
                 'horizon': horizon,
                 'freq': freq,
+                'data_quality': dq,
             },
             'forecast': json.loads(predictions.reset_index().to_json(orient='records', date_format='iso')),
         }
@@ -945,31 +1104,22 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
             logger.warning(f"Load-mode leaderboard failed: {e}")
 
         # ── Holdout backtest (load mode, if enabled) ──────────────────────────
+        # Reuses the loaded model (assumed trained on a different dataset, so the
+        # held-out tail of THIS data is genuinely out-of-sample) and scores
+        # against the raw actuals.
         if backtest_enabled:
             try:
-                mape, rmse, mae, per_series, backtest_rows = _holdout_backtest(
+                agg, per_series, backtest_rows = _holdout_backtest(
+                    raw_df, cfg, TimeSeriesPredictor, TimeSeriesDataFrame,
                     predictor=predictor,
-                    ts_input_df=ts_input_df,
-                    static_df=static_df,
-                    target_col=target_col,
-                    time_col=time_col,
-                    id_col=id_col,
-                    horizon=horizon,
-                    quantiles=quantiles,
-                    freq=freq,
-                    TimeSeriesDataFrame=TimeSeriesDataFrame,
-                    known_covariates_cols=known_covariates_cols,
                 )
-                if mape is not None:
-                    load_results['info']['mape'] = mape
-                if rmse is not None:
-                    load_results['info']['rmse'] = rmse
-                if mae is not None:
-                    load_results['info']['mae'] = mae
+                if agg:
+                    load_results['info'].update(agg)
                 if per_series:
                     load_results['per_series_metrics'] = per_series
                 if backtest_rows:
                     load_results['backtest'] = backtest_rows
+                    load_results['info']['backtest_method'] = 'loaded_model_oos'
             except Exception as e:
                 logger.warning(f"Load-mode holdout backtest failed: {e}", exc_info=True)
 

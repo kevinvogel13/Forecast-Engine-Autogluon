@@ -1,0 +1,189 @@
+"""Tests for the AutoGluon-only model handler.
+
+AutoGluon is the sole forecasting engine — there is no statistical fallback —
+so the AG-dependent code paths can't run in this sandbox. These tests cover the
+parts that *don't* need AutoGluon: the hard-fail behaviour when it's missing,
+seasonal-period inference, and the leakage-safe backtest helpers (`_split_holdout`,
+`_score_holdout`) that decide what data the model is trained and scored on.
+"""
+import numpy as np
+import pandas as pd
+import pytest
+
+from engine.handlers import model_handler as M
+from engine.contract import seasonal_period_for
+
+
+def _monthly(n=36, base=100):
+    idx = pd.date_range('2021-01-01', periods=n, freq='MS')
+    vals = base + 20 * np.sin(2 * np.pi * np.arange(n) / 12) + np.arange(n) * 1.5
+    return pd.DataFrame({'date': idx, 'sales': vals})
+
+
+# ── Hard-fail when AutoGluon is absent ───────────────────────────────────────
+def test_model_config_requires_autogluon():
+    # AutoGluon is not installed in the test sandbox, so this must fail loudly
+    # rather than silently falling back to some other model.
+    pytest.importorskip  # noqa — explicit: we WANT the absence path
+    try:
+        import autogluon.timeseries  # noqa: F401
+        pytest.skip("AutoGluon is installed; hard-fail path not exercised here")
+    except ImportError:
+        pass
+    df = _monthly()
+    node = {'cfgTargetVar': 'sales', 'cfgTimeCol': 'date', 'dataFrequency': 'monthly',
+            'forecastHorizon': 6}
+    with pytest.raises(ValueError, match='AutoGluon is required'):
+        M.handle_model_config(node, [df])
+
+
+def test_model_config_validates_required_columns():
+    # Missing target/time is caught before the AutoGluon import is even attempted?
+    # No — import is attempted first, so without AutoGluon we still get the AG error.
+    # With AutoGluon present, the column check fires. Either way it raises ValueError.
+    with pytest.raises(ValueError):
+        M.handle_model_config({'cfgTargetVar': 'sales'}, [_monthly()])
+
+
+# ── Seasonal period inference ────────────────────────────────────────────────
+def test_seasonal_period_inference():
+    assert seasonal_period_for('MS') == 12
+    assert seasonal_period_for('D') == 7
+    assert seasonal_period_for('W-MON') == 52
+    assert seasonal_period_for('MS', n_obs=10) == 1   # too short for 2 cycles
+
+
+# ── Leakage-safe holdout split ───────────────────────────────────────────────
+def test_split_holdout_single_series():
+    df = _monthly(n=24)
+    train, actual = M._split_holdout(df, id_col='', time_col='date', horizon=6)
+    assert len(actual) == 6
+    assert len(train) == 18
+    # the holdout must be the LAST 6 points, and disjoint from train
+    assert actual['date'].min() > train['date'].max()
+
+
+def test_split_holdout_multi_series_per_series_tail():
+    a, b = _monthly(n=24, base=100), _monthly(n=24, base=500)
+    a['item'], b['item'] = 'A', 'B'
+    df = pd.concat([a, b], ignore_index=True)
+    train, actual = M._split_holdout(df, id_col='item', time_col='date', horizon=4)
+    assert set(actual['item']) == {'A', 'B'}
+    assert (actual.groupby('item').size() == 4).all()
+    assert (train.groupby('item').size() == 20).all()
+
+
+def test_split_holdout_too_short_returns_none():
+    df = _monthly(n=4)
+    train, actual = M._split_holdout(df, id_col='', time_col='date', horizon=6)
+    assert train is None and actual is None
+
+
+# ── Holdout scoring against RAW actuals ──────────────────────────────────────
+def test_score_holdout_matches_raw_actuals():
+    # Synthetic AutoGluon-style prediction frame (item_id, timestamp, '0.5')
+    dates = pd.date_range('2023-01-01', periods=3, freq='MS')
+    actual = pd.DataFrame({'item': ['A', 'A', 'A'], 'date': dates, 'sales': [100.0, 110.0, 120.0]})
+    pred = pd.DataFrame({'item_id': ['A', 'A', 'A'], 'timestamp': dates, '0.5': [90.0, 110.0, 130.0]})
+    agg, per_series, rows = M._score_holdout(pred, actual, 'sales', 'date', 'item', 'MS')
+    assert len(rows) == 3
+    assert rows[0]['actual'] == 100.0 and rows[0]['forecast'] == 90.0
+    assert rows[0]['horizon_step'] == 1 and rows[2]['horizon_step'] == 3
+    # MAE = mean(|10|,|0|,|10|) = 6.67
+    assert agg['mae'] == pytest.approx(6.67, abs=0.01)
+    assert per_series is not None and per_series[0]['item'] == 'A'
+
+
+# ── Rolling-origin multi-window backtest ─────────────────────────────────────
+def test_rolling_splits_three_windows_step_horizon():
+    df = _monthly(n=24)
+    windows = M._rolling_splits(df, id_col='', time_col='date', horizon=6,
+                                n_windows=3, step_size=6)
+    assert len(windows) == 3
+    # oldest origin first
+    folds = [w[2] for w in windows]
+    assert folds == [2, 1, 0]
+    for train, actual, _ in windows:
+        assert len(actual) == 6
+        assert actual['date'].min() > train['date'].max()   # each window is OOS
+    # successive windows step back by `step_size`, so their actual blocks differ
+    last_dates = [w[1]['date'].max() for w in windows]
+    assert last_dates[0] < last_dates[1] < last_dates[2]
+
+
+def test_rolling_splits_skips_windows_without_enough_train():
+    df = _monthly(n=8)
+    windows = M._rolling_splits(df, id_col='', time_col='date', horizon=6,
+                                n_windows=3, step_size=6)
+    # only the most recent window leaves >=1 training point
+    assert len(windows) == 1
+    assert len(windows[0][1]) == 6
+
+
+def test_rolling_splits_multi_series():
+    a, b = _monthly(n=24, base=100), _monthly(n=24, base=500)
+    a['item'], b['item'] = 'A', 'B'
+    df = pd.concat([a, b], ignore_index=True)
+    windows = M._rolling_splits(df, id_col='item', time_col='date', horizon=4,
+                                n_windows=2, step_size=4)
+    assert len(windows) == 2
+    for train, actual, _ in windows:
+        assert (actual.groupby('item').size() == 4).all()
+
+
+def test_aggregate_backtest_rows_pools_windows():
+    rows = [
+        {'item': 'A', 'actual': 100.0, 'forecast': 90.0, 'fold': 1},
+        {'item': 'A', 'actual': 100.0, 'forecast': 110.0, 'fold': 2},
+        {'item': 'B', 'actual': 50.0, 'forecast': 50.0, 'fold': 1},
+    ]
+    agg, per_series = M._aggregate_backtest_rows(rows, 'item', seasonal_period=12)
+    assert agg['mae'] == pytest.approx((10 + 10 + 0) / 3, abs=0.01)
+    names = {r['item'] for r in per_series}
+    assert names == {'A', 'B'}
+    b = next(r for r in per_series if r['item'] == 'B')
+    assert b['mae'] == 0.0
+
+
+def test_apply_user_future_covariates_overlays_actuals():
+    # Projected rows carry forward-filled price; user future table overrides it.
+    dates = pd.date_range('2024-01-01', periods=3, freq='MS')
+    rows = pd.DataFrame({'item': ['A', 'A', 'A'], 'date': dates,
+                         'price': [10.0, 10.0, 10.0], 'cal_month': [1, 2, 3]})
+    future = pd.DataFrame({'item': ['A', 'A'], 'date': dates[:2], 'price': [12.0, 13.0]})
+    out = M._apply_user_future_covariates(rows, future, 'item', 'date',
+                                          ['price', 'cal_month'])
+    # first two prices overridden, third keeps projected value
+    assert list(out['price']) == [12.0, 13.0, 10.0]
+    # calendar column untouched
+    assert list(out['cal_month']) == [1, 2, 3]
+
+
+def test_apply_user_future_covariates_no_matching_cols_is_noop():
+    dates = pd.date_range('2024-01-01', periods=2, freq='MS')
+    rows = pd.DataFrame({'date': dates, 'price': [10.0, 10.0]})
+    future = pd.DataFrame({'date': dates, 'other': [1, 2]})
+    out = M._apply_user_future_covariates(rows, future, '', 'date', ['price'])
+    assert list(out['price']) == [10.0, 10.0]
+
+
+def test_score_holdout_carries_quantiles_for_calibration():
+    dates = pd.date_range('2023-01-01', periods=2, freq='MS')
+    actual = pd.DataFrame({'item': ['A', 'A'], 'date': dates, 'sales': [100.0, 110.0]})
+    pred = pd.DataFrame({'item_id': ['A', 'A'], 'timestamp': dates,
+                         '0.1': [80.0, 90.0], '0.5': [100.0, 110.0], '0.9': [120.0, 130.0]})
+    _, _, rows = M._score_holdout(pred, actual, 'sales', 'date', 'item', 'MS')
+    assert 'q_0.1' in rows[0] and 'q_0.9' in rows[0]
+    agg, _ = M._aggregate_backtest_rows(rows, 'item', seasonal_period=12)
+    assert 'pinball_loss' in agg
+    assert agg['coverage_80'] == pytest.approx(100.0)
+
+
+def test_score_holdout_empty_on_timestamp_mismatch():
+    actual = pd.DataFrame({'date': pd.date_range('2023-01-01', periods=2, freq='MS'),
+                           'sales': [1.0, 2.0]})
+    pred = pd.DataFrame({'item_id': ['x', 'x'],
+                         'timestamp': pd.date_range('2030-01-01', periods=2, freq='MS'),
+                         '0.5': [1.0, 2.0]})
+    agg, per_series, rows = M._score_holdout(pred, actual, 'sales', 'date', '', 'MS')
+    assert agg is None and rows is None

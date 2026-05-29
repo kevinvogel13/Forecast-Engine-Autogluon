@@ -6,6 +6,25 @@ from engine.handlers.registry import register
 logger = logging.getLogger('engine')
 
 
+# Tokens that have no place in a column-arithmetic expression and are the usual
+# building blocks of an eval escape (attribute traversal, dunder access, the
+# pandas '@'-local injector, statement separators).
+_UNSAFE_EXPR_TOKENS = ('@', '__', ';', 'import', 'lambda', 'exec', 'eval',
+                       '\\', '`')
+
+
+def _reject_unsafe_expr(expr: str) -> None:
+    """Raise ValueError if a calculated-column expression contains tokens used to
+    break out of pandas' expression evaluator into arbitrary Python."""
+    lowered = str(expr).lower()
+    for tok in _UNSAFE_EXPR_TOKENS:
+        if tok in lowered:
+            raise ValueError(
+                f"Expression contains disallowed token '{tok.strip()}'. "
+                "Calculated columns may only use column names, numbers, and arithmetic/comparison operators."
+            )
+
+
 @register('fill_missing')
 def handle_fill_missing(node_data: dict, upstream_data: list, **kwargs):
     if not upstream_data:
@@ -22,6 +41,9 @@ def handle_fill_missing(node_data: dict, upstream_data: list, **kwargs):
     target_cols = [c for c in columns if c in df.columns]
     
     for col in target_cols:
+        # mean/median/interpolate produce floats; widen int columns first (pandas 3.0)
+        if strategy in ('mean', 'median', 'interpolate') and pd.api.types.is_integer_dtype(df[col]):
+            df[col] = df[col].astype('float64')
         if strategy == 'ffill':
             df[col] = df[col].ffill()
         elif strategy == 'bfill':
@@ -92,11 +114,24 @@ def handle_column_transform(node_data: dict, upstream_data: list, **kwargs):
         calc_name = node_data.get('calcColumnName', '')
         calc_expr = node_data.get('calcExpression', '')
         if calc_name and calc_expr:
+            _reject_unsafe_expr(calc_expr)
             try:
-                df[calc_name] = df.eval(calc_expr)
+                # parser='pandas', engine='numexpr' restricts the expression to
+                # column arithmetic/comparisons — no Python builtins, no attribute
+                # access, no @-injected locals. Combined with _reject_unsafe_expr
+                # this keeps Calculated Column from being an arbitrary-eval surface.
+                df[calc_name] = df.eval(calc_expr, parser='pandas', engine='numexpr')
                 logger.info(f"Created calculated column: {calc_name}")
+            except ValueError:
+                raise
             except Exception as e:
-                raise ValueError(f"Error in expression '{calc_expr}': {e}")
+                # numexpr can't handle some valid column ops (e.g. string methods);
+                # fall back to the python engine but keep the safety gate above.
+                try:
+                    df[calc_name] = df.eval(calc_expr, parser='pandas', engine='python')
+                    logger.info(f"Created calculated column (python engine): {calc_name}")
+                except Exception as e2:
+                    raise ValueError(f"Error in expression '{calc_expr}': {e2}")
     
     return df
 
@@ -295,7 +330,12 @@ def handle_outlier_treatment(node_data: dict, upstream_data: list, **kwargs):
     
     outlier_mask = (df[column] < lower) | (df[column] > upper)
     n_outliers = outlier_mask.sum()
-    
+
+    # pandas 3.0 refuses to write a float bound (or NaN) into an int column;
+    # widen to float before any value-replacing action.
+    if action in ('cap', 'median', 'mean', 'null') and pd.api.types.is_integer_dtype(df[column]):
+        df[column] = df[column].astype('float64')
+
     if action == 'cap':
         df.loc[df[column] < lower, column] = lower
         df.loc[df[column] > upper, column] = upper

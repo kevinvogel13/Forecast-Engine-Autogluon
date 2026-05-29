@@ -9,7 +9,18 @@ dependencies = [
     "pandas>=3.0.0",
     "scikit-learn>=1.8.0",
     "scipy>=1.17.0",
+    "holidays>=0.40",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
 
 [[tool.uv.index]]
 explicit = true
