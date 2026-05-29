@@ -93,6 +93,41 @@ export async function registerRoutes(
     }
   });
 
+  // Export the (possibly unsaved) pipeline from the request body as a
+  // self-contained, runnable project (.zip). The Python exporter vendors the
+  // engine and rewrites imports so the output has no dependency on this repo.
+  app.post("/api/pipelines/export-code", async (req, res) => {
+    try {
+      const { name, nodes, edges } = req.body as { name?: string; nodes?: any[]; edges?: any[] };
+      const payload = JSON.stringify({ name: name || "forecast_pipeline", nodes: nodes || [], edges: edges || [] });
+
+      const python = spawn("python3", ["-m", "engine.exporter"], { cwd: process.cwd() });
+      const chunks: Buffer[] = [];
+      let stderr = "";
+      python.stdin.on("error", () => {});
+      python.stdin.write(payload);
+      python.stdin.end();
+      python.stdout.on("data", (d) => chunks.push(Buffer.from(d)));
+      python.stderr.on("data", (d) => { stderr += d.toString(); });
+      python.on("close", (code) => {
+        if (code !== 0 || chunks.length === 0) {
+          if (!res.headersSent) res.status(500).json({ error: stderr || "Export failed" });
+          return;
+        }
+        const slug = (name || "forecast_pipeline").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "forecast_pipeline";
+        res.setHeader("Content-Type", "application/zip");
+        res.setHeader("Content-Disposition", `attachment; filename="${slug}.zip"`);
+        res.send(Buffer.concat(chunks));
+      });
+      python.on("error", (err) => {
+        if (!res.headersSent) res.status(500).json({ error: `Failed to run exporter: ${err.message}` });
+      });
+    } catch (error: any) {
+      console.error("Error exporting pipeline code:", error);
+      if (!res.headersSent) res.status(500).json({ error: error.message || "Failed to export pipeline" });
+    }
+  });
+
   app.patch("/api/pipelines/:id", async (req, res) => {
     try {
       const pipeline = await storage.updatePipeline(req.params.id, req.body);

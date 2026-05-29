@@ -799,6 +799,31 @@ function FlowWithProvider() {
     URL.revokeObjectURL(url);
   }, [pipelineName, pipelineDescription, nodes, edges]);
 
+  const exportPipelineCode = useCallback(async () => {
+    try {
+      const resp = await fetch('/api/pipelines/export-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: pipelineName || 'forecast_pipeline', nodes, edges }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        toast.error(err.error || 'Failed to export project code');
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(pipelineName || 'forecast_pipeline').replace(/\s+/g, '_').toLowerCase()}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Project exported — unzip and run with `python run.py`');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to export project code');
+    }
+  }, [pipelineName, nodes, edges]);
+
   const importPipelineJson = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -2285,6 +2310,10 @@ function FlowWithProvider() {
                 <DropdownMenuItem onClick={exportPipelineJson} data-testid="menu-export-json">
                   <Download className="w-4 h-4 mr-2" />
                   Export as JSON
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={exportPipelineCode} data-testid="menu-export-code">
+                  <Download className="w-4 h-4 mr-2" />
+                  Export as Code (.zip)
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => importFileRef.current?.click()} data-testid="menu-import-json">
                   <Upload className="w-4 h-4 mr-2" />
