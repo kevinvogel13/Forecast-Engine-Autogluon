@@ -22,6 +22,9 @@ def handle_fill_missing(node_data: dict, upstream_data: list, **kwargs):
     target_cols = [c for c in columns if c in df.columns]
     
     for col in target_cols:
+        # mean/median/interpolate produce floats; widen int columns first (pandas 3.0)
+        if strategy in ('mean', 'median', 'interpolate') and pd.api.types.is_integer_dtype(df[col]):
+            df[col] = df[col].astype('float64')
         if strategy == 'ffill':
             df[col] = df[col].ffill()
         elif strategy == 'bfill':
@@ -295,7 +298,12 @@ def handle_outlier_treatment(node_data: dict, upstream_data: list, **kwargs):
     
     outlier_mask = (df[column] < lower) | (df[column] > upper)
     n_outliers = outlier_mask.sum()
-    
+
+    # pandas 3.0 refuses to write a float bound (or NaN) into an int column;
+    # widen to float before any value-replacing action.
+    if action in ('cap', 'median', 'mean', 'null') and pd.api.types.is_integer_dtype(df[column]):
+        df[column] = df[column].astype('float64')
+
     if action == 'cap':
         df.loc[df[column] < lower, column] = lower
         df.loc[df[column] > upper, column] = upper

@@ -113,9 +113,11 @@ def handle_sql_transform(node_data: dict, upstream_data: list, **kwargs):
         for i, df in enumerate(upstream_data):
             table_name = f'input_{i}' if i > 0 else 'input_data'
             con.register(table_name, df)
-        
+
         if len(upstream_data) == 1:
             con.register('df', upstream_data[0])
+            # 'input_table' is the name the preview SQL editor uses
+            con.register('input_table', upstream_data[0])
         
         result = con.execute(query).fetchdf()
         logger.info(f"SQL Transform: query returned {len(result)} rows × {len(result.columns)} cols")

@@ -40,7 +40,21 @@ The application offers 16 chart types for data exploration, including Time Serie
 
 #### Model Handling
 
-The primary forecasting model uses AutoGluon TimeSeriesPredictor, with statistical models as a fallback. It includes features for data leakage prevention, permutation-based feature importance, and walk-forward cross-validation.
+AutoGluon `TimeSeriesPredictor` is the **only** forecasting engine — there is no second/fallback model path. AutoGluon already ships the full statistical suite (SeasonalNaive, ETS/AutoETS, Theta, (Auto)ARIMA, Croston/NPTS for intermittent demand) alongside deep models, all trained and backtested inside one leakage-safe framework, so a parallel hand-rolled model would only add a divergent, less-trustworthy path. If AutoGluon is not installed the model node **fails loudly** with an actionable error rather than silently substituting a different kind of forecast.
+
+**Leakage-free backtesting.** The holdout backtest holds out each series' last `horizon` points and trains a *fresh* predictor on only the remaining data (with fill/outlier statistics fit on that train slice), then scores against the **raw** held-out actuals. Retraining is essential: the deployment model is trained on the full series, so reusing it for the backtest would let it "predict" points it had already seen. AutoGluon's internal multi-window CV (`num_val_windows`) is also surfaced via the leaderboard `score_val`. (Load mode reuses the loaded model for the holdout, assuming it was trained on a different dataset.)
+
+Backtest accuracy is reported through a single shared metrics module (`engine/metrics.py`): MAPE, sMAPE, WAPE, RMSE, MAE and MASE.
+
+Optional calendar/holiday covariates: when `cfgHolidayEnabled` is set, the engine generates deterministic calendar features (month, day-of-week, quarter, ISO week) and, given `cfgHolidayCountry`, holiday flags via the `holidays` package. These are genuinely known over the forecast horizon, so they are recomputed (not forward-filled) for future timestamps and registered as known covariates.
+
+#### Testing
+
+A `pytest` suite under `tests/` covers the metrics module, prep/data handlers, pipeline orchestration and registry aliasing, the leakage-safe backtest helpers (`_split_holdout`/`_score_holdout`), the AutoGluon-required hard-fail, calendar/holiday features, and a frontend↔engine config-key contract guard (`engine/contract.py`) that fails if the engine reads a model-config key the FlowEditor no longer emits — directly targeting the field-name-drift class of bug recorded below.
+
+#### Preview Transform Security
+
+The Node server's preview/transform endpoints no longer build Python source by string-interpolating user SQL/Python (a code-injection vector — a crafted SQL query could escape the string literal and run arbitrary Python). User code and queries are now passed as JSON data on stdin to `engine/transform_runner.py`, which executes them through the same sandboxed engine handlers the pipeline uses.
 
 #### Python Script Sandboxing
 
@@ -50,7 +64,7 @@ The Python script execution environment is sandboxed to enhance security by rest
 
 ### Python Packages
 
-Key Python dependencies include `pandas`, `numpy`, `scikit-learn`, `scipy`, and `duckdb`. AutoGluon is an optional runtime dependency for forecasting models.
+Key Python dependencies include `pandas`, `numpy`, `scikit-learn`, `scipy`, `duckdb`, and `holidays` (deterministic calendar/holiday covariates). AutoGluon (`autogluon.timeseries`) is **required** for the forecasting model node — the engine raises a clear error if it is missing rather than falling back to another model. `pytest` is a dev dependency.
 
 ### Node.js Packages
 
@@ -60,6 +74,7 @@ Key Python dependencies include `pandas`, `numpy`, `scikit-learn`, `scipy`, and 
 
 ## Recent Changes
 
+- 2026-05-29: Forecasting overhaul — (1) **AutoGluon is now the sole forecasting engine**; the statistical fallback (and the brief statsmodels Holt-Winters experiment) were removed — the model node fails loudly if AutoGluon is missing. (2) **Fixed backtest data leakage**: the old holdout reused the full-data-trained model to "predict" points it had trained on, and preprocessing stats were fit on the whole series; the backtest now trains a fresh predictor on truncated train-only data (stats fit on the train slice) and scores against raw actuals. (3) Added shared metrics module (`engine/metrics.py`: MAPE/sMAPE/WAPE/RMSE/MAE/MASE). (4) Added optional deterministic calendar/holiday covariates (`cfgHolidayEnabled`/`cfgHolidayCountry`), recomputed for future dates and fed to AutoGluon as known covariates. (5) Fixed a pandas-3.0 bug where outlier-capping/fill wrote floats into int columns. (6) Removed the SQL/Python code-injection vector in the server's preview endpoints (now routed through stdin-driven `engine/transform_runner.py`, sandboxed). (7) Added a `pytest` suite and a frontend↔engine config-key contract guard.
 - 2026-04-05: Sixteenth audit pass — fixed 2 bugs: (1) `feature_importance` exploration chart type had no config panel in FlowEditor — users could not select the feature name column (`groupColumn`) or importance value column (`valueColumn`), leaving the chart permanently in its empty placeholder state; (2) `forecast_actual`, `backtest_metrics`, and `feature_importance` chart types were missing from the `rechartsTypes` list in `generateReportHTML` — they fell into the `else` branch and showed "No preview available" instead of the correct recharts chart placeholder in exported HTML reports. Running total: 52 bugs fixed across 16 passes.
 - 2026-04-05: Fifteenth audit pass (no new bugs found): deep read of model_handler.py, pipeline.py, data_handlers.py, code_handlers.py, FlowEditor.tsx, ExplorationCharts.tsx — all clean; only dead code found.
 - 2026-04-05: Fourteenth audit pass — fixed 2 bugs: (1) `operation == 'calculated'` in `prep_handlers.py` should be `'calculate'` (frontend sends `'calculate'`) — Calculated Column feature was silently broken for all users; (2) `'outlier'` typo fixed to `'outliers'` in two `needsAllRows` checks in `FlowEditor.tsx` — Outlier Detection chart was capped at 500 rows instead of the full dataset, producing wrong results. Running total: 50 bugs fixed across 14 passes.
