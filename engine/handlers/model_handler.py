@@ -90,17 +90,50 @@ def _future_cov_rows(grp, time_col, freq, horizon, known_covariates_cols, holida
     return rows
 
 
+def _apply_user_future_covariates(rows, future_df, id_col, time_col,
+                                  known_covariates_cols):
+    """Overlay user-supplied actual future covariate values onto the projected
+    `rows`, matched on timestamp (and id_col when present).
+
+    Only non-calendar columns are overlaid — calendar/holiday columns are
+    deterministic and already correct.  Any future timestamp/covariate the user
+    didn't provide keeps its projected (forward-filled) value, so a partial
+    future table still helps.
+    """
+    overlay_cols = [c for c in known_covariates_cols
+                    if not c.startswith(CAL_PREFIX) and c in future_df.columns]
+    if not overlay_cols:
+        return rows
+    fut = future_df.copy()
+    fut['_ts'] = pd.to_datetime(fut[time_col])
+    rows = rows.copy()
+    rows['_ts'] = pd.to_datetime(rows[time_col])
+    keys = ['_ts']
+    if id_col and id_col in fut.columns and id_col in rows.columns:
+        fut['_item'] = fut[id_col].astype(str)
+        rows['_item'] = rows[id_col].astype(str)
+        keys = ['_item', '_ts']
+    fut_idx = fut.set_index(keys)
+    for c in overlay_cols:
+        mapped = rows.set_index(keys).index.map(
+            lambda k: fut_idx[c].get(k) if k in fut_idx.index else None)
+        vals = pd.Series(list(mapped), index=rows.index)
+        rows[c] = vals.where(vals.notna(), rows[c])
+    return rows.drop(columns=[c for c in ('_ts', '_item') if c in rows.columns])
+
+
 def _build_future_covariates(df: pd.DataFrame, id_col: str, time_col: str,
                              freq: str, horizon: int, known_covariates_cols: list,
-                             TimeSeriesDataFrame, holiday_country: str = None):
+                             TimeSeriesDataFrame, holiday_country: str = None,
+                             future_df: pd.DataFrame = None):
     """Build the future known-covariates frame AutoGluon needs at predict time.
 
     AutoGluon requires values for every ``known_covariates_names`` column over
     the forecast horizon.  Deterministic calendar/holiday columns (``cal_*``)
-    are recomputed from the future timestamps; other covariates project the
-    last observed value forward.  This was previously duplicated verbatim in
-    three call sites (train/load/holdout); centralising it removes that drift
-    risk.  Returns a TimeSeriesDataFrame or ``None`` if it can't be built.
+    are recomputed from the future timestamps.  For other covariates, if the user
+    supplies a ``future_df`` (a second upstream dataset with actual planned future
+    values, e.g. price/promo), those values are used; otherwise we project the
+    last observed value forward.  Returns a TimeSeriesDataFrame or ``None``.
     """
     if not known_covariates_cols:
         return None
@@ -111,6 +144,9 @@ def _build_future_covariates(df: pd.DataFrame, id_col: str, time_col: str,
                 rows = _future_cov_rows(grp, time_col, freq, horizon,
                                         known_covariates_cols, holiday_country)
                 rows.insert(0, id_col, item)
+                if future_df is not None:
+                    rows = _apply_user_future_covariates(
+                        rows, future_df, id_col, time_col, known_covariates_cols)
                 cov_frames.append(rows)
             if not cov_frames:
                 return None
@@ -118,10 +154,13 @@ def _build_future_covariates(df: pd.DataFrame, id_col: str, time_col: str,
             return TimeSeriesDataFrame.from_data_frame(
                 future_cov_df, id_column=id_col, timestamp_column=time_col)
         else:
-            future_cov_df = _future_cov_rows(df, time_col, freq, horizon,
-                                             known_covariates_cols, holiday_country)
+            rows = _future_cov_rows(df, time_col, freq, horizon,
+                                    known_covariates_cols, holiday_country)
+            if future_df is not None:
+                rows = _apply_user_future_covariates(
+                    rows, future_df, id_col, time_col, known_covariates_cols)
             return TimeSeriesDataFrame.from_data_frame(
-                future_cov_df, timestamp_column=time_col)
+                rows, timestamp_column=time_col)
     except Exception as e:
         logger.warning(f"Could not build known_covariates: {e}. Predicting without them.")
         return None
@@ -665,7 +704,8 @@ def _backtest_one_window(train_raw, actual_raw, cfg, TimeSeriesPredictor,
     predict_kwargs = dict(quantile_levels=cfg['quantiles'])
     fc = _build_future_covariates(train_proc, cfg['id_col'], cfg['time_col'], cfg['freq'],
                                   cfg['horizon'], known_cols, TimeSeriesDataFrame,
-                                  holiday_country=cfg.get('holiday_country'))
+                                  holiday_country=cfg.get('holiday_country'),
+                                  future_df=cfg.get('future_cov_df'))
     if fc is not None:
         predict_kwargs['known_covariates'] = fc
 
@@ -743,8 +783,12 @@ def _holdout_backtest(raw_df, cfg, TimeSeriesPredictor, TimeSeriesDataFrame,
 def handle_model_config(node_data: dict, upstream_data: list, storage=None, config: dict = None, node_outputs: dict = None, **kwargs):
     if not upstream_data:
         raise ValueError("Model Config requires upstream data")
-    
+
     df = upstream_data[0].copy()
+    # Optional second upstream input: a future known-covariates table (actual
+    # planned values over the horizon, e.g. price/promo). Used at predict time
+    # instead of forward-filling. None when only the history is connected.
+    future_cov_df = upstream_data[1].copy() if len(upstream_data) > 1 else None
     mode = node_data.get('modelMode', 'train')
     
     fill_configs = node_data.get('cfgFillConfigs') or {}
@@ -896,6 +940,8 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
         # Backtest fits are throwaway; let them optionally use a lighter preset
         # than the deployment model so N-window backtests don't multiply runtime.
         'backtest_preset': backtest_preset,
+        # Optional user-supplied future known-covariate table (second upstream).
+        'future_cov_df': future_cov_df,
     }
 
     # Preprocess + calendar-augment the FULL series for the deployment model.
@@ -913,7 +959,7 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
         predict_kwargs = dict(quantile_levels=quantiles)
         future_cov_ts = _build_future_covariates(
             df, id_col, time_col, freq, horizon, known_covariates_cols, TimeSeriesDataFrame,
-            holiday_country=holiday_country)
+            holiday_country=holiday_country, future_df=future_cov_df)
         if future_cov_ts is not None:
             predict_kwargs['known_covariates'] = future_cov_ts
             logger.info("Built future covariate stub for prediction")
@@ -1008,7 +1054,7 @@ def handle_model_config(node_data: dict, upstream_data: list, storage=None, conf
         predict_kwargs = dict(quantile_levels=quantiles)
         future_cov_ts = _build_future_covariates(
             df, id_col, time_col, freq, horizon, known_covariates_cols, TimeSeriesDataFrame,
-            holiday_country=holiday_country)
+            holiday_country=holiday_country, future_df=future_cov_df)
         if future_cov_ts is not None:
             predict_kwargs['known_covariates'] = future_cov_ts
 

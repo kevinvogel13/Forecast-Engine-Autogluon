@@ -145,6 +145,28 @@ def test_aggregate_backtest_rows_pools_windows():
     assert b['mae'] == 0.0
 
 
+def test_apply_user_future_covariates_overlays_actuals():
+    # Projected rows carry forward-filled price; user future table overrides it.
+    dates = pd.date_range('2024-01-01', periods=3, freq='MS')
+    rows = pd.DataFrame({'item': ['A', 'A', 'A'], 'date': dates,
+                         'price': [10.0, 10.0, 10.0], 'cal_month': [1, 2, 3]})
+    future = pd.DataFrame({'item': ['A', 'A'], 'date': dates[:2], 'price': [12.0, 13.0]})
+    out = M._apply_user_future_covariates(rows, future, 'item', 'date',
+                                          ['price', 'cal_month'])
+    # first two prices overridden, third keeps projected value
+    assert list(out['price']) == [12.0, 13.0, 10.0]
+    # calendar column untouched
+    assert list(out['cal_month']) == [1, 2, 3]
+
+
+def test_apply_user_future_covariates_no_matching_cols_is_noop():
+    dates = pd.date_range('2024-01-01', periods=2, freq='MS')
+    rows = pd.DataFrame({'date': dates, 'price': [10.0, 10.0]})
+    future = pd.DataFrame({'date': dates, 'other': [1, 2]})
+    out = M._apply_user_future_covariates(rows, future, '', 'date', ['price'])
+    assert list(out['price']) == [10.0, 10.0]
+
+
 def test_score_holdout_carries_quantiles_for_calibration():
     dates = pd.date_range('2023-01-01', periods=2, freq='MS')
     actual = pd.DataFrame({'item': ['A', 'A'], 'date': dates, 'sales': [100.0, 110.0]})
