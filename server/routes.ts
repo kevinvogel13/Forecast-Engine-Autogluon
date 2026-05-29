@@ -199,7 +199,7 @@ export async function registerRoutes(
       const records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
-      });
+      }) as any[];
 
       const rows = records.length;
       const columns = records.length > 0 ? Object.keys(records[0]) : [];
@@ -266,7 +266,7 @@ export async function registerRoutes(
       const records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
-      });
+      }) as any[];
 
       const preview = records.slice(0, limit);
       const columns = records.length > 0 ? Object.keys(records[0]) : [];
@@ -296,7 +296,7 @@ export async function registerRoutes(
       const records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
-      });
+      }) as any[];
 
       if (records.length === 0 || !(columnName in records[0])) {
         return res.status(404).json({ error: "Column not found" });
@@ -334,7 +334,7 @@ export async function registerRoutes(
       const records = parse(fileContent, {
         columns: true,
         skip_empty_lines: true
-      });
+      }) as any[];
 
       if (records.length === 0 || !(columnName in records[0])) {
         return res.status(404).json({ error: "Column not found" });
