@@ -37,6 +37,70 @@ VENDOR_PKG = "forecast_engine"
 
 _ENGINE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Display/EDA node types that have no effect on the forecast itself. The export
+# is meant to *produce the forecast*, so these (and any prep branch that exists
+# only to feed them) are pruned. Aliases match the camelCase the frontend emits
+# and the snake_case the engine registers.
+FORECAST_NODE_TYPES = frozenset({
+    "model_config", "config", "output",
+})
+EDA_NODE_TYPES = frozenset({
+    "validation", "exploration", "report", "comment",
+    "data_preview", "preview",
+})
+
+
+def prune_to_forecast(pipeline: dict) -> dict:
+    """Return a copy of the pipeline reduced to only what affects the forecast.
+
+    Keeps every model node (``config``/``model_config``) and its ancestors —
+    the data → prep → model lineage that produces predictions — plus any
+    ``output`` node fed by a kept node. Drops EDA/display nodes (validation,
+    exploration, report, comment, preview) and any upstream node that exists
+    *only* to feed them. If there is no model node, the pipeline is returned
+    unchanged (nothing forecasting-specific to isolate).
+    """
+    nodes = pipeline.get("nodes", []) or []
+    edges = pipeline.get("edges", []) or []
+    by_id = {n["id"]: n for n in nodes}
+
+    def ntype(node):
+        return (node.get("data") or {}).get("type", "")
+
+    model_ids = [n["id"] for n in nodes if ntype(n) in ("model_config", "config")]
+    if not model_ids:
+        return pipeline
+
+    # Reverse adjacency: target -> [sources], to walk upstream from each model.
+    parents: dict[str, list[str]] = {}
+    children: dict[str, list[str]] = {}
+    for e in edges:
+        parents.setdefault(e["target"], []).append(e["source"])
+        children.setdefault(e["source"], []).append(e["target"])
+
+    keep: set[str] = set()
+    stack = list(model_ids)
+    while stack:
+        nid = stack.pop()
+        if nid in keep or nid not in by_id:
+            continue
+        keep.add(nid)
+        for p in parents.get(nid, []):
+            if p not in keep:
+                stack.append(p)
+
+    # Keep output nodes that consume a kept (model) node, so the forecast still
+    # has its terminal sink — but never EDA nodes.
+    for n in nodes:
+        if ntype(n) == "output" and any(src in keep for src in parents.get(n["id"], [])):
+            keep.add(n["id"])
+
+    kept_nodes = [n for n in nodes if n["id"] in keep and ntype(n) not in EDA_NODE_TYPES]
+    kept_ids = {n["id"] for n in kept_nodes}
+    kept_edges = [e for e in edges if e["source"] in kept_ids and e["target"] in kept_ids]
+
+    return {**pipeline, "nodes": kept_nodes, "edges": kept_edges}
+
 
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", (name or "forecast_pipeline").lower()).strip("_")
@@ -173,6 +237,9 @@ def _readme(name: str, slug: str, pipeline: dict) -> str:
 # {name}
 
 Self-contained export of a forecasting pipeline built with the visual editor.
+This export contains **only the forecast-producing lineage** — EDA/display nodes
+(validation, exploration, report, comment, preview) and any branch that only fed
+them have been stripped.
 It runs **without this app or repository** — the engine is vendored under
 `{VENDOR_PKG}/` and your pipeline is saved as data in `pipeline.json`
 ({n_nodes} nodes: {", ".join(node_types)}).
@@ -218,7 +285,10 @@ def build_export(pipeline: dict, name: str = "forecast_pipeline") -> "list[tuple
     """Return an ordered list of (relative_path, content_bytes) for the project.
 
     A list (not a dict) so the zip preserves a sensible, deterministic order.
+    The pipeline is first pruned to only the forecast-producing lineage (EDA /
+    display nodes are dropped).
     """
+    pipeline = prune_to_forecast(pipeline)
     slug = slugify(name)
     files: list[tuple[str, bytes]] = []
 
