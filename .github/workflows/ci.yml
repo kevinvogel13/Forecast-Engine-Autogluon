@@ -43,3 +43,6 @@ jobs:
 
       - name: Typecheck
         run: npm run check
+
+      - name: Unit tests (vitest)
+        run: npm test
