@@ -8,6 +8,11 @@ import {
   transformChainBody,
   pythonTransformBody,
   sqlTransformBody,
+  type StratifiedSampleBody,
+  type FilteredPreviewBody,
+  type TransformChainBody,
+  type PythonTransformBody,
+  type SqlTransformBody,
 } from "@shared/dto";
 import { validate } from "./middleware/validate";
 import { upload, moveToFinalLocation, resolveUploadPath, deleteUploadFile, UPLOAD_DIR } from "./upload";
@@ -275,11 +280,14 @@ export async function registerRoutes(
       }
 
       // Get unique values
-      const uniqueValues = [...new Set(records.map((r: any) => r[columnName]))];
+      const uniqueValues = [...new Set(records.map((r) => r[columnName]))];
       
       // Determine if categorical (fewer than 50 unique values and not all numeric)
       const isCategorical = uniqueValues.length <= 50;
-      const isNumeric = uniqueValues.every((v: any) => !isNaN(parseFloat(v)) && isFinite(v));
+      const isNumeric = uniqueValues.every((v) => {
+        const n = parseFloat(String(v));
+        return !isNaN(n) && isFinite(n);
+      });
 
       res.json({
         column: columnName,
@@ -313,7 +321,7 @@ export async function registerRoutes(
       }
 
       const dates = records
-        .map((r: any) => new Date(r[columnName]))
+        .map((r) => new Date(String(r[columnName])))
         .filter((d: Date) => !isNaN(d.getTime()))
         .sort((a: Date, b: Date) => a.getTime() - b.getTime());
 
@@ -343,12 +351,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Dataset not found" });
       }
 
-      const { groupColumn, samplePercent, seed, transforms } = req.body as {
-        groupColumn: string;
-        samplePercent: number; // 5-100
-        seed?: number;
-        transforms?: Array<{ type: 'filter' | 'python' | 'sql'; data: any }>;
-      };
+      const { groupColumn, samplePercent, seed, transforms } = req.body as StratifiedSampleBody;
 
       if (!groupColumn) {
         return res.status(400).json({ error: "groupColumn is required" });
@@ -361,7 +364,7 @@ export async function registerRoutes(
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
-      }) as any[];
+      }) as Record<string, unknown>[];
 
       // Apply any transforms first (filters, python, sql)
       for (const transform of transforms || []) {
@@ -410,7 +413,7 @@ export async function registerRoutes(
       }
 
       // Get unique group values
-      const allGroups = [...new Set(records.map((r: any) => r[groupColumn]))] as string[];
+      const allGroups = [...new Set(records.map((r) => r[groupColumn]))] as string[];
       const totalGroups = allGroups.length;
 
       // Randomly sample X% of groups
@@ -429,7 +432,7 @@ export async function registerRoutes(
       const selectedGroups = new Set(shuffled.slice(0, numGroupsToSample));
 
       // Filter records to only include selected groups
-      const sampledRecords = records.filter((row: any) => selectedGroups.has(row[groupColumn]));
+      const sampledRecords = records.filter((row) => selectedGroups.has(row[groupColumn] as string));
 
       const columns = sampledRecords.length > 0 ? Object.keys(sampledRecords[0]) : (records.length > 0 ? Object.keys(records[0]) : []);
 
@@ -459,13 +462,13 @@ export async function registerRoutes(
 
       const requestedLimit = parseInt(req.query.limit as string);
       const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
-      const { filters } = req.body as { filters?: Array<{ column: string; operator: string; value: any }> };
+      const { filters } = req.body as FilteredPreviewBody;
       
       const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
-      }) as any[];
+      }) as Record<string, unknown>[];
 
       // Apply filters
       if (filters && filters.length > 0) {
@@ -473,48 +476,7 @@ export async function registerRoutes(
           const { column, operator, value } = filter;
           if (!column || !operator) continue;
 
-          records = records.filter((row: any) => {
-            const cellValue = row[column];
-            
-            switch (operator) {
-              case 'eq': {
-                const _nc = parseFloat(cellValue), _nv = parseFloat(value);
-                return (!isNaN(_nc) && !isNaN(_nv)) ? _nc === _nv : String(cellValue) === String(value);
-              }
-              case 'neq': {
-                const _nc2 = parseFloat(cellValue), _nv2 = parseFloat(value);
-                return (!isNaN(_nc2) && !isNaN(_nv2)) ? _nc2 !== _nv2 : String(cellValue) !== String(value);
-              }
-              case 'gt':
-                return parseFloat(cellValue) > parseFloat(value);
-              case 'gte':
-                return parseFloat(cellValue) >= parseFloat(value);
-              case 'lt':
-                return parseFloat(cellValue) < parseFloat(value);
-              case 'lte':
-                return parseFloat(cellValue) <= parseFloat(value);
-              case 'contains':
-                return String(cellValue).toLowerCase().includes(String(value).toLowerCase());
-              case 'not_contains':
-                return !String(cellValue).toLowerCase().includes(String(value).toLowerCase());
-              case 'starts_with':
-                return String(cellValue).toLowerCase().startsWith(String(value).toLowerCase());
-              case 'ends_with':
-                return String(cellValue).toLowerCase().endsWith(String(value).toLowerCase());
-              case 'isin':
-                const inValues = Array.isArray(value) ? value : [value];
-                return inValues.map(String).includes(String(cellValue));
-              case 'notin':
-                const notInValues = Array.isArray(value) ? value : [value];
-                return !notInValues.map(String).includes(String(cellValue));
-              case 'isnull':
-                return cellValue === null || cellValue === undefined || cellValue === '' || cellValue === 'null';
-              case 'notnull':
-                return cellValue !== null && cellValue !== undefined && cellValue !== '' && cellValue !== 'null';
-              default:
-                return true;
-            }
-          });
+          records = records.filter((row) => testRowCondition(row[column], operator, value));
         }
       }
 
@@ -543,15 +505,13 @@ export async function registerRoutes(
 
       const requestedLimit = parseInt(req.query.limit as string);
       const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
-      const { transforms } = req.body as { 
-        transforms: Array<{ type: 'filter' | 'python' | 'sql' | 'sampling'; data: any }>
-      };
+      const { transforms } = req.body as TransformChainBody;
 
       const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
-      }) as any[];
+      }) as Record<string, unknown>[];
 
       // Apply each transform in pipeline order - order matters because
       // upstream transforms may create columns used by downstream transforms
@@ -562,7 +522,7 @@ export async function registerRoutes(
             const samplePercent = Math.max(5, Math.min(100, percent || 100));
             const sampSeed = seed ?? 42;
             
-            const allGroups = [...new Set(records.map((r: any) => r[column]))] as string[];
+            const allGroups = [...new Set(records.map((r) => r[column]))] as string[];
             const totalGroups = allGroups.length;
             const numGroupsToSample = Math.max(1, Math.ceil((samplePercent / 100) * totalGroups));
             
@@ -576,7 +536,7 @@ export async function registerRoutes(
             const rng = seededRandom(sampSeed);
             const shuffled = [...allGroups].sort(() => rng() - 0.5);
             const sampledGroups = new Set(shuffled.slice(0, numGroupsToSample));
-            records = records.filter((r: any) => sampledGroups.has(r[column]));
+            records = records.filter((r) => sampledGroups.has(r[column] as string));
           }
           continue;
         }
@@ -614,38 +574,9 @@ export async function registerRoutes(
             return res.status(400).json({ error: sqlResult.error });
           }
           records = sqlResult.data || records;
-        } else if (transform.type === 'sampling') {
-          const { column, percent, seed } = transform.data;
-          if (!column || records.length === 0) continue;
-          
-          const samplePercent = Math.max(5, Math.min(100, percent || 100));
-          const sampSeed = seed ?? 42;
-          
-          // Check if column exists
-          if (!(column in records[0])) continue;
-          
-          // Get unique group values
-          const allGroups = [...new Set(records.map((r: any) => r[column]))] as string[];
-          const totalGroups = allGroups.length;
-          
-          // Randomly sample X% of groups
-          const numGroupsToSample = Math.max(1, Math.ceil((samplePercent / 100) * totalGroups));
-          
-          // Seeded shuffle for reproducibility (simple mulberry32 PRNG)
-          const seededRandom = (s: number) => {
-            return () => {
-              s = Math.imul(s ^ s >>> 15, s | 1);
-              s ^= s + Math.imul(s ^ s >>> 7, s | 61);
-              return ((s ^ s >>> 14) >>> 0) / 4294967296;
-            };
-          };
-          const rng = seededRandom(sampSeed);
-          const shuffled = [...allGroups].sort(() => rng() - 0.5);
-          const selectedGroups = new Set(shuffled.slice(0, numGroupsToSample));
-          
-          // Filter records to only include selected groups
-          records = records.filter((row: any) => selectedGroups.has(row[column]));
         }
+        // `sampling` is handled by the earlier `if (transform.type === 'sampling')`
+        // branch that `continue`s; TS already exhausted the union here.
       }
 
       const columns = records.length > 0 ? Object.keys(records[0]) : (dataset.columns || []);
@@ -673,16 +604,13 @@ export async function registerRoutes(
 
       const requestedLimit = parseInt(req.query.limit as string);
       const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
-      const { filters, pythonCode } = req.body as { 
-        filters?: Array<{ column: string; operator: string; value: any }>;
-        pythonCode?: string;
-      };
+      const { filters, pythonCode } = req.body as PythonTransformBody;
 
       const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
-      }) as any[];
+      }) as Record<string, unknown>[];
 
       // Apply filters first
       if (filters && filters.length > 0) {
@@ -690,48 +618,7 @@ export async function registerRoutes(
           const { column, operator, value } = filter;
           if (!column || !operator) continue;
 
-          records = records.filter((row: any) => {
-            const cellValue = row[column];
-            
-            switch (operator) {
-              case 'eq': {
-                const _nc = parseFloat(cellValue), _nv = parseFloat(value);
-                return (!isNaN(_nc) && !isNaN(_nv)) ? _nc === _nv : String(cellValue) === String(value);
-              }
-              case 'neq': {
-                const _nc2 = parseFloat(cellValue), _nv2 = parseFloat(value);
-                return (!isNaN(_nc2) && !isNaN(_nv2)) ? _nc2 !== _nv2 : String(cellValue) !== String(value);
-              }
-              case 'gt':
-                return parseFloat(cellValue) > parseFloat(value);
-              case 'gte':
-                return parseFloat(cellValue) >= parseFloat(value);
-              case 'lt':
-                return parseFloat(cellValue) < parseFloat(value);
-              case 'lte':
-                return parseFloat(cellValue) <= parseFloat(value);
-              case 'contains':
-                return String(cellValue).toLowerCase().includes(String(value).toLowerCase());
-              case 'not_contains':
-                return !String(cellValue).toLowerCase().includes(String(value).toLowerCase());
-              case 'starts_with':
-                return String(cellValue).toLowerCase().startsWith(String(value).toLowerCase());
-              case 'ends_with':
-                return String(cellValue).toLowerCase().endsWith(String(value).toLowerCase());
-              case 'isin':
-                const inValues = Array.isArray(value) ? value : [value];
-                return inValues.map(String).includes(String(cellValue));
-              case 'notin':
-                const notInValues = Array.isArray(value) ? value : [value];
-                return !notInValues.map(String).includes(String(cellValue));
-              case 'isnull':
-                return cellValue === null || cellValue === undefined || cellValue === '' || cellValue === 'null';
-              case 'notnull':
-                return cellValue !== null && cellValue !== undefined && cellValue !== '' && cellValue !== 'null';
-              default:
-                return true;
-            }
-          });
+          records = records.filter((row) => testRowCondition(row[column], operator, value));
         }
       }
 
@@ -795,17 +682,13 @@ export async function registerRoutes(
 
       const requestedLimit = parseInt(req.query.limit as string);
       const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
-      const { filters, sqlQuery, pythonCode } = req.body as { 
-        filters?: Array<{ column: string; operator: string; value: any }>;
-        sqlQuery?: string;
-        pythonCode?: string;
-      };
+      const { filters, sqlQuery, pythonCode } = req.body as SqlTransformBody;
 
       const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
-      }) as any[];
+      }) as Record<string, unknown>[];
 
       // Apply filters first
       if (filters && filters.length > 0) {
@@ -813,48 +696,7 @@ export async function registerRoutes(
           const { column, operator, value } = filter;
           if (!column || !operator) continue;
 
-          records = records.filter((row: any) => {
-            const cellValue = row[column];
-            
-            switch (operator) {
-              case 'eq': {
-                const _nc = parseFloat(cellValue), _nv = parseFloat(value);
-                return (!isNaN(_nc) && !isNaN(_nv)) ? _nc === _nv : String(cellValue) === String(value);
-              }
-              case 'neq': {
-                const _nc2 = parseFloat(cellValue), _nv2 = parseFloat(value);
-                return (!isNaN(_nc2) && !isNaN(_nv2)) ? _nc2 !== _nv2 : String(cellValue) !== String(value);
-              }
-              case 'gt':
-                return parseFloat(cellValue) > parseFloat(value);
-              case 'gte':
-                return parseFloat(cellValue) >= parseFloat(value);
-              case 'lt':
-                return parseFloat(cellValue) < parseFloat(value);
-              case 'lte':
-                return parseFloat(cellValue) <= parseFloat(value);
-              case 'contains':
-                return String(cellValue).toLowerCase().includes(String(value).toLowerCase());
-              case 'not_contains':
-                return !String(cellValue).toLowerCase().includes(String(value).toLowerCase());
-              case 'starts_with':
-                return String(cellValue).toLowerCase().startsWith(String(value).toLowerCase());
-              case 'ends_with':
-                return String(cellValue).toLowerCase().endsWith(String(value).toLowerCase());
-              case 'isin':
-                const inValues = Array.isArray(value) ? value : [value];
-                return inValues.map(String).includes(String(cellValue));
-              case 'notin':
-                const notInValues = Array.isArray(value) ? value : [value];
-                return !notInValues.map(String).includes(String(cellValue));
-              case 'isnull':
-                return cellValue === null || cellValue === undefined || cellValue === '' || cellValue === 'null';
-              case 'notnull':
-                return cellValue !== null && cellValue !== undefined && cellValue !== '' && cellValue !== 'null';
-              default:
-                return true;
-            }
-          });
+          records = records.filter((row) => testRowCondition(row[column], operator, value));
         }
       }
 
@@ -929,7 +771,7 @@ export async function registerRoutes(
       res.setHeader('Connection', 'keep-alive');
       res.flushHeaders();
 
-      const sendEvent = (data: any) => {
+      const sendEvent = (data: Record<string, unknown>) => {
         try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch (_) {}
       };
 
@@ -1015,10 +857,11 @@ export async function registerRoutes(
 
       req.on('close', () => { clearTimeout(timeout); python.kill(); });
 
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error executing pipeline:", error);
       if (!res.headersSent) {
-        res.status(500).json({ error: error.message || "Failed to execute pipeline" });
+        const message = error instanceof Error ? error.message : "Failed to execute pipeline";
+        res.status(500).json({ error: message });
       }
     }
   });
