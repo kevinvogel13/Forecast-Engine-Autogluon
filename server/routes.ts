@@ -2,6 +2,14 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertPipelineSchema, insertDatasetSchema } from "@shared/schema";
+import {
+  stratifiedSampleBody,
+  filteredPreviewBody,
+  transformChainBody,
+  pythonTransformBody,
+  sqlTransformBody,
+} from "@shared/dto";
+import { validate } from "./middleware/validate";
 import multer from "multer";
 import path from "path";
 import fs from "fs/promises";
@@ -157,10 +165,10 @@ export async function registerRoutes(
       }
 
       const fileContent = await fs.readFile(req.file.path, 'utf-8');
-      const records = parse(fileContent, { 
-        columns: true, 
-        skip_empty_lines: true 
-      });
+      const records = parse(fileContent, {
+        columns: true,
+        skip_empty_lines: true,
+      }) as Record<string, unknown>[];
 
       const rows = records.length;
       const columns = records.length > 0 ? Object.keys(records[0]) : [];
@@ -224,10 +232,10 @@ export async function registerRoutes(
       const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
       
       const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
-      const records = parse(fileContent, { 
-        columns: true, 
-        skip_empty_lines: true 
-      });
+      const records = parse(fileContent, {
+        columns: true,
+        skip_empty_lines: true,
+      }) as Record<string, unknown>[];
 
       const preview = records.slice(0, limit);
       const columns = records.length > 0 ? Object.keys(records[0]) : [];
@@ -254,10 +262,10 @@ export async function registerRoutes(
 
       const columnName = req.params.column;
       const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
-      const records = parse(fileContent, { 
-        columns: true, 
-        skip_empty_lines: true 
-      });
+      const records = parse(fileContent, {
+        columns: true,
+        skip_empty_lines: true,
+      }) as Record<string, unknown>[];
 
       if (records.length === 0 || !(columnName in records[0])) {
         return res.status(404).json({ error: "Column not found" });
@@ -294,8 +302,8 @@ export async function registerRoutes(
       const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
       const records = parse(fileContent, {
         columns: true,
-        skip_empty_lines: true
-      });
+        skip_empty_lines: true,
+      }) as Record<string, unknown>[];
 
       if (records.length === 0 || !(columnName in records[0])) {
         return res.status(404).json({ error: "Column not found" });
@@ -325,7 +333,7 @@ export async function registerRoutes(
   });
 
   // Stratified sampling - sample X% of groups, return all rows for selected groups
-  app.post("/api/datasets/:id/stratified-sample", async (req, res) => {
+  app.post("/api/datasets/:id/stratified-sample", validate({ body: stratifiedSampleBody }), async (req, res) => {
     try {
       const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
@@ -553,7 +561,7 @@ except Exception as e:
   });
 
   // Filtered data preview - applies filter transformations
-  app.post("/api/datasets/:id/filtered-preview", async (req, res) => {
+  app.post("/api/datasets/:id/filtered-preview", validate({ body: filteredPreviewBody }), async (req, res) => {
     try {
       const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
@@ -637,7 +645,7 @@ except Exception as e:
   });
 
   // Unified transform endpoint - applies a chain of transforms (filters, python, sql) in order
-  app.post("/api/datasets/:id/transform", async (req, res) => {
+  app.post("/api/datasets/:id/transform", validate({ body: transformChainBody }), async (req, res) => {
     try {
       const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
@@ -884,7 +892,7 @@ except Exception as e:
   });
 
   // Python script execution endpoint - transforms data using Python code
-  app.post("/api/datasets/:id/python-transform", async (req, res) => {
+  app.post("/api/datasets/:id/python-transform", validate({ body: pythonTransformBody }), async (req, res) => {
     try {
       const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
@@ -1075,7 +1083,7 @@ except Exception as e:
   });
 
   // SQL script execution endpoint - transforms data using SQL (DuckDB)
-  app.post("/api/datasets/:id/sql-transform", async (req, res) => {
+  app.post("/api/datasets/:id/sql-transform", validate({ body: sqlTransformBody }), async (req, res) => {
     try {
       const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
