@@ -11,6 +11,7 @@ import {
 } from "@shared/dto";
 import { validate } from "./middleware/validate";
 import { upload, moveToFinalLocation, resolveUploadPath, deleteUploadFile, UPLOAD_DIR } from "./upload";
+import { runSandboxedPython, runSandboxedSql } from "./sandbox";
 import { randomUUID } from "crypto";
 import path from "path";
 import fs from "fs/promises";
@@ -381,61 +382,7 @@ export async function registerRoutes(
             })
             .join('\n');
 
-          const pythonScript = `
-import sys
-import json
-import pandas as pd
-
-try:
-    input_data = json.loads(sys.stdin.read())
-    input_df = pd.DataFrame(input_data)
-    result_df = None
-    
-${cleanedCode.split('\n').map((line: string) => '    ' + line).join('\n')}
-    
-    if result_df is None:
-        if 'df' in dir() and isinstance(df, pd.DataFrame):
-            result_df = df
-        else:
-            result_df = input_df
-    
-    result = result_df.to_dict('records')
-    print(json.dumps(result))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=sys.stderr)
-    sys.exit(1)
-`;
-
-          const inputJson = JSON.stringify(records);
-          const pythonResult = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
-            const python = spawn('python3', ['-c', pythonScript]);
-            let stdout = '';
-            let stderr = '';
-
-            python.stdin.on('error', () => {});
-            python.stdin.write(inputJson);
-            python.stdin.end();
-
-            python.stdout.on('data', (data) => { stdout += data.toString(); });
-            python.stderr.on('data', (data) => { stderr += data.toString(); });
-
-            python.on('close', (code) => {
-              if (code !== 0) {
-                resolve({ error: stderr || 'Python script failed' });
-              } else {
-                try {
-                  const parsed = JSON.parse(stdout);
-                  resolve({ data: parsed.error ? undefined : parsed, error: parsed.error });
-                } catch (e) {
-                  resolve({ error: 'Failed to parse Python output' });
-                }
-              }
-            });
-
-            python.on('error', (err) => {
-              resolve({ error: `Failed to execute Python: ${err.message}` });
-            });
-          });
+          const pythonResult = await runSandboxedPython(cleanedCode, records);
 
           if (pythonResult.error) {
             return res.status(400).json({ error: pythonResult.error });
@@ -445,68 +392,8 @@ except Exception as e:
           const sqlQuery = transform.data;
           if (!sqlQuery || sqlQuery.trim() === '') continue;
           
-          const inputJson = JSON.stringify(records);
           
-          const sqlScript = `
-import sys
-import json
-import pandas as pd
-import duckdb
-
-try:
-    input_data = json.loads(sys.stdin.read())
-    input_table = pd.DataFrame(input_data)
-    
-    for col in input_table.columns:
-        dtype_str = str(input_table[col].dtype)
-        if dtype_str == 'object' or dtype_str == 'str' or dtype_str.startswith('string'):
-            input_table[col] = input_table[col].astype(object)
-    
-    con = duckdb.connect()
-    con.register('input_table', input_table)
-    
-    result_df = con.execute("""${sqlQuery.replace(/"/g, '\\"')}""").fetchdf()
-    
-    result = result_df.to_dict('records')
-    print(json.dumps(result, default=str))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=sys.stderr)
-    sys.exit(1)
-`;
-
-          const sqlResult = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
-            const python = spawn('python3', ['-c', sqlScript]);
-            let stdout = '';
-            let stderr = '';
-
-            python.stdin.on('error', () => {});
-            python.stdin.write(inputJson);
-            python.stdin.end();
-
-            python.stdout.on('data', (data) => { stdout += data.toString(); });
-            python.stderr.on('data', (data) => { stderr += data.toString(); });
-
-            python.on('close', (code) => {
-              if (code !== 0) {
-                resolve({ error: stderr || 'SQL query failed' });
-              } else {
-                try {
-                  const parsed = JSON.parse(stdout);
-                  if (parsed.error) {
-                    resolve({ error: parsed.error });
-                  } else {
-                    resolve({ data: parsed });
-                  }
-                } catch (e) {
-                  resolve({ error: 'Failed to parse SQL output' });
-                }
-              }
-            });
-
-            python.on('error', (err) => {
-              resolve({ error: `Failed to execute SQL: ${err.message}` });
-            });
-          });
+          const sqlResult = await runSandboxedSql(sqlQuery, records);
 
           if (sqlResult.error) {
             return res.status(400).json({ error: sqlResult.error });
@@ -710,61 +597,7 @@ except Exception as e:
             })
             .join('\n');
 
-          const pythonScript = `
-import sys
-import json
-import pandas as pd
-
-try:
-    input_data = json.loads(sys.stdin.read())
-    input_df = pd.DataFrame(input_data)
-    result_df = None
-    
-${cleanedCode.split('\n').map((line: string) => '    ' + line).join('\n')}
-    
-    if result_df is None:
-        if 'df' in dir() and isinstance(df, pd.DataFrame):
-            result_df = df
-        else:
-            result_df = input_df
-    
-    result = result_df.to_dict('records')
-    print(json.dumps(result))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=sys.stderr)
-    sys.exit(1)
-`;
-
-          const inputJson = JSON.stringify(records);
-          const pythonResult = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
-            const python = spawn('python3', ['-c', pythonScript]);
-            let stdout = '';
-            let stderr = '';
-
-            python.stdin.on('error', () => {});
-            python.stdin.write(inputJson);
-            python.stdin.end();
-
-            python.stdout.on('data', (data) => { stdout += data.toString(); });
-            python.stderr.on('data', (data) => { stderr += data.toString(); });
-
-            python.on('close', (code) => {
-              if (code !== 0) {
-                resolve({ error: stderr || 'Python script failed' });
-              } else {
-                try {
-                  const parsed = JSON.parse(stdout);
-                  resolve({ data: parsed.error ? undefined : parsed, error: parsed.error });
-                } catch (e) {
-                  resolve({ error: 'Failed to parse Python output' });
-                }
-              }
-            });
-
-            python.on('error', (err) => {
-              resolve({ error: `Failed to execute Python: ${err.message}` });
-            });
-          });
+          const pythonResult = await runSandboxedPython(cleanedCode, records);
 
           if (pythonResult.error) {
             return res.status(400).json({ error: pythonResult.error });
@@ -774,71 +607,8 @@ except Exception as e:
           const sqlQuery = transform.data;
           if (!sqlQuery || sqlQuery.trim() === '') continue;
           
-          const inputJson = JSON.stringify(records);
           
-          const sqlScript = `
-import sys
-import json
-import pandas as pd
-import duckdb
-
-try:
-    input_data = json.loads(sys.stdin.read())
-    input_table = pd.DataFrame(input_data)
-    
-    # Convert string/object columns to numpy object type (compatible with DuckDB)
-    for col in input_table.columns:
-        dtype_str = str(input_table[col].dtype)
-        if dtype_str == 'object' or dtype_str == 'str' or dtype_str.startswith('string'):
-            input_table[col] = input_table[col].astype(object)
-    
-    # Create a connection and register the DataFrame
-    con = duckdb.connect()
-    con.register('input_table', input_table)
-    
-    # Execute the SQL query
-    result_df = con.execute("""${sqlQuery.replace(/"/g, '\\"')}""").fetchdf()
-    
-    result = result_df.to_dict('records')
-    print(json.dumps(result, default=str))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=sys.stderr)
-    sys.exit(1)
-`;
-
-          const sqlResult = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
-            const python = spawn('python3', ['-c', sqlScript]);
-            let stdout = '';
-            let stderr = '';
-
-            python.stdin.on('error', () => {});
-            python.stdin.write(inputJson);
-            python.stdin.end();
-
-            python.stdout.on('data', (data) => { stdout += data.toString(); });
-            python.stderr.on('data', (data) => { stderr += data.toString(); });
-
-            python.on('close', (code) => {
-              if (code !== 0) {
-                resolve({ error: stderr || 'SQL query failed' });
-              } else {
-                try {
-                  const parsed = JSON.parse(stdout);
-                  if (parsed.error) {
-                    resolve({ error: parsed.error });
-                  } else {
-                    resolve({ data: parsed });
-                  }
-                } catch (e) {
-                  resolve({ error: 'Failed to parse SQL output' });
-                }
-              }
-            });
-
-            python.on('error', (err) => {
-              resolve({ error: `Failed to execute SQL: ${err.message}` });
-            });
-          });
+          const sqlResult = await runSandboxedSql(sqlQuery, records);
 
           if (sqlResult.error) {
             return res.status(400).json({ error: sqlResult.error });
@@ -978,7 +748,6 @@ except Exception as e:
       }
 
       // Execute Python transformation
-      const inputJson = JSON.stringify(records);
       
       // Create a Python script that runs the user's code
       // Remove 'return' statements from user code since we'll execute in module context
@@ -994,75 +763,7 @@ except Exception as e:
         })
         .join('\n');
 
-      const pythonScript = `
-import sys
-import json
-import pandas as pd
-
-try:
-    input_data = json.loads(sys.stdin.read())
-    input_df = pd.DataFrame(input_data)
-    result_df = None
-    
-    # User's code
-${cleanedCode.split('\n').map(line => '    ' + line).join('\n')}
-    
-    # If result_df was set, use that. Otherwise check for df, then input_df
-    if result_df is None:
-        if 'df' in dir() and isinstance(df, pd.DataFrame):
-            result_df = df
-        else:
-            result_df = input_df
-    
-    # Convert to JSON
-    result = result_df.to_dict('records')
-    print(json.dumps(result))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=sys.stderr)
-    sys.exit(1)
-`;
-
-      const result = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
-        const python = spawn('python3', ['-c', pythonScript]);
-        let stdout = '';
-        let stderr = '';
-
-        python.stdin.on('error', () => {
-          // Ignore EPIPE errors - they happen when Python exits early
-        });
-        
-        python.stdin.write(inputJson);
-        python.stdin.end();
-
-        python.stdout.on('data', (data) => {
-          stdout += data.toString();
-        });
-
-        python.stderr.on('data', (data) => {
-          stderr += data.toString();
-        });
-
-        python.on('close', (code) => {
-          if (code !== 0) {
-            resolve({ error: stderr || 'Python script failed' });
-          } else {
-            try {
-              const parsed = JSON.parse(stdout);
-              if (parsed.error) {
-                resolve({ error: parsed.error });
-              } else {
-                resolve({ data: parsed });
-              }
-            } catch (e) {
-              resolve({ error: 'Failed to parse Python output' });
-            }
-          }
-        });
-
-        python.on('error', (err) => {
-          resolve({ error: `Failed to execute Python: ${err.message}` });
-        });
-      });
+      const result = await runSandboxedPython(cleanedCode, records);
 
       if (result.error) {
         return res.status(400).json({ error: result.error });
@@ -1170,61 +871,7 @@ except Exception as e:
           })
           .join('\n');
 
-        const pythonScript = `
-import sys
-import json
-import pandas as pd
-
-try:
-    input_data = json.loads(sys.stdin.read())
-    input_df = pd.DataFrame(input_data)
-    result_df = None
-    
-${cleanedCode.split('\n').map(line => '    ' + line).join('\n')}
-    
-    if result_df is None:
-        if 'df' in dir() and isinstance(df, pd.DataFrame):
-            result_df = df
-        else:
-            result_df = input_df
-    
-    result = result_df.to_dict('records')
-    print(json.dumps(result))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=sys.stderr)
-    sys.exit(1)
-`;
-
-        const inputJson = JSON.stringify(records);
-        const pythonResult = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
-          const python = spawn('python3', ['-c', pythonScript]);
-          let stdout = '';
-          let stderr = '';
-
-          python.stdin.on('error', () => {});
-          python.stdin.write(inputJson);
-          python.stdin.end();
-
-          python.stdout.on('data', (data) => { stdout += data.toString(); });
-          python.stderr.on('data', (data) => { stderr += data.toString(); });
-
-          python.on('close', (code) => {
-            if (code !== 0) {
-              resolve({ error: stderr || 'Python script failed' });
-            } else {
-              try {
-                const parsed = JSON.parse(stdout);
-                resolve({ data: parsed.error ? undefined : parsed, error: parsed.error });
-              } catch (e) {
-                resolve({ error: 'Failed to parse Python output' });
-              }
-            }
-          });
-
-          python.on('error', (err) => {
-            resolve({ error: `Failed to execute Python: ${err.message}` });
-          });
-        });
+        const pythonResult = await runSandboxedPython(cleanedCode, records);
 
         if (pythonResult.error) {
           return res.status(400).json({ error: pythonResult.error });
@@ -1245,71 +892,8 @@ except Exception as e:
       }
 
       // Execute SQL transformation using DuckDB via Python
-      const inputJson = JSON.stringify(records);
       
-      const sqlScript = `
-import sys
-import json
-import pandas as pd
-import duckdb
-
-try:
-    input_data = json.loads(sys.stdin.read())
-    input_table = pd.DataFrame(input_data)
-    
-    # Convert string/object columns to numpy object type (compatible with DuckDB)
-    for col in input_table.columns:
-        dtype_str = str(input_table[col].dtype)
-        if dtype_str == 'object' or dtype_str == 'str' or dtype_str.startswith('string'):
-            input_table[col] = input_table[col].astype(object)
-    
-    # Create a connection and register the DataFrame
-    con = duckdb.connect()
-    con.register('input_table', input_table)
-    
-    # Execute the SQL query
-    result_df = con.execute("""${sqlQuery.replace(/"/g, '\\"')}""").fetchdf()
-    
-    result = result_df.to_dict('records')
-    print(json.dumps(result, default=str))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=sys.stderr)
-    sys.exit(1)
-`;
-
-      const result = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
-        const python = spawn('python3', ['-c', sqlScript]);
-        let stdout = '';
-        let stderr = '';
-
-        python.stdin.on('error', () => {});
-        python.stdin.write(inputJson);
-        python.stdin.end();
-
-        python.stdout.on('data', (data) => { stdout += data.toString(); });
-        python.stderr.on('data', (data) => { stderr += data.toString(); });
-
-        python.on('close', (code) => {
-          if (code !== 0) {
-            resolve({ error: stderr || 'SQL query failed' });
-          } else {
-            try {
-              const parsed = JSON.parse(stdout);
-              if (parsed.error) {
-                resolve({ error: parsed.error });
-              } else {
-                resolve({ data: parsed });
-              }
-            } catch (e) {
-              resolve({ error: 'Failed to parse SQL output' });
-            }
-          }
-        });
-
-        python.on('error', (err) => {
-          resolve({ error: `Failed to execute SQL: ${err.message}` });
-        });
-      });
+      const result = await runSandboxedSql(sqlQuery, records);
 
       if (result.error) {
         return res.status(400).json({ error: result.error });
