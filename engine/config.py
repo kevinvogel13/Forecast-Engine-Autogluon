@@ -12,12 +12,17 @@ def get_config():
         'LOG_LEVEL': os.environ.get('LOG_LEVEL', 'INFO'),
         'MAX_ROWS_PREVIEW': int(os.environ.get('MAX_ROWS_PREVIEW', '1000')),
         'MAX_EXECUTION_TIME': int(os.environ.get('MAX_EXECUTION_TIME', '3600')),
+        # Set by server/routes.ts when spawning the pipeline so every
+        # JSON log line emitted here can be joined to the HTTP request.
+        'REQUEST_ID': os.environ.get('REQUEST_ID', ''),
     }
+
 
 def setup_logging(level=None):
     cfg = get_config()
     log_level = level or cfg['LOG_LEVEL']
-    
+    request_id = cfg['REQUEST_ID']
+
     class JsonFormatter(logging.Formatter):
         def format(self, record):
             log_entry = {
@@ -26,13 +31,15 @@ def setup_logging(level=None):
                 'message': record.getMessage(),
                 'module': record.module,
             }
+            if request_id:
+                log_entry['request_id'] = request_id
             if record.exc_info:
                 log_entry['exception'] = self.formatException(record.exc_info)
             return json.dumps(log_entry)
-    
+
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
-    
+
     logger = logging.getLogger('engine')
     logger.setLevel(getattr(logging, log_level.upper()))
     logger.addHandler(handler)

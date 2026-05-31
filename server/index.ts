@@ -8,6 +8,7 @@ import { createServer } from "http";
 import { attachAuth, requireAuth } from "./auth";
 import { requestId } from "./middleware/requestId";
 import { errorHandler } from "./middleware/errorHandler";
+import { registerHealthRoute } from "./routes/health";
 import { logger } from "./logger";
 
 const app = express();
@@ -80,6 +81,10 @@ app.use(
 app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 
 attachAuth(app);
+
+// Health probe — registered before the auth gate so monitoring tools
+// (Docker HEALTHCHECK, k8s, etc.) can poll without a session.
+registerHealthRoute(app);
 
 (async () => {
   // attachAuth already registered /api/auth/* routes above, so they remain

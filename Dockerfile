@@ -70,9 +70,7 @@ ENV NODE_ENV=production \
 
 EXPOSE 5000
 
-# Healthcheck pokes the root path; M9 introduces a dedicated /api/health
-# that this can be re-pointed to.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "require('http').get('http://127.0.0.1:5000/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
+  CMD node -e "require('http').get('http://127.0.0.1:5000/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
 CMD ["node", "dist/index.cjs"]

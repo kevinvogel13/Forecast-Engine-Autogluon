@@ -779,12 +779,16 @@ export async function registerRoutes(
       const tmpFile = path.join(process.cwd(), 'uploads', `pipeline_exec_${Date.now()}.json`);
       await fs.writeFile(tmpFile, JSON.stringify(pipelineData));
 
+      // Forward the request id so engine JSON log lines correlate with
+      // the HTTP request that kicked them off.
+      const requestId = typeof req.id === "string" ? req.id : req.id != null ? String(req.id) : "";
       const env = {
         ...process.env,
         STORAGE_PATH: UPLOAD_DIR,
         MODEL_PATH: path.join(process.cwd(), 'models'),
         STORAGE_TYPE: 'local',
         LOG_LEVEL: 'INFO',
+        REQUEST_ID: requestId,
       };
 
       const python = spawn('python3', ['-m', 'engine.pipeline', tmpFile], {
