@@ -1,13 +1,29 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, jsonb, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, jsonb, timestamp, integer, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// connect-pg-simple session store table. Columns match the library's
+// upstream `table.sql` so it can read/write sessions without custom schema.
+export const sessions = pgTable(
+  "session",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: jsonb("sess").notNull(),
+    expire: timestamp("expire", { precision: 6 }).notNull(),
+  },
+  (table) => ({
+    expireIdx: index("IDX_session_expire").on(table.expire),
+  }),
+);
 
 export const pipelines = pgTable("pipelines", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -30,8 +46,23 @@ export const datasets = pgTable("datasets", {
   uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
 });
 
+// Credential input schema. Insert types for the user row are derived from the
+// table, but registration accepts a plaintext password that the server hashes
+// before persisting — keep that boundary in the input schema.
+export const registerSchema = z.object({
+  email: z.string().email().max(254),
+  password: z.string().min(8).max(128),
+});
+
+export const loginSchema = z.object({
+  email: z.string().email().max(254),
+  password: z.string().min(1).max(128),
+});
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
+  createdAt: true,
+  updatedAt: true,
 });
 
 export const insertPipelineSchema = createInsertSchema(pipelines).omit({
@@ -47,6 +78,8 @@ export const insertDatasetSchema = createInsertSchema(datasets).omit({
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+export type RegisterInput = z.infer<typeof registerSchema>;
+export type LoginInput = z.infer<typeof loginSchema>;
 
 export type InsertPipeline = z.infer<typeof insertPipelineSchema>;
 export type Pipeline = typeof pipelines.$inferSelect;

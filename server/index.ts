@@ -1,10 +1,16 @@
 import express, { type Request, Response, NextFunction } from "express";
+import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { attachAuth, requireAuth } from "./auth";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Trust the first proxy hop so secure cookies and rate-limit IPs work
+// behind a reverse proxy (Replit, fly.io, nginx, etc).
+app.set("trust proxy", 1);
 
 declare module "http" {
   interface IncomingMessage {
@@ -13,14 +19,26 @@ declare module "http" {
 }
 
 app.use(
+  helmet({
+    // Vite dev needs inline scripts and HMR websockets; CSP is enforced in
+    // production where the static bundle is served instead.
+    contentSecurityPolicy: process.env.NODE_ENV === "production" ? undefined : false,
+    crossOriginEmbedderPolicy: false,
+  }),
+);
+
+app.use(
   express.json({
+    limit: "10mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "10mb" }));
+
+attachAuth(app);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -60,6 +78,10 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // attachAuth already registered /api/auth/* routes above, so they remain
+  // reachable without a session. Everything else under /api requires auth.
+  app.use("/api", requireAuth);
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

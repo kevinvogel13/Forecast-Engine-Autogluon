@@ -1,5 +1,4 @@
 import { type User, type InsertUser, type Pipeline, type InsertPipeline, type Dataset, type InsertDataset } from "@shared/schema";
-import { randomUUID } from "crypto";
 import { db } from "../db";
 import { users, pipelines, datasets } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
@@ -7,7 +6,7 @@ import { eq, desc } from "drizzle-orm";
 export interface IStorage {
   // Users
   getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
 
   // Pipelines
@@ -31,13 +30,16 @@ export class DbStorage implements IStorage {
     return result[0];
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1);
     return result[0];
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const result = await db.insert(users).values(insertUser).returning();
+    const result = await db
+      .insert(users)
+      .values({ ...insertUser, email: insertUser.email.toLowerCase() })
+      .returning();
     return result[0];
   }
 
