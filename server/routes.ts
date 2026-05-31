@@ -10,13 +10,12 @@ import {
   sqlTransformBody,
 } from "@shared/dto";
 import { validate } from "./middleware/validate";
-import multer from "multer";
+import { upload, moveToFinalLocation, resolveUploadPath, deleteUploadFile, UPLOAD_DIR } from "./upload";
+import { randomUUID } from "crypto";
 import path from "path";
 import fs from "fs/promises";
 import { parse } from "csv-parse/sync";
 import { spawn } from "child_process";
-
-const upload = multer({ dest: 'uploads/' });
 
 /** Test one row against a single filter condition. */
 function testRowCondition(cellValue: any, operator: string, value: any): boolean {
@@ -158,12 +157,14 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/datasets/upload", upload.single('file'), async (req, res) => {
+  app.post("/api/datasets/upload", upload.single('file'), async (req, res, next) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
 
+      // Parse CSV from the temp location so we can capture row/col counts
+      // before moving it to the final per-user/per-dataset directory.
       const fileContent = await fs.readFile(req.file.path, 'utf-8');
       const records = parse(fileContent, {
         columns: true,
@@ -174,28 +175,29 @@ export async function registerRoutes(
       const columns = records.length > 0 ? Object.keys(records[0]) : [];
       const cols = columns.length;
 
-      const uploadsDir = path.join(process.cwd(), 'uploads');
-      await fs.mkdir(uploadsDir, { recursive: true });
-      
-      const finalPath = path.join(uploadsDir, req.file.originalname);
-      await fs.rename(req.file.path, finalPath);
+      const datasetId = randomUUID();
+      const { relativePath } = await moveToFinalLocation(
+        req.file.path,
+        req.user!.id,
+        datasetId,
+        req.file.originalname,
+      );
 
       const dataset = await storage.createDataset(req.user!.id, {
         filename: req.file.originalname,
-        filepath: finalPath,
+        filepath: relativePath,
         rows,
         cols,
         columns,
-        size: req.file.size
+        size: req.file.size,
       });
 
       res.status(201).json(dataset);
     } catch (error) {
-      console.error("Error uploading dataset:", error);
       if (req.file) {
         await fs.unlink(req.file.path).catch(() => {});
       }
-      res.status(500).json({ error: "Failed to upload dataset" });
+      next(error);
     }
   });
 
@@ -206,7 +208,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Dataset not found" });
       }
 
-      await fs.unlink(dataset.filepath).catch(() => {});
+      await deleteUploadFile(dataset.filepath);
       
       const deleted = await storage.deleteDataset(req.user!.id, req.params.id);
       if (!deleted) {
@@ -231,7 +233,7 @@ export async function registerRoutes(
       const requestedLimit = parseInt(req.query.limit as string);
       const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
       
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       const records = parse(fileContent, {
         columns: true,
         skip_empty_lines: true,
@@ -261,7 +263,7 @@ export async function registerRoutes(
       }
 
       const columnName = req.params.column;
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       const records = parse(fileContent, {
         columns: true,
         skip_empty_lines: true,
@@ -299,7 +301,7 @@ export async function registerRoutes(
       }
 
       const columnName = req.params.column;
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       const records = parse(fileContent, {
         columns: true,
         skip_empty_lines: true,
@@ -354,7 +356,7 @@ export async function registerRoutes(
       const percent = Math.max(5, Math.min(100, samplePercent || 100));
       const sampSeed = seed ?? 42;
 
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
@@ -572,7 +574,7 @@ except Exception as e:
       const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
       const { filters } = req.body as { filters?: Array<{ column: string; operator: string; value: any }> };
       
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
@@ -658,7 +660,7 @@ except Exception as e:
         transforms: Array<{ type: 'filter' | 'python' | 'sql' | 'sampling'; data: any }>
       };
 
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
@@ -906,7 +908,7 @@ except Exception as e:
         pythonCode?: string;
       };
 
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
@@ -1098,7 +1100,7 @@ except Exception as e:
         pythonCode?: string;
       };
 
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
@@ -1353,7 +1355,7 @@ except Exception as e:
 
       const env = {
         ...process.env,
-        STORAGE_PATH: path.join(process.cwd(), 'uploads'),
+        STORAGE_PATH: UPLOAD_DIR,
         MODEL_PATH: path.join(process.cwd(), 'models'),
         STORAGE_TYPE: 'local',
         LOG_LEVEL: 'INFO',
