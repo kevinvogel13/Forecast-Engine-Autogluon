@@ -1,8 +1,11 @@
 import { type User, type InsertUser, type Pipeline, type InsertPipeline, type Dataset, type InsertDataset } from "@shared/schema";
 import { db } from "../db";
 import { users, pipelines, datasets } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 
+// Every pipeline/dataset query is scoped by userId so that one user cannot
+// read, update, or delete another user's rows. The route layer pulls the id
+// from the authenticated session (req.user.id) and passes it in here.
 export interface IStorage {
   // Users
   getUser(id: string): Promise<User | undefined>;
@@ -10,17 +13,17 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
 
   // Pipelines
-  getPipelines(): Promise<Pipeline[]>;
-  getPipeline(id: string): Promise<Pipeline | undefined>;
-  createPipeline(pipeline: InsertPipeline): Promise<Pipeline>;
-  updatePipeline(id: string, pipeline: Partial<InsertPipeline>): Promise<Pipeline | undefined>;
-  deletePipeline(id: string): Promise<boolean>;
+  getPipelines(userId: string): Promise<Pipeline[]>;
+  getPipeline(userId: string, id: string): Promise<Pipeline | undefined>;
+  createPipeline(userId: string, pipeline: InsertPipeline): Promise<Pipeline>;
+  updatePipeline(userId: string, id: string, pipeline: Partial<InsertPipeline>): Promise<Pipeline | undefined>;
+  deletePipeline(userId: string, id: string): Promise<boolean>;
 
   // Datasets
-  getDatasets(): Promise<Dataset[]>;
-  getDataset(id: string): Promise<Dataset | undefined>;
-  createDataset(dataset: InsertDataset): Promise<Dataset>;
-  deleteDataset(id: string): Promise<boolean>;
+  getDatasets(userId: string): Promise<Dataset[]>;
+  getDataset(userId: string, id: string): Promise<Dataset | undefined>;
+  createDataset(userId: string, dataset: InsertDataset): Promise<Dataset>;
+  deleteDataset(userId: string, id: string): Promise<boolean>;
 }
 
 export class DbStorage implements IStorage {
@@ -44,50 +47,77 @@ export class DbStorage implements IStorage {
   }
 
   // Pipelines
-  async getPipelines(): Promise<Pipeline[]> {
-    return await db.select().from(pipelines).orderBy(desc(pipelines.updatedAt));
+  async getPipelines(userId: string): Promise<Pipeline[]> {
+    return await db
+      .select()
+      .from(pipelines)
+      .where(eq(pipelines.userId, userId))
+      .orderBy(desc(pipelines.updatedAt));
   }
 
-  async getPipeline(id: string): Promise<Pipeline | undefined> {
-    const result = await db.select().from(pipelines).where(eq(pipelines.id, id)).limit(1);
+  async getPipeline(userId: string, id: string): Promise<Pipeline | undefined> {
+    const result = await db
+      .select()
+      .from(pipelines)
+      .where(and(eq(pipelines.id, id), eq(pipelines.userId, userId)))
+      .limit(1);
     return result[0];
   }
 
-  async createPipeline(pipeline: InsertPipeline): Promise<Pipeline> {
-    const result = await db.insert(pipelines).values(pipeline).returning();
+  async createPipeline(userId: string, pipeline: InsertPipeline): Promise<Pipeline> {
+    const result = await db.insert(pipelines).values({ ...pipeline, userId }).returning();
     return result[0];
   }
 
-  async updatePipeline(id: string, pipeline: Partial<InsertPipeline>): Promise<Pipeline | undefined> {
-    const result = await db.update(pipelines)
+  async updatePipeline(
+    userId: string,
+    id: string,
+    pipeline: Partial<InsertPipeline>,
+  ): Promise<Pipeline | undefined> {
+    const result = await db
+      .update(pipelines)
       .set({ ...pipeline, updatedAt: new Date() })
-      .where(eq(pipelines.id, id))
+      .where(and(eq(pipelines.id, id), eq(pipelines.userId, userId)))
       .returning();
     return result[0];
   }
 
-  async deletePipeline(id: string): Promise<boolean> {
-    const result = await db.delete(pipelines).where(eq(pipelines.id, id)).returning();
+  async deletePipeline(userId: string, id: string): Promise<boolean> {
+    const result = await db
+      .delete(pipelines)
+      .where(and(eq(pipelines.id, id), eq(pipelines.userId, userId)))
+      .returning();
     return result.length > 0;
   }
 
   // Datasets
-  async getDatasets(): Promise<Dataset[]> {
-    return await db.select().from(datasets).orderBy(desc(datasets.uploadedAt));
+  async getDatasets(userId: string): Promise<Dataset[]> {
+    return await db
+      .select()
+      .from(datasets)
+      .where(eq(datasets.userId, userId))
+      .orderBy(desc(datasets.uploadedAt));
   }
 
-  async getDataset(id: string): Promise<Dataset | undefined> {
-    const result = await db.select().from(datasets).where(eq(datasets.id, id)).limit(1);
+  async getDataset(userId: string, id: string): Promise<Dataset | undefined> {
+    const result = await db
+      .select()
+      .from(datasets)
+      .where(and(eq(datasets.id, id), eq(datasets.userId, userId)))
+      .limit(1);
     return result[0];
   }
 
-  async createDataset(dataset: InsertDataset): Promise<Dataset> {
-    const result = await db.insert(datasets).values(dataset).returning();
+  async createDataset(userId: string, dataset: InsertDataset): Promise<Dataset> {
+    const result = await db.insert(datasets).values({ ...dataset, userId }).returning();
     return result[0];
   }
 
-  async deleteDataset(id: string): Promise<boolean> {
-    const result = await db.delete(datasets).where(eq(datasets.id, id)).returning();
+  async deleteDataset(userId: string, id: string): Promise<boolean> {
+    const result = await db
+      .delete(datasets)
+      .where(and(eq(datasets.id, id), eq(datasets.userId, userId)))
+      .returning();
     return result.length > 0;
   }
 }

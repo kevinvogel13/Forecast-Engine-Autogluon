@@ -68,7 +68,7 @@ export async function registerRoutes(
   // Pipeline routes
   app.get("/api/pipelines", async (req, res) => {
     try {
-      const pipelines = await storage.getPipelines();
+      const pipelines = await storage.getPipelines(req.user!.id);
       res.json(pipelines);
     } catch (error) {
       console.error("Error fetching pipelines:", error);
@@ -78,7 +78,7 @@ export async function registerRoutes(
 
   app.get("/api/pipelines/:id", async (req, res) => {
     try {
-      const pipeline = await storage.getPipeline(req.params.id);
+      const pipeline = await storage.getPipeline(req.user!.id, req.params.id);
       if (!pipeline) {
         return res.status(404).json({ error: "Pipeline not found" });
       }
@@ -92,7 +92,7 @@ export async function registerRoutes(
   app.post("/api/pipelines", async (req, res) => {
     try {
       const validated = insertPipelineSchema.parse(req.body);
-      const pipeline = await storage.createPipeline(validated);
+      const pipeline = await storage.createPipeline(req.user!.id, validated);
       res.status(201).json(pipeline);
     } catch (error) {
       console.error("Error creating pipeline:", error);
@@ -102,7 +102,7 @@ export async function registerRoutes(
 
   app.patch("/api/pipelines/:id", async (req, res) => {
     try {
-      const pipeline = await storage.updatePipeline(req.params.id, req.body);
+      const pipeline = await storage.updatePipeline(req.user!.id, req.params.id, req.body);
       if (!pipeline) {
         return res.status(404).json({ error: "Pipeline not found" });
       }
@@ -115,7 +115,7 @@ export async function registerRoutes(
 
   app.delete("/api/pipelines/:id", async (req, res) => {
     try {
-      const deleted = await storage.deletePipeline(req.params.id);
+      const deleted = await storage.deletePipeline(req.user!.id, req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Pipeline not found" });
       }
@@ -129,7 +129,7 @@ export async function registerRoutes(
   // Dataset routes
   app.get("/api/datasets", async (req, res) => {
     try {
-      const datasets = await storage.getDatasets();
+      const datasets = await storage.getDatasets(req.user!.id);
       res.json(datasets);
     } catch (error) {
       console.error("Error fetching datasets:", error);
@@ -139,7 +139,7 @@ export async function registerRoutes(
 
   app.get("/api/datasets/:id", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
@@ -172,7 +172,7 @@ export async function registerRoutes(
       const finalPath = path.join(uploadsDir, req.file.originalname);
       await fs.rename(req.file.path, finalPath);
 
-      const dataset = await storage.createDataset({
+      const dataset = await storage.createDataset(req.user!.id, {
         filename: req.file.originalname,
         filepath: finalPath,
         rows,
@@ -193,14 +193,14 @@ export async function registerRoutes(
 
   app.delete("/api/datasets/:id", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
 
       await fs.unlink(dataset.filepath).catch(() => {});
       
-      const deleted = await storage.deleteDataset(req.params.id);
+      const deleted = await storage.deleteDataset(req.user!.id, req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Dataset not found" });
       }
@@ -215,7 +215,7 @@ export async function registerRoutes(
   // Get data preview (first N rows)
   app.get("/api/datasets/:id/preview", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
@@ -247,7 +247,7 @@ export async function registerRoutes(
   // Get unique values for a column (for filter dropdowns)
   app.get("/api/datasets/:id/column/:column/values", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
@@ -285,7 +285,7 @@ export async function registerRoutes(
 
   app.get("/api/datasets/:id/column/:column/date-range", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
@@ -327,7 +327,7 @@ export async function registerRoutes(
   // Stratified sampling - sample X% of groups, return all rows for selected groups
   app.post("/api/datasets/:id/stratified-sample", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
@@ -555,7 +555,7 @@ except Exception as e:
   // Filtered data preview - applies filter transformations
   app.post("/api/datasets/:id/filtered-preview", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
@@ -639,7 +639,7 @@ except Exception as e:
   // Unified transform endpoint - applies a chain of transforms (filters, python, sql) in order
   app.post("/api/datasets/:id/transform", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
@@ -886,7 +886,7 @@ except Exception as e:
   // Python script execution endpoint - transforms data using Python code
   app.post("/api/datasets/:id/python-transform", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
@@ -1077,7 +1077,7 @@ except Exception as e:
   // SQL script execution endpoint - transforms data using SQL (DuckDB)
   app.post("/api/datasets/:id/sql-transform", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
@@ -1324,7 +1324,7 @@ except Exception as e:
   // Pipeline execution route — streams progress via Server-Sent Events
   app.post("/api/pipelines/:id/execute", async (req, res) => {
     try {
-      const pipeline = await storage.getPipeline(req.params.id);
+      const pipeline = await storage.getPipeline(req.user!.id, req.params.id);
       if (!pipeline) {
         return res.status(404).json({ error: "Pipeline not found" });
       }
