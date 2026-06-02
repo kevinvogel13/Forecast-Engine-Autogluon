@@ -84,10 +84,13 @@ def _apply_rlimits(memory_bytes: int, cpu_seconds: int) -> None:
     # `subprocess.run(timeout=)`. This catches CPU-burn before the wall
     # clock fires.
     resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
-    # File descriptor count — pandas/parquet need a handful; 64 is plenty
-    # and stops fd-exhaustion attacks.
+    # File descriptor count — DuckDB and pyarrow each open a handful;
+    # DuckDB's thread pool also briefly opens an fd per worker thread.
+    # 64 was too tight on multi-core CI runners (SIGABRT with "Resource
+    # temporarily unavailable" from pthread_create). 256 still bounds
+    # fd-exhaustion attacks while leaving room for the libraries.
     try:
-        resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
+        resource.setrlimit(resource.RLIMIT_NOFILE, (256, 256))
     except (ValueError, OSError):
         # Hard limit may already be lower; not worth aborting over.
         pass
@@ -185,6 +188,13 @@ def _run_sql(req: SandboxRequest) -> SandboxResponse:
         # stops `READ_CSV('http://...')`, `COPY ... TO 'file'`, attach, etc.
         try:
             con.execute("SET enable_external_access = false")
+        except Exception:
+            pass
+        # Pin DuckDB to one worker thread. Under our RLIMIT_NOFILE / NPROC
+        # the default thread pool (= CPU count) can fail to spawn under
+        # contention and SIGABRT with "Resource temporarily unavailable".
+        try:
+            con.execute("SET threads = 1")
         except Exception:
             pass
         for i, p in enumerate(req.inputs):

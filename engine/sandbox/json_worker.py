@@ -94,6 +94,12 @@ def _run_sql(query: str, df: pd.DataFrame) -> pd.DataFrame:
             con.execute("SET enable_external_access = false")
         except Exception:
             pass
+        # Match the parquet worker — one DuckDB thread inside the
+        # sandboxed RLIMIT_NOFILE / NPROC envelope.
+        try:
+            con.execute("SET threads = 1")
+        except Exception:
+            pass
         con.register("input_table", df)
         con.register("df", df)
         return con.execute(query).fetchdf()
