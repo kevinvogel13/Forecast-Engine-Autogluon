@@ -2,13 +2,26 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertPipelineSchema, insertDatasetSchema } from "@shared/schema";
-import multer from "multer";
+import {
+  stratifiedSampleBody,
+  filteredPreviewBody,
+  transformChainBody,
+  pythonTransformBody,
+  sqlTransformBody,
+  type StratifiedSampleBody,
+  type FilteredPreviewBody,
+  type TransformChainBody,
+  type PythonTransformBody,
+  type SqlTransformBody,
+} from "@shared/dto";
+import { validate } from "./middleware/validate";
+import { upload, moveToFinalLocation, resolveUploadPath, deleteUploadFile, UPLOAD_DIR } from "./upload";
+import { runSandboxedPython, runSandboxedSql } from "./sandbox";
+import { randomUUID } from "crypto";
 import path from "path";
 import fs from "fs/promises";
 import { parse } from "csv-parse/sync";
 import { spawn } from "child_process";
-
-const upload = multer({ dest: 'uploads/' });
 
 /** Test one row against a single filter condition. */
 function testRowCondition(cellValue: any, operator: string, value: any): boolean {
@@ -68,7 +81,7 @@ export async function registerRoutes(
   // Pipeline routes
   app.get("/api/pipelines", async (req, res) => {
     try {
-      const pipelines = await storage.getPipelines();
+      const pipelines = await storage.getPipelines(req.user!.id);
       res.json(pipelines);
     } catch (error) {
       console.error("Error fetching pipelines:", error);
@@ -78,7 +91,7 @@ export async function registerRoutes(
 
   app.get("/api/pipelines/:id", async (req, res) => {
     try {
-      const pipeline = await storage.getPipeline(req.params.id);
+      const pipeline = await storage.getPipeline(req.user!.id, req.params.id);
       if (!pipeline) {
         return res.status(404).json({ error: "Pipeline not found" });
       }
@@ -92,7 +105,7 @@ export async function registerRoutes(
   app.post("/api/pipelines", async (req, res) => {
     try {
       const validated = insertPipelineSchema.parse(req.body);
-      const pipeline = await storage.createPipeline(validated);
+      const pipeline = await storage.createPipeline(req.user!.id, validated);
       res.status(201).json(pipeline);
     } catch (error) {
       console.error("Error creating pipeline:", error);
@@ -102,7 +115,7 @@ export async function registerRoutes(
 
   app.patch("/api/pipelines/:id", async (req, res) => {
     try {
-      const pipeline = await storage.updatePipeline(req.params.id, req.body);
+      const pipeline = await storage.updatePipeline(req.user!.id, req.params.id, req.body);
       if (!pipeline) {
         return res.status(404).json({ error: "Pipeline not found" });
       }
@@ -115,7 +128,7 @@ export async function registerRoutes(
 
   app.delete("/api/pipelines/:id", async (req, res) => {
     try {
-      const deleted = await storage.deletePipeline(req.params.id);
+      const deleted = await storage.deletePipeline(req.user!.id, req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Pipeline not found" });
       }
@@ -129,7 +142,7 @@ export async function registerRoutes(
   // Dataset routes
   app.get("/api/datasets", async (req, res) => {
     try {
-      const datasets = await storage.getDatasets();
+      const datasets = await storage.getDatasets(req.user!.id);
       res.json(datasets);
     } catch (error) {
       console.error("Error fetching datasets:", error);
@@ -139,7 +152,7 @@ export async function registerRoutes(
 
   app.get("/api/datasets/:id", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
@@ -150,57 +163,60 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/datasets/upload", upload.single('file'), async (req, res) => {
+  app.post("/api/datasets/upload", upload.single('file'), async (req, res, next) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
 
+      // Parse CSV from the temp location so we can capture row/col counts
+      // before moving it to the final per-user/per-dataset directory.
       const fileContent = await fs.readFile(req.file.path, 'utf-8');
-      const records = parse(fileContent, { 
-        columns: true, 
-        skip_empty_lines: true 
-      });
+      const records = parse(fileContent, {
+        columns: true,
+        skip_empty_lines: true,
+      }) as Record<string, unknown>[];
 
       const rows = records.length;
       const columns = records.length > 0 ? Object.keys(records[0]) : [];
       const cols = columns.length;
 
-      const uploadsDir = path.join(process.cwd(), 'uploads');
-      await fs.mkdir(uploadsDir, { recursive: true });
-      
-      const finalPath = path.join(uploadsDir, req.file.originalname);
-      await fs.rename(req.file.path, finalPath);
+      const datasetId = randomUUID();
+      const { relativePath } = await moveToFinalLocation(
+        req.file.path,
+        req.user!.id,
+        datasetId,
+        req.file.originalname,
+      );
 
-      const dataset = await storage.createDataset({
+      const dataset = await storage.createDataset(req.user!.id, {
         filename: req.file.originalname,
-        filepath: finalPath,
+        filepath: relativePath,
         rows,
         cols,
         columns,
-        size: req.file.size
+        size: req.file.size,
       });
 
       res.status(201).json(dataset);
     } catch (error) {
-      console.error("Error uploading dataset:", error);
       if (req.file) {
         await fs.unlink(req.file.path).catch(() => {});
       }
-      res.status(500).json({ error: "Failed to upload dataset" });
+      next(error);
     }
   });
 
   app.delete("/api/datasets/:id", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
 
-      await fs.unlink(dataset.filepath).catch(() => {});
+      await deleteUploadFile(dataset.filepath);
       
-      const deleted = await storage.deleteDataset(req.params.id);
+      const deleted = await storage.deleteDataset(req.user!.id, req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Dataset not found" });
       }
@@ -215,7 +231,7 @@ export async function registerRoutes(
   // Get data preview (first N rows)
   app.get("/api/datasets/:id/preview", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
@@ -223,11 +239,11 @@ export async function registerRoutes(
       const requestedLimit = parseInt(req.query.limit as string);
       const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
       
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
-      const records = parse(fileContent, { 
-        columns: true, 
-        skip_empty_lines: true 
-      });
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
+      const records = parse(fileContent, {
+        columns: true,
+        skip_empty_lines: true,
+      }) as Record<string, unknown>[];
 
       const preview = records.slice(0, limit);
       const columns = records.length > 0 ? Object.keys(records[0]) : [];
@@ -247,28 +263,31 @@ export async function registerRoutes(
   // Get unique values for a column (for filter dropdowns)
   app.get("/api/datasets/:id/column/:column/values", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
 
       const columnName = req.params.column;
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
-      const records = parse(fileContent, { 
-        columns: true, 
-        skip_empty_lines: true 
-      });
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
+      const records = parse(fileContent, {
+        columns: true,
+        skip_empty_lines: true,
+      }) as Record<string, unknown>[];
 
       if (records.length === 0 || !(columnName in records[0])) {
         return res.status(404).json({ error: "Column not found" });
       }
 
       // Get unique values
-      const uniqueValues = [...new Set(records.map((r: any) => r[columnName]))];
+      const uniqueValues = [...new Set(records.map((r) => r[columnName]))];
       
       // Determine if categorical (fewer than 50 unique values and not all numeric)
       const isCategorical = uniqueValues.length <= 50;
-      const isNumeric = uniqueValues.every((v: any) => !isNaN(parseFloat(v)) && isFinite(v));
+      const isNumeric = uniqueValues.every((v) => {
+        const n = parseFloat(String(v));
+        return !isNaN(n) && isFinite(n);
+      });
 
       res.json({
         column: columnName,
@@ -285,24 +304,24 @@ export async function registerRoutes(
 
   app.get("/api/datasets/:id/column/:column/date-range", async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
 
       const columnName = req.params.column;
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       const records = parse(fileContent, {
         columns: true,
-        skip_empty_lines: true
-      });
+        skip_empty_lines: true,
+      }) as Record<string, unknown>[];
 
       if (records.length === 0 || !(columnName in records[0])) {
         return res.status(404).json({ error: "Column not found" });
       }
 
       const dates = records
-        .map((r: any) => new Date(r[columnName]))
+        .map((r) => new Date(String(r[columnName])))
         .filter((d: Date) => !isNaN(d.getTime()))
         .sort((a: Date, b: Date) => a.getTime() - b.getTime());
 
@@ -325,19 +344,14 @@ export async function registerRoutes(
   });
 
   // Stratified sampling - sample X% of groups, return all rows for selected groups
-  app.post("/api/datasets/:id/stratified-sample", async (req, res) => {
+  app.post("/api/datasets/:id/stratified-sample", validate({ body: stratifiedSampleBody }), async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
 
-      const { groupColumn, samplePercent, seed, transforms } = req.body as {
-        groupColumn: string;
-        samplePercent: number; // 5-100
-        seed?: number;
-        transforms?: Array<{ type: 'filter' | 'python' | 'sql'; data: any }>;
-      };
+      const { groupColumn, samplePercent, seed, transforms } = req.body as StratifiedSampleBody;
 
       if (!groupColumn) {
         return res.status(400).json({ error: "groupColumn is required" });
@@ -346,11 +360,11 @@ export async function registerRoutes(
       const percent = Math.max(5, Math.min(100, samplePercent || 100));
       const sampSeed = seed ?? 42;
 
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
-      }) as any[];
+      }) as Record<string, unknown>[];
 
       // Apply any transforms first (filters, python, sql)
       for (const transform of transforms || []) {
@@ -371,61 +385,7 @@ export async function registerRoutes(
             })
             .join('\n');
 
-          const pythonScript = `
-import sys
-import json
-import pandas as pd
-
-try:
-    input_data = json.loads(sys.stdin.read())
-    input_df = pd.DataFrame(input_data)
-    result_df = None
-    
-${cleanedCode.split('\n').map((line: string) => '    ' + line).join('\n')}
-    
-    if result_df is None:
-        if 'df' in dir() and isinstance(df, pd.DataFrame):
-            result_df = df
-        else:
-            result_df = input_df
-    
-    result = result_df.to_dict('records')
-    print(json.dumps(result))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=sys.stderr)
-    sys.exit(1)
-`;
-
-          const inputJson = JSON.stringify(records);
-          const pythonResult = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
-            const python = spawn('python3', ['-c', pythonScript]);
-            let stdout = '';
-            let stderr = '';
-
-            python.stdin.on('error', () => {});
-            python.stdin.write(inputJson);
-            python.stdin.end();
-
-            python.stdout.on('data', (data) => { stdout += data.toString(); });
-            python.stderr.on('data', (data) => { stderr += data.toString(); });
-
-            python.on('close', (code) => {
-              if (code !== 0) {
-                resolve({ error: stderr || 'Python script failed' });
-              } else {
-                try {
-                  const parsed = JSON.parse(stdout);
-                  resolve({ data: parsed.error ? undefined : parsed, error: parsed.error });
-                } catch (e) {
-                  resolve({ error: 'Failed to parse Python output' });
-                }
-              }
-            });
-
-            python.on('error', (err) => {
-              resolve({ error: `Failed to execute Python: ${err.message}` });
-            });
-          });
+          const pythonResult = await runSandboxedPython(cleanedCode, records);
 
           if (pythonResult.error) {
             return res.status(400).json({ error: pythonResult.error });
@@ -435,68 +395,8 @@ except Exception as e:
           const sqlQuery = transform.data;
           if (!sqlQuery || sqlQuery.trim() === '') continue;
           
-          const inputJson = JSON.stringify(records);
           
-          const sqlScript = `
-import sys
-import json
-import pandas as pd
-import duckdb
-
-try:
-    input_data = json.loads(sys.stdin.read())
-    input_table = pd.DataFrame(input_data)
-    
-    for col in input_table.columns:
-        dtype_str = str(input_table[col].dtype)
-        if dtype_str == 'object' or dtype_str == 'str' or dtype_str.startswith('string'):
-            input_table[col] = input_table[col].astype(object)
-    
-    con = duckdb.connect()
-    con.register('input_table', input_table)
-    
-    result_df = con.execute("""${sqlQuery.replace(/"/g, '\\"')}""").fetchdf()
-    
-    result = result_df.to_dict('records')
-    print(json.dumps(result, default=str))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=sys.stderr)
-    sys.exit(1)
-`;
-
-          const sqlResult = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
-            const python = spawn('python3', ['-c', sqlScript]);
-            let stdout = '';
-            let stderr = '';
-
-            python.stdin.on('error', () => {});
-            python.stdin.write(inputJson);
-            python.stdin.end();
-
-            python.stdout.on('data', (data) => { stdout += data.toString(); });
-            python.stderr.on('data', (data) => { stderr += data.toString(); });
-
-            python.on('close', (code) => {
-              if (code !== 0) {
-                resolve({ error: stderr || 'SQL query failed' });
-              } else {
-                try {
-                  const parsed = JSON.parse(stdout);
-                  if (parsed.error) {
-                    resolve({ error: parsed.error });
-                  } else {
-                    resolve({ data: parsed });
-                  }
-                } catch (e) {
-                  resolve({ error: 'Failed to parse SQL output' });
-                }
-              }
-            });
-
-            python.on('error', (err) => {
-              resolve({ error: `Failed to execute SQL: ${err.message}` });
-            });
-          });
+          const sqlResult = await runSandboxedSql(sqlQuery, records);
 
           if (sqlResult.error) {
             return res.status(400).json({ error: sqlResult.error });
@@ -513,7 +413,7 @@ except Exception as e:
       }
 
       // Get unique group values
-      const allGroups = [...new Set(records.map((r: any) => r[groupColumn]))] as string[];
+      const allGroups = [...new Set(records.map((r) => r[groupColumn]))] as string[];
       const totalGroups = allGroups.length;
 
       // Randomly sample X% of groups
@@ -532,7 +432,7 @@ except Exception as e:
       const selectedGroups = new Set(shuffled.slice(0, numGroupsToSample));
 
       // Filter records to only include selected groups
-      const sampledRecords = records.filter((row: any) => selectedGroups.has(row[groupColumn]));
+      const sampledRecords = records.filter((row) => selectedGroups.has(row[groupColumn] as string));
 
       const columns = sampledRecords.length > 0 ? Object.keys(sampledRecords[0]) : (records.length > 0 ? Object.keys(records[0]) : []);
 
@@ -553,22 +453,22 @@ except Exception as e:
   });
 
   // Filtered data preview - applies filter transformations
-  app.post("/api/datasets/:id/filtered-preview", async (req, res) => {
+  app.post("/api/datasets/:id/filtered-preview", validate({ body: filteredPreviewBody }), async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
 
       const requestedLimit = parseInt(req.query.limit as string);
       const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
-      const { filters } = req.body as { filters?: Array<{ column: string; operator: string; value: any }> };
+      const { filters } = req.body as FilteredPreviewBody;
       
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
-      }) as any[];
+      }) as Record<string, unknown>[];
 
       // Apply filters
       if (filters && filters.length > 0) {
@@ -576,48 +476,7 @@ except Exception as e:
           const { column, operator, value } = filter;
           if (!column || !operator) continue;
 
-          records = records.filter((row: any) => {
-            const cellValue = row[column];
-            
-            switch (operator) {
-              case 'eq': {
-                const _nc = parseFloat(cellValue), _nv = parseFloat(value);
-                return (!isNaN(_nc) && !isNaN(_nv)) ? _nc === _nv : String(cellValue) === String(value);
-              }
-              case 'neq': {
-                const _nc2 = parseFloat(cellValue), _nv2 = parseFloat(value);
-                return (!isNaN(_nc2) && !isNaN(_nv2)) ? _nc2 !== _nv2 : String(cellValue) !== String(value);
-              }
-              case 'gt':
-                return parseFloat(cellValue) > parseFloat(value);
-              case 'gte':
-                return parseFloat(cellValue) >= parseFloat(value);
-              case 'lt':
-                return parseFloat(cellValue) < parseFloat(value);
-              case 'lte':
-                return parseFloat(cellValue) <= parseFloat(value);
-              case 'contains':
-                return String(cellValue).toLowerCase().includes(String(value).toLowerCase());
-              case 'not_contains':
-                return !String(cellValue).toLowerCase().includes(String(value).toLowerCase());
-              case 'starts_with':
-                return String(cellValue).toLowerCase().startsWith(String(value).toLowerCase());
-              case 'ends_with':
-                return String(cellValue).toLowerCase().endsWith(String(value).toLowerCase());
-              case 'isin':
-                const inValues = Array.isArray(value) ? value : [value];
-                return inValues.map(String).includes(String(cellValue));
-              case 'notin':
-                const notInValues = Array.isArray(value) ? value : [value];
-                return !notInValues.map(String).includes(String(cellValue));
-              case 'isnull':
-                return cellValue === null || cellValue === undefined || cellValue === '' || cellValue === 'null';
-              case 'notnull':
-                return cellValue !== null && cellValue !== undefined && cellValue !== '' && cellValue !== 'null';
-              default:
-                return true;
-            }
-          });
+          records = records.filter((row) => testRowCondition(row[column], operator, value));
         }
       }
 
@@ -637,24 +496,22 @@ except Exception as e:
   });
 
   // Unified transform endpoint - applies a chain of transforms (filters, python, sql) in order
-  app.post("/api/datasets/:id/transform", async (req, res) => {
+  app.post("/api/datasets/:id/transform", validate({ body: transformChainBody }), async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
 
       const requestedLimit = parseInt(req.query.limit as string);
       const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
-      const { transforms } = req.body as { 
-        transforms: Array<{ type: 'filter' | 'python' | 'sql' | 'sampling'; data: any }>
-      };
+      const { transforms } = req.body as TransformChainBody;
 
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
-      }) as any[];
+      }) as Record<string, unknown>[];
 
       // Apply each transform in pipeline order - order matters because
       // upstream transforms may create columns used by downstream transforms
@@ -665,7 +522,7 @@ except Exception as e:
             const samplePercent = Math.max(5, Math.min(100, percent || 100));
             const sampSeed = seed ?? 42;
             
-            const allGroups = [...new Set(records.map((r: any) => r[column]))] as string[];
+            const allGroups = [...new Set(records.map((r) => r[column]))] as string[];
             const totalGroups = allGroups.length;
             const numGroupsToSample = Math.max(1, Math.ceil((samplePercent / 100) * totalGroups));
             
@@ -679,7 +536,7 @@ except Exception as e:
             const rng = seededRandom(sampSeed);
             const shuffled = [...allGroups].sort(() => rng() - 0.5);
             const sampledGroups = new Set(shuffled.slice(0, numGroupsToSample));
-            records = records.filter((r: any) => sampledGroups.has(r[column]));
+            records = records.filter((r) => sampledGroups.has(r[column] as string));
           }
           continue;
         }
@@ -700,61 +557,7 @@ except Exception as e:
             })
             .join('\n');
 
-          const pythonScript = `
-import sys
-import json
-import pandas as pd
-
-try:
-    input_data = json.loads(sys.stdin.read())
-    input_df = pd.DataFrame(input_data)
-    result_df = None
-    
-${cleanedCode.split('\n').map((line: string) => '    ' + line).join('\n')}
-    
-    if result_df is None:
-        if 'df' in dir() and isinstance(df, pd.DataFrame):
-            result_df = df
-        else:
-            result_df = input_df
-    
-    result = result_df.to_dict('records')
-    print(json.dumps(result))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=sys.stderr)
-    sys.exit(1)
-`;
-
-          const inputJson = JSON.stringify(records);
-          const pythonResult = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
-            const python = spawn('python3', ['-c', pythonScript]);
-            let stdout = '';
-            let stderr = '';
-
-            python.stdin.on('error', () => {});
-            python.stdin.write(inputJson);
-            python.stdin.end();
-
-            python.stdout.on('data', (data) => { stdout += data.toString(); });
-            python.stderr.on('data', (data) => { stderr += data.toString(); });
-
-            python.on('close', (code) => {
-              if (code !== 0) {
-                resolve({ error: stderr || 'Python script failed' });
-              } else {
-                try {
-                  const parsed = JSON.parse(stdout);
-                  resolve({ data: parsed.error ? undefined : parsed, error: parsed.error });
-                } catch (e) {
-                  resolve({ error: 'Failed to parse Python output' });
-                }
-              }
-            });
-
-            python.on('error', (err) => {
-              resolve({ error: `Failed to execute Python: ${err.message}` });
-            });
-          });
+          const pythonResult = await runSandboxedPython(cleanedCode, records);
 
           if (pythonResult.error) {
             return res.status(400).json({ error: pythonResult.error });
@@ -764,108 +567,16 @@ except Exception as e:
           const sqlQuery = transform.data;
           if (!sqlQuery || sqlQuery.trim() === '') continue;
           
-          const inputJson = JSON.stringify(records);
           
-          const sqlScript = `
-import sys
-import json
-import pandas as pd
-import duckdb
-
-try:
-    input_data = json.loads(sys.stdin.read())
-    input_table = pd.DataFrame(input_data)
-    
-    # Convert string/object columns to numpy object type (compatible with DuckDB)
-    for col in input_table.columns:
-        dtype_str = str(input_table[col].dtype)
-        if dtype_str == 'object' or dtype_str == 'str' or dtype_str.startswith('string'):
-            input_table[col] = input_table[col].astype(object)
-    
-    # Create a connection and register the DataFrame
-    con = duckdb.connect()
-    con.register('input_table', input_table)
-    
-    # Execute the SQL query
-    result_df = con.execute("""${sqlQuery.replace(/"/g, '\\"')}""").fetchdf()
-    
-    result = result_df.to_dict('records')
-    print(json.dumps(result, default=str))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=sys.stderr)
-    sys.exit(1)
-`;
-
-          const sqlResult = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
-            const python = spawn('python3', ['-c', sqlScript]);
-            let stdout = '';
-            let stderr = '';
-
-            python.stdin.on('error', () => {});
-            python.stdin.write(inputJson);
-            python.stdin.end();
-
-            python.stdout.on('data', (data) => { stdout += data.toString(); });
-            python.stderr.on('data', (data) => { stderr += data.toString(); });
-
-            python.on('close', (code) => {
-              if (code !== 0) {
-                resolve({ error: stderr || 'SQL query failed' });
-              } else {
-                try {
-                  const parsed = JSON.parse(stdout);
-                  if (parsed.error) {
-                    resolve({ error: parsed.error });
-                  } else {
-                    resolve({ data: parsed });
-                  }
-                } catch (e) {
-                  resolve({ error: 'Failed to parse SQL output' });
-                }
-              }
-            });
-
-            python.on('error', (err) => {
-              resolve({ error: `Failed to execute SQL: ${err.message}` });
-            });
-          });
+          const sqlResult = await runSandboxedSql(sqlQuery, records);
 
           if (sqlResult.error) {
             return res.status(400).json({ error: sqlResult.error });
           }
           records = sqlResult.data || records;
-        } else if (transform.type === 'sampling') {
-          const { column, percent, seed } = transform.data;
-          if (!column || records.length === 0) continue;
-          
-          const samplePercent = Math.max(5, Math.min(100, percent || 100));
-          const sampSeed = seed ?? 42;
-          
-          // Check if column exists
-          if (!(column in records[0])) continue;
-          
-          // Get unique group values
-          const allGroups = [...new Set(records.map((r: any) => r[column]))] as string[];
-          const totalGroups = allGroups.length;
-          
-          // Randomly sample X% of groups
-          const numGroupsToSample = Math.max(1, Math.ceil((samplePercent / 100) * totalGroups));
-          
-          // Seeded shuffle for reproducibility (simple mulberry32 PRNG)
-          const seededRandom = (s: number) => {
-            return () => {
-              s = Math.imul(s ^ s >>> 15, s | 1);
-              s ^= s + Math.imul(s ^ s >>> 7, s | 61);
-              return ((s ^ s >>> 14) >>> 0) / 4294967296;
-            };
-          };
-          const rng = seededRandom(sampSeed);
-          const shuffled = [...allGroups].sort(() => rng() - 0.5);
-          const selectedGroups = new Set(shuffled.slice(0, numGroupsToSample));
-          
-          // Filter records to only include selected groups
-          records = records.filter((row: any) => selectedGroups.has(row[column]));
         }
+        // `sampling` is handled by the earlier `if (transform.type === 'sampling')`
+        // branch that `continue`s; TS already exhausted the union here.
       }
 
       const columns = records.length > 0 ? Object.keys(records[0]) : (dataset.columns || []);
@@ -884,25 +595,22 @@ except Exception as e:
   });
 
   // Python script execution endpoint - transforms data using Python code
-  app.post("/api/datasets/:id/python-transform", async (req, res) => {
+  app.post("/api/datasets/:id/python-transform", validate({ body: pythonTransformBody }), async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
 
       const requestedLimit = parseInt(req.query.limit as string);
       const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
-      const { filters, pythonCode } = req.body as { 
-        filters?: Array<{ column: string; operator: string; value: any }>;
-        pythonCode?: string;
-      };
+      const { filters, pythonCode } = req.body as PythonTransformBody;
 
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
-      }) as any[];
+      }) as Record<string, unknown>[];
 
       // Apply filters first
       if (filters && filters.length > 0) {
@@ -910,48 +618,7 @@ except Exception as e:
           const { column, operator, value } = filter;
           if (!column || !operator) continue;
 
-          records = records.filter((row: any) => {
-            const cellValue = row[column];
-            
-            switch (operator) {
-              case 'eq': {
-                const _nc = parseFloat(cellValue), _nv = parseFloat(value);
-                return (!isNaN(_nc) && !isNaN(_nv)) ? _nc === _nv : String(cellValue) === String(value);
-              }
-              case 'neq': {
-                const _nc2 = parseFloat(cellValue), _nv2 = parseFloat(value);
-                return (!isNaN(_nc2) && !isNaN(_nv2)) ? _nc2 !== _nv2 : String(cellValue) !== String(value);
-              }
-              case 'gt':
-                return parseFloat(cellValue) > parseFloat(value);
-              case 'gte':
-                return parseFloat(cellValue) >= parseFloat(value);
-              case 'lt':
-                return parseFloat(cellValue) < parseFloat(value);
-              case 'lte':
-                return parseFloat(cellValue) <= parseFloat(value);
-              case 'contains':
-                return String(cellValue).toLowerCase().includes(String(value).toLowerCase());
-              case 'not_contains':
-                return !String(cellValue).toLowerCase().includes(String(value).toLowerCase());
-              case 'starts_with':
-                return String(cellValue).toLowerCase().startsWith(String(value).toLowerCase());
-              case 'ends_with':
-                return String(cellValue).toLowerCase().endsWith(String(value).toLowerCase());
-              case 'isin':
-                const inValues = Array.isArray(value) ? value : [value];
-                return inValues.map(String).includes(String(cellValue));
-              case 'notin':
-                const notInValues = Array.isArray(value) ? value : [value];
-                return !notInValues.map(String).includes(String(cellValue));
-              case 'isnull':
-                return cellValue === null || cellValue === undefined || cellValue === '' || cellValue === 'null';
-              case 'notnull':
-                return cellValue !== null && cellValue !== undefined && cellValue !== '' && cellValue !== 'null';
-              default:
-                return true;
-            }
-          });
+          records = records.filter((row) => testRowCondition(row[column], operator, value));
         }
       }
 
@@ -968,7 +635,6 @@ except Exception as e:
       }
 
       // Execute Python transformation
-      const inputJson = JSON.stringify(records);
       
       // Create a Python script that runs the user's code
       // Remove 'return' statements from user code since we'll execute in module context
@@ -984,75 +650,7 @@ except Exception as e:
         })
         .join('\n');
 
-      const pythonScript = `
-import sys
-import json
-import pandas as pd
-
-try:
-    input_data = json.loads(sys.stdin.read())
-    input_df = pd.DataFrame(input_data)
-    result_df = None
-    
-    # User's code
-${cleanedCode.split('\n').map(line => '    ' + line).join('\n')}
-    
-    # If result_df was set, use that. Otherwise check for df, then input_df
-    if result_df is None:
-        if 'df' in dir() and isinstance(df, pd.DataFrame):
-            result_df = df
-        else:
-            result_df = input_df
-    
-    # Convert to JSON
-    result = result_df.to_dict('records')
-    print(json.dumps(result))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=sys.stderr)
-    sys.exit(1)
-`;
-
-      const result = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
-        const python = spawn('python3', ['-c', pythonScript]);
-        let stdout = '';
-        let stderr = '';
-
-        python.stdin.on('error', () => {
-          // Ignore EPIPE errors - they happen when Python exits early
-        });
-        
-        python.stdin.write(inputJson);
-        python.stdin.end();
-
-        python.stdout.on('data', (data) => {
-          stdout += data.toString();
-        });
-
-        python.stderr.on('data', (data) => {
-          stderr += data.toString();
-        });
-
-        python.on('close', (code) => {
-          if (code !== 0) {
-            resolve({ error: stderr || 'Python script failed' });
-          } else {
-            try {
-              const parsed = JSON.parse(stdout);
-              if (parsed.error) {
-                resolve({ error: parsed.error });
-              } else {
-                resolve({ data: parsed });
-              }
-            } catch (e) {
-              resolve({ error: 'Failed to parse Python output' });
-            }
-          }
-        });
-
-        python.on('error', (err) => {
-          resolve({ error: `Failed to execute Python: ${err.message}` });
-        });
-      });
+      const result = await runSandboxedPython(cleanedCode, records);
 
       if (result.error) {
         return res.status(400).json({ error: result.error });
@@ -1075,26 +673,22 @@ except Exception as e:
   });
 
   // SQL script execution endpoint - transforms data using SQL (DuckDB)
-  app.post("/api/datasets/:id/sql-transform", async (req, res) => {
+  app.post("/api/datasets/:id/sql-transform", validate({ body: sqlTransformBody }), async (req, res) => {
     try {
-      const dataset = await storage.getDataset(req.params.id);
+      const dataset = await storage.getDataset(req.user!.id, req.params.id);
       if (!dataset) {
         return res.status(404).json({ error: "Dataset not found" });
       }
 
       const requestedLimit = parseInt(req.query.limit as string);
       const limit = isNaN(requestedLimit) || requestedLimit <= 0 ? 100 : requestedLimit;
-      const { filters, sqlQuery, pythonCode } = req.body as { 
-        filters?: Array<{ column: string; operator: string; value: any }>;
-        sqlQuery?: string;
-        pythonCode?: string;
-      };
+      const { filters, sqlQuery, pythonCode } = req.body as SqlTransformBody;
 
-      const fileContent = await fs.readFile(dataset.filepath, 'utf-8');
+      const fileContent = await fs.readFile(resolveUploadPath(dataset.filepath), 'utf-8');
       let records = parse(fileContent, { 
         columns: true, 
         skip_empty_lines: true 
-      }) as any[];
+      }) as Record<string, unknown>[];
 
       // Apply filters first
       if (filters && filters.length > 0) {
@@ -1102,48 +696,7 @@ except Exception as e:
           const { column, operator, value } = filter;
           if (!column || !operator) continue;
 
-          records = records.filter((row: any) => {
-            const cellValue = row[column];
-            
-            switch (operator) {
-              case 'eq': {
-                const _nc = parseFloat(cellValue), _nv = parseFloat(value);
-                return (!isNaN(_nc) && !isNaN(_nv)) ? _nc === _nv : String(cellValue) === String(value);
-              }
-              case 'neq': {
-                const _nc2 = parseFloat(cellValue), _nv2 = parseFloat(value);
-                return (!isNaN(_nc2) && !isNaN(_nv2)) ? _nc2 !== _nv2 : String(cellValue) !== String(value);
-              }
-              case 'gt':
-                return parseFloat(cellValue) > parseFloat(value);
-              case 'gte':
-                return parseFloat(cellValue) >= parseFloat(value);
-              case 'lt':
-                return parseFloat(cellValue) < parseFloat(value);
-              case 'lte':
-                return parseFloat(cellValue) <= parseFloat(value);
-              case 'contains':
-                return String(cellValue).toLowerCase().includes(String(value).toLowerCase());
-              case 'not_contains':
-                return !String(cellValue).toLowerCase().includes(String(value).toLowerCase());
-              case 'starts_with':
-                return String(cellValue).toLowerCase().startsWith(String(value).toLowerCase());
-              case 'ends_with':
-                return String(cellValue).toLowerCase().endsWith(String(value).toLowerCase());
-              case 'isin':
-                const inValues = Array.isArray(value) ? value : [value];
-                return inValues.map(String).includes(String(cellValue));
-              case 'notin':
-                const notInValues = Array.isArray(value) ? value : [value];
-                return !notInValues.map(String).includes(String(cellValue));
-              case 'isnull':
-                return cellValue === null || cellValue === undefined || cellValue === '' || cellValue === 'null';
-              case 'notnull':
-                return cellValue !== null && cellValue !== undefined && cellValue !== '' && cellValue !== 'null';
-              default:
-                return true;
-            }
-          });
+          records = records.filter((row) => testRowCondition(row[column], operator, value));
         }
       }
 
@@ -1160,61 +713,7 @@ except Exception as e:
           })
           .join('\n');
 
-        const pythonScript = `
-import sys
-import json
-import pandas as pd
-
-try:
-    input_data = json.loads(sys.stdin.read())
-    input_df = pd.DataFrame(input_data)
-    result_df = None
-    
-${cleanedCode.split('\n').map(line => '    ' + line).join('\n')}
-    
-    if result_df is None:
-        if 'df' in dir() and isinstance(df, pd.DataFrame):
-            result_df = df
-        else:
-            result_df = input_df
-    
-    result = result_df.to_dict('records')
-    print(json.dumps(result))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=sys.stderr)
-    sys.exit(1)
-`;
-
-        const inputJson = JSON.stringify(records);
-        const pythonResult = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
-          const python = spawn('python3', ['-c', pythonScript]);
-          let stdout = '';
-          let stderr = '';
-
-          python.stdin.on('error', () => {});
-          python.stdin.write(inputJson);
-          python.stdin.end();
-
-          python.stdout.on('data', (data) => { stdout += data.toString(); });
-          python.stderr.on('data', (data) => { stderr += data.toString(); });
-
-          python.on('close', (code) => {
-            if (code !== 0) {
-              resolve({ error: stderr || 'Python script failed' });
-            } else {
-              try {
-                const parsed = JSON.parse(stdout);
-                resolve({ data: parsed.error ? undefined : parsed, error: parsed.error });
-              } catch (e) {
-                resolve({ error: 'Failed to parse Python output' });
-              }
-            }
-          });
-
-          python.on('error', (err) => {
-            resolve({ error: `Failed to execute Python: ${err.message}` });
-          });
-        });
+        const pythonResult = await runSandboxedPython(cleanedCode, records);
 
         if (pythonResult.error) {
           return res.status(400).json({ error: pythonResult.error });
@@ -1235,71 +734,8 @@ except Exception as e:
       }
 
       // Execute SQL transformation using DuckDB via Python
-      const inputJson = JSON.stringify(records);
       
-      const sqlScript = `
-import sys
-import json
-import pandas as pd
-import duckdb
-
-try:
-    input_data = json.loads(sys.stdin.read())
-    input_table = pd.DataFrame(input_data)
-    
-    # Convert string/object columns to numpy object type (compatible with DuckDB)
-    for col in input_table.columns:
-        dtype_str = str(input_table[col].dtype)
-        if dtype_str == 'object' or dtype_str == 'str' or dtype_str.startswith('string'):
-            input_table[col] = input_table[col].astype(object)
-    
-    # Create a connection and register the DataFrame
-    con = duckdb.connect()
-    con.register('input_table', input_table)
-    
-    # Execute the SQL query
-    result_df = con.execute("""${sqlQuery.replace(/"/g, '\\"')}""").fetchdf()
-    
-    result = result_df.to_dict('records')
-    print(json.dumps(result, default=str))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=sys.stderr)
-    sys.exit(1)
-`;
-
-      const result = await new Promise<{ data?: any[]; error?: string }>((resolve) => {
-        const python = spawn('python3', ['-c', sqlScript]);
-        let stdout = '';
-        let stderr = '';
-
-        python.stdin.on('error', () => {});
-        python.stdin.write(inputJson);
-        python.stdin.end();
-
-        python.stdout.on('data', (data) => { stdout += data.toString(); });
-        python.stderr.on('data', (data) => { stderr += data.toString(); });
-
-        python.on('close', (code) => {
-          if (code !== 0) {
-            resolve({ error: stderr || 'SQL query failed' });
-          } else {
-            try {
-              const parsed = JSON.parse(stdout);
-              if (parsed.error) {
-                resolve({ error: parsed.error });
-              } else {
-                resolve({ data: parsed });
-              }
-            } catch (e) {
-              resolve({ error: 'Failed to parse SQL output' });
-            }
-          }
-        });
-
-        python.on('error', (err) => {
-          resolve({ error: `Failed to execute SQL: ${err.message}` });
-        });
-      });
+      const result = await runSandboxedSql(sqlQuery, records);
 
       if (result.error) {
         return res.status(400).json({ error: result.error });
@@ -1324,7 +760,7 @@ except Exception as e:
   // Pipeline execution route — streams progress via Server-Sent Events
   app.post("/api/pipelines/:id/execute", async (req, res) => {
     try {
-      const pipeline = await storage.getPipeline(req.params.id);
+      const pipeline = await storage.getPipeline(req.user!.id, req.params.id);
       if (!pipeline) {
         return res.status(404).json({ error: "Pipeline not found" });
       }
@@ -1335,7 +771,7 @@ except Exception as e:
       res.setHeader('Connection', 'keep-alive');
       res.flushHeaders();
 
-      const sendEvent = (data: any) => {
+      const sendEvent = (data: Record<string, unknown>) => {
         try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch (_) {}
       };
 
@@ -1343,12 +779,16 @@ except Exception as e:
       const tmpFile = path.join(process.cwd(), 'uploads', `pipeline_exec_${Date.now()}.json`);
       await fs.writeFile(tmpFile, JSON.stringify(pipelineData));
 
+      // Forward the request id so engine JSON log lines correlate with
+      // the HTTP request that kicked them off.
+      const requestId = typeof req.id === "string" ? req.id : req.id != null ? String(req.id) : "";
       const env = {
         ...process.env,
-        STORAGE_PATH: path.join(process.cwd(), 'uploads'),
+        STORAGE_PATH: UPLOAD_DIR,
         MODEL_PATH: path.join(process.cwd(), 'models'),
         STORAGE_TYPE: 'local',
         LOG_LEVEL: 'INFO',
+        REQUEST_ID: requestId,
       };
 
       const python = spawn('python3', ['-m', 'engine.pipeline', tmpFile], {
@@ -1421,10 +861,11 @@ except Exception as e:
 
       req.on('close', () => { clearTimeout(timeout); python.kill(); });
 
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error executing pipeline:", error);
       if (!res.headersSent) {
-        res.status(500).json({ error: error.message || "Failed to execute pipeline" });
+        const message = error instanceof Error ? error.message : "Failed to execute pipeline";
+        res.status(500).json({ error: message });
       }
     }
   });

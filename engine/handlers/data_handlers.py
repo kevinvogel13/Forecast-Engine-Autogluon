@@ -14,42 +14,25 @@ def handle_data_source(node_data: dict, upstream_data: list, storage, config: di
         source_type = 'upload'
     
     if source_type == 'upload':
-        dataset_id = node_data.get('datasetId')
-        filename = node_data.get('label', '')
+        # Node data must carry the relative `filepath` written by the upload
+        # route (`${userId}/${datasetId}/${basename}`). We deliberately do
+        # not fall back to fuzzy filename matching: a partial match could
+        # surface another user's file when the storage adapter's traversal
+        # check is bypassed via a shared `uploads/` root, and a substring
+        # match against `filename` lets a crafted dataset definition load
+        # arbitrary files by name. Always require the exact stored path.
         filepath = node_data.get('filepath', '')
-        
-        if filepath and storage.file_exists(filepath):
-            file_bytes = storage.read_file(filepath)
-            df = pd.read_csv(io.BytesIO(file_bytes))
-            logger.info(f"Loaded {filepath}: {len(df)} rows × {len(df.columns)} cols")
-            return df
-        
-        if filename and storage.file_exists(filename):
-            file_bytes = storage.read_file(filename)
-            df = pd.read_csv(io.BytesIO(file_bytes))
-            logger.info(f"Loaded {filename}: {len(df)} rows × {len(df.columns)} cols")
-            return df
-        
-        files = storage.list_files('')
-        csv_file = None
-        for f in files:
-            if f == filename or (dataset_id and f.startswith(str(dataset_id))):
-                csv_file = f
-                break
-        
-        if not csv_file:
-            for f in files:
-                if f.endswith('.csv') and filename:
-                    if filename.lower() in f.lower():
-                        csv_file = f
-                        break
-        
-        if not csv_file:
-            raise ValueError(f"Dataset file not found: {filename or dataset_id}. Available files: {files}")
-        
-        file_bytes = storage.read_file(csv_file)
+        if not filepath:
+            dataset_id = node_data.get('datasetId') or node_data.get('label', '')
+            raise ValueError(
+                f"Dataset node is missing 'filepath'. Got dataset_id={dataset_id!r}. "
+                f"Re-attach the dataset to the node in the pipeline editor."
+            )
+        if not storage.file_exists(filepath):
+            raise ValueError(f"Dataset file not found at {filepath!r}")
+        file_bytes = storage.read_file(filepath)
         df = pd.read_csv(io.BytesIO(file_bytes))
-        logger.info(f"Loaded {csv_file}: {len(df)} rows × {len(df.columns)} cols")
+        logger.info(f"Loaded {filepath}: {len(df)} rows × {len(df.columns)} cols")
         return df
     
     elif source_type == 'database':

@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: forecast
+      POSTGRES_PASSWORD: forecast
+      POSTGRES_DB: forecast
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forecast -d forecast"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://forecast:forecast@postgres:5432/forecast
+      # SESSION_SECRET must be supplied via `.env` or `docker compose
+      # --env-file`. The container refuses to boot without it.
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required — generate with `openssl rand -hex 32`}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-52428800}
+      SANDBOX_TIMEOUT_MS: ${SANDBOX_TIMEOUT_MS:-60000}
+    ports:
+      - "${PORT:-5000}:5000"
+    volumes:
+      - appdata:/data
+
+volumes:
+  pgdata:
+  appdata:
